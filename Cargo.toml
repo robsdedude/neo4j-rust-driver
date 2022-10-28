@@ -15,3 +15,6 @@ documentation = "https://github.com/robsdedude/neo4j-rust-driver/"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+
+[dev-dependencies]
+rstest = "0.15.0"
