@@ -15,6 +15,7 @@
 extern crate core;
 
 mod codec;
+mod util;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right

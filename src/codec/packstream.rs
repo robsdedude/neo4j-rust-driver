@@ -16,6 +16,8 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
+use crate::util;
+
 #[derive(Error, Debug)]
 #[error("{reason}")]
 pub struct PackStreamError {
@@ -106,7 +108,7 @@ pub fn decode(stream: &mut impl Iterator<Item = u8>) -> Result<PackStreamValue, 
         decode_bytes_u32(stream)
     } else if 0x80 <= marker && marker <= 0x8F {
         let size = marker - 0x80;
-        decode_string(stream, size as usize)
+        decode_string(stream, size.into())
     } else if marker == 0xD0 {
         decode_string_u8(stream)
     } else if marker == 0xD1 {
@@ -115,13 +117,22 @@ pub fn decode(stream: &mut impl Iterator<Item = u8>) -> Result<PackStreamValue, 
         decode_string_u32(stream)
     } else if 0x90 <= marker && marker <= 0x9F {
         let size = marker - 0x90;
-        decode_list(stream, size as usize)
+        decode_list(stream, size.into())
     } else if marker == 0xD4 {
         decode_list_u8(stream)
     } else if marker == 0xD5 {
         decode_list_u16(stream)
     } else if marker == 0xD6 {
         decode_list_u32(stream)
+    } else if 0xA0 <= marker && marker <= 0xAF {
+        let size = marker - 0xA0;
+        decode_dict(stream, size.into())
+    } else if marker == 0xD8 {
+        decode_dict_u8(stream)
+    } else if marker == 0xD9 {
+        decode_dict_u16(stream)
+    } else if marker == 0xDA {
+        decode_dict_u32(stream)
     } else {
         Err(PackStreamError::from(format!("unknown marker {}", marker)))
     }
@@ -237,6 +248,49 @@ fn decode_list(
         list.push(decode(stream)?);
     }
     Ok(list.into())
+}
+
+macro_rules! dict_decoder {
+    ( $name:ident, $header_t:ty, $size:expr ) => {
+        fn $name(
+            stream: &mut impl Iterator<Item = u8>,
+        ) -> Result<PackStreamValue, PackStreamError> {
+            let mut size_buffer = [0; $size];
+            for byte in size_buffer.iter_mut() {
+                *byte = stream.next().ok_or("incomplete dict size")?;
+            }
+            let size = <$header_t>::from_be_bytes(size_buffer);
+            if (size as u128).saturating_mul(8) >= usize::MAX as u128 {
+                panic!("server wants to send more dict elements than are addressable")
+            }
+            decode_dict(stream, size as usize)
+        }
+    };
+}
+
+dict_decoder!(decode_dict_u8, u8, 1);
+dict_decoder!(decode_dict_u16, u16, 2);
+dict_decoder!(decode_dict_u32, u32, 4);
+
+fn decode_dict(
+    stream: &mut impl Iterator<Item = u8>,
+    size: usize,
+) -> Result<PackStreamValue, PackStreamError> {
+    let mut dict = HashMap::with_capacity(size);
+    for _ in 0..size {
+        let key = decode(stream)?;
+        let key = match key {
+            PackStreamValue::String(s) => s,
+            key => {
+                return Err(PackStreamError::from(format!(
+                    "expected string key for dictionary, found {}",
+                    util::get_type_name(key)
+                )))
+            }
+        };
+        dict.insert(key, decode(stream)?);
+    }
+    Ok(dict.into())
 }
 
 #[cfg(test)]
@@ -440,5 +494,20 @@ mod tests {
         let result = decode(&mut input).unwrap();
 
         assert_eq!(result, PackStreamValue::List(output));
+    }
+
+    #[rstest]
+    #[case(vec![0xA0], util::map!())]
+    #[case(vec![0xA1, 0x81, 0x41, 0x01], util::map!("A".into() => 1.into()))]
+    #[case(vec![0xA1, 0x83, 0x6F, 0x6E, 0x65, 0x84, 0x65, 0x69, 0x6E, 0x73],
+           util::map!(String::from("one").into() => String::from("eins").into()))]
+    #[case(vec![0xD8, 0x03, 0x81, 0x41, 0x01, 0x81, 0x42, 0x02, 0x81, 0x41, 0x03],
+           util::map!("A".into() => 3.into(), "B".into() => 2.into()))]
+    fn test_dict(#[case] input: Vec<u8>, #[case] output: HashMap<String, PackStreamValue>) {
+        dbg!(&input);
+        let mut input = input.into_iter();
+        let result = decode(&mut input).unwrap();
+
+        assert_eq!(result, PackStreamValue::Dictionary(output));
     }
 }
