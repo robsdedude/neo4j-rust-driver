@@ -290,6 +290,8 @@ mod tests {
         let result = decode(&mut input).expect_err("expected to fail");
         // dbg!(error);
         // dbg!(result.reason);
-        assert!(result.reason.to_lowercase().contains(error))
+        assert!(result.reason.to_lowercase().contains(error));
+        // dbg!(format!("{}", result.reason));
+        assert!(format!("{}", result.reason).to_lowercase().contains(error));
     }
 }
