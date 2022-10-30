@@ -16,7 +16,10 @@ use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug)]
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+#[error("{reason}")]
 pub struct PackStreamError {
     reason: String,
 }
@@ -34,14 +37,6 @@ impl From<String> for PackStreamError {
         PackStreamError { reason }
     }
 }
-
-impl Display for PackStreamError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.reason)
-    }
-}
-
-impl Error for PackStreamError {}
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
@@ -284,5 +279,17 @@ mod tests {
         let result = decode(&mut input).unwrap();
         assert_eq!(result, Value::Bytes(output));
         assert_eq!(input, vec![])
+    }
+
+    #[rstest]
+    #[case(vec![], "no marker found")]
+    // TODO: cover all error cases
+    fn test_error(#[case] input: Vec<u8>, #[case] error: &'static str) {
+        // dbg!(&input);
+        let mut input = VecDeque::from(input);
+        let result = decode(&mut input).expect_err("expected to fail");
+        // dbg!(error);
+        // dbg!(result.reason);
+        assert!(result.reason.to_lowercase().contains(error))
     }
 }
