@@ -49,10 +49,31 @@ pub enum PackStreamValue {
     Structure(PackStreamStructure),
 }
 
+macro_rules! impl_into_pack_stream {
+    ( $pack_stream_ty:expr, $($ty:ty),* ) => {
+        $(
+            impl From<$ty> for PackStreamValue {
+                fn from(value: $ty) -> Self {
+                    $pack_stream_ty(value.into())
+                }
+            }
+        )*
+    };
+}
+
+impl_into_pack_stream!(PackStreamValue::Boolean, bool);
+impl_into_pack_stream!(PackStreamValue::Integer, i8, i16, i32, i64);
+impl_into_pack_stream!(PackStreamValue::Float, f64);
+impl_into_pack_stream!(PackStreamValue::Bytes, Vec<u8>);
+impl_into_pack_stream!(PackStreamValue::String, String);
+impl_into_pack_stream!(PackStreamValue::List, Vec<PackStreamValue>);
+impl_into_pack_stream!(PackStreamValue::Dictionary, HashMap<String, PackStreamValue>);
+impl_into_pack_stream!(PackStreamValue::Structure, PackStreamStructure);
+
 #[derive(Debug, PartialEq)]
 pub struct PackStreamStructure {
-    pub size: u8,
     pub tag: u8,
+    pub size: u8,
     pub fields: Vec<PackStreamValue>,
 }
 
@@ -98,23 +119,23 @@ pub fn decode(stream: &mut impl Iterator<Item = u8>) -> Result<PackStreamValue, 
 }
 
 macro_rules! primitive_decoder {
-    ( $name:ident, $primitive_t:ty, $size:expr, $value_t:expr ) => {
+    ( $name:ident, $primitive_t:ty, $size:expr ) => {
         fn $name(stream: &mut impl Iterator<Item = u8>) -> Result<PackStreamValue, PackStreamError> {
             let mut buffer = [0; $size];
             for byte in buffer.iter_mut() {
                 *byte = stream.next().ok_or(stringify!(not enough data after $primitive_t marker))?
             }
             let value = <$primitive_t>::from_be_bytes(buffer);
-            Ok($value_t(value.into()))
+            Ok(value.into())
         }
     };
 }
 
-primitive_decoder!(decode_i8, i8, 1, PackStreamValue::Integer);
-primitive_decoder!(decode_i16, i16, 2, PackStreamValue::Integer);
-primitive_decoder!(decode_i32, i32, 4, PackStreamValue::Integer);
-primitive_decoder!(decode_i64, i64, 8, PackStreamValue::Integer);
-primitive_decoder!(decode_f64, f64, 8, PackStreamValue::Float);
+primitive_decoder!(decode_i8, i8, 1);
+primitive_decoder!(decode_i16, i16, 2);
+primitive_decoder!(decode_i32, i32, 4);
+primitive_decoder!(decode_i64, i64, 8);
+primitive_decoder!(decode_f64, f64, 8);
 
 macro_rules! bytes_decoder {
     ( $name:ident, $header_t:ty, $size:expr ) => {
@@ -133,7 +154,7 @@ macro_rules! bytes_decoder {
             for _ in 0..size {
                 bytes.push(stream.next().ok_or("less bytes than announced")?);
             }
-            Ok(PackStreamValue::Bytes(bytes))
+            Ok(bytes.into())
         }
     };
 }
@@ -173,7 +194,7 @@ fn decode_string(
         bytes.push(stream.next().ok_or("less string bytes than announced")?);
     }
     let str = String::from_utf8_lossy(bytes.as_slice()).into_owned();
-    Ok(PackStreamValue::String(str))
+    Ok(str.into())
 }
 
 #[cfg(test)]
@@ -188,7 +209,8 @@ mod tests {
         let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
         assert_eq!(result, output);
-        assert_eq!(input.collect::<Vec<_>>(), vec![]);
+        let input: Vec<_> = input.collect();
+        assert_eq!(input, vec![]);
     }
 
     #[rstest]
@@ -199,7 +221,8 @@ mod tests {
         let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
         assert_eq!(result, output);
-        assert_eq!(input.collect::<Vec<_>>(), vec![]);
+        let input: Vec<_> = input.collect();
+        assert_eq!(input, vec![]);
     }
 
     #[rstest]
@@ -245,7 +268,8 @@ mod tests {
         let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
         assert_eq!(result, output);
-        assert_eq!(input.collect::<Vec<_>>(), vec![]);
+        let input: Vec<_> = input.collect();
+        assert_eq!(input, vec![]);
     }
 
     #[rstest]
@@ -267,7 +291,8 @@ mod tests {
         } else {
             assert_eq!(result, PackStreamValue::Float(output));
         }
-        assert_eq!(input.collect::<Vec<_>>(), vec![]);
+        let input: Vec<_> = input.collect();
+        assert_eq!(input, vec![]);
     }
 
     fn damn_long_vec(header: Option<Vec<u8>>, size: usize) -> Vec<u8> {
@@ -300,12 +325,15 @@ mod tests {
     // 17 MB will have to suffice
     #[case(damn_long_vec(Some(vec![0xCE, 0x00, 0xFE, 0xFF, 0xFF]), 0x00FEFFFF), damn_long_vec(None, 0x00FEFFFF))]
     fn test_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
-        // dbg!(&input);
+        if input.len() < 50 {
+            dbg!(&input);
+        }
         let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
 
         assert_eq!(result, PackStreamValue::Bytes(output));
-        assert_eq!(input.collect::<Vec<_>>(), vec![]);
+        let input: Vec<_> = input.collect();
+        assert_eq!(input, vec![]);
     }
 
     #[rstest]
@@ -321,7 +349,7 @@ mod tests {
     #[case(vec![0xD1, 0x00, 0x01, 0x41], "A")]
     #[case(vec![0xD2, 0x00, 0x00, 0x00, 0x01, 0x41], "A")]
     fn test_string(#[case] input: Vec<u8>, #[case] output: &str) {
-        // dbg!(&input);
+        dbg!(&input);
         let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
 
@@ -332,15 +360,16 @@ mod tests {
     #[case(vec![], "no marker found")]
     // TODO: cover all error cases
     fn test_error(#[case] input: Vec<u8>, #[case] error: &'static str) {
-        // dbg!(&input);
+        dbg!(&input);
         let mut input = input.into_iter();
         let result = decode(&mut input).expect_err("expected to fail");
 
-        // dbg!(error);
-        // dbg!(result.reason);
+        dbg!(error);
+        dbg!(&result.reason);
         assert!(result.reason.to_lowercase().contains(error));
-        // dbg!(format!("{}", result.reason));
+        dbg!(format!("{}", result.reason));
         assert!(format!("{}", result.reason).to_lowercase().contains(error));
-        assert_eq!(input.collect::<Vec<_>>(), vec![]);
+        let input: Vec<_> = input.collect();
+        assert_eq!(input, vec![]);
     }
 }
