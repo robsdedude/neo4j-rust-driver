@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{HashMap, VecDeque};
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::u8;
+use std::collections::HashMap;
 
 use thiserror::Error;
 
@@ -40,36 +37,36 @@ impl From<String> for PackStreamError {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Value {
+pub enum PackStreamValue {
     Null,
     Boolean(bool),
     Integer(i64),
     Float(f64),
     Bytes(Vec<u8>),
     String(String),
-    List(Vec<Value>),
-    Dictionary(HashMap<String, Value>),
-    Structure(Structure),
+    List(Vec<PackStreamValue>),
+    Dictionary(HashMap<String, PackStreamValue>),
+    Structure(PackStreamStructure),
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Structure {
+pub struct PackStreamStructure {
     pub size: u8,
     pub tag: u8,
-    pub fields: Vec<Value>,
+    pub fields: Vec<PackStreamValue>,
 }
 
-pub fn decode(stream: &mut impl Iterator<Item = u8>) -> Result<Value, PackStreamError> {
+pub fn decode(stream: &mut impl Iterator<Item = u8>) -> Result<PackStreamValue, PackStreamError> {
     // TODO: proper errors?
     let marker = stream.next().ok_or("no marker found")?;
     if marker == 0xC0 {
-        Ok(Value::Null)
+        Ok(PackStreamValue::Null)
     } else if marker == 0xC2 {
-        Ok(Value::Boolean(false))
+        Ok(PackStreamValue::Boolean(false))
     } else if marker == 0xC3 {
-        Ok(Value::Boolean(true))
+        Ok(PackStreamValue::Boolean(true))
     } else if 0xF0 <= marker || marker <= 0x7F {
-        Ok(Value::Integer(i8::from_be_bytes([marker]).into()))
+        Ok(PackStreamValue::Integer(i8::from_be_bytes([marker]).into()))
     } else if marker == 0xC8 {
         decode_i8(stream)
     } else if marker == 0xC9 {
@@ -86,6 +83,15 @@ pub fn decode(stream: &mut impl Iterator<Item = u8>) -> Result<Value, PackStream
         decode_bytes_u16(stream)
     } else if marker == 0xCE {
         decode_bytes_u32(stream)
+    } else if 0x80 <= marker && marker <= 0x8F {
+        let size = marker - 0x80;
+        decode_string(stream, size as usize)
+    } else if marker == 0xD0 {
+        decode_string_u8(stream)
+    } else if marker == 0xD1 {
+        decode_string_u16(stream)
+    } else if marker == 0xD2 {
+        decode_string_u32(stream)
     } else {
         Err(PackStreamError::from(format!("unknown marker {}", marker)))
     }
@@ -93,7 +99,7 @@ pub fn decode(stream: &mut impl Iterator<Item = u8>) -> Result<Value, PackStream
 
 macro_rules! primitive_decoder {
     ( $name:ident, $primitive_t:ty, $size:expr, $value_t:expr ) => {
-        fn $name(stream: &mut impl Iterator<Item = u8>) -> Result<Value, PackStreamError> {
+        fn $name(stream: &mut impl Iterator<Item = u8>) -> Result<PackStreamValue, PackStreamError> {
             let mut buffer = [0; $size];
             for i in 0..$size {
                 buffer[i] = stream.next().ok_or(stringify!(not enough data after $primitive_t marker))?
@@ -104,15 +110,17 @@ macro_rules! primitive_decoder {
     };
 }
 
-primitive_decoder!(decode_i8, i8, 1, Value::Integer);
-primitive_decoder!(decode_i16, i16, 2, Value::Integer);
-primitive_decoder!(decode_i32, i32, 4, Value::Integer);
-primitive_decoder!(decode_i64, i64, 8, Value::Integer);
-primitive_decoder!(decode_f64, f64, 8, Value::Float);
+primitive_decoder!(decode_i8, i8, 1, PackStreamValue::Integer);
+primitive_decoder!(decode_i16, i16, 2, PackStreamValue::Integer);
+primitive_decoder!(decode_i32, i32, 4, PackStreamValue::Integer);
+primitive_decoder!(decode_i64, i64, 8, PackStreamValue::Integer);
+primitive_decoder!(decode_f64, f64, 8, PackStreamValue::Float);
 
 macro_rules! bytes_decoder {
     ( $name:ident, $header_t:ty, $size:expr ) => {
-        fn $name(stream: &mut impl Iterator<Item = u8>) -> Result<Value, PackStreamError> {
+        fn $name(
+            stream: &mut impl Iterator<Item = u8>,
+        ) -> Result<PackStreamValue, PackStreamError> {
             let mut size_buffer = [0; $size];
             for i in 0..$size {
                 size_buffer[i] = stream.next().ok_or("incomplete bytes size")?;
@@ -125,7 +133,7 @@ macro_rules! bytes_decoder {
             for _ in 0..size {
                 bytes.push(stream.next().ok_or("less bytes than announced")?);
             }
-            Ok(Value::Bytes(bytes))
+            Ok(PackStreamValue::Bytes(bytes))
         }
     };
 }
@@ -134,14 +142,48 @@ bytes_decoder!(decode_bytes_u8, u8, 1);
 bytes_decoder!(decode_bytes_u16, u16, 2);
 bytes_decoder!(decode_bytes_u32, u32, 4);
 
+macro_rules! string_decoder {
+    ( $name:ident, $header_t:ty, $size:expr ) => {
+        fn $name(
+            stream: &mut impl Iterator<Item = u8>,
+        ) -> Result<PackStreamValue, PackStreamError> {
+            let mut size_buffer = [0; $size];
+            for byte in size_buffer.iter_mut() {
+                *byte = stream.next().ok_or("incomplete string size")?;
+            }
+            let size = <$header_t>::from_be_bytes(size_buffer);
+            if (size as u128).saturating_mul(8) >= usize::MAX as u128 {
+                panic!("server wants to send more string bytes than are addressable")
+            }
+            decode_string(stream, size as usize)
+        }
+    };
+}
+
+string_decoder!(decode_string_u8, u8, 1);
+string_decoder!(decode_string_u16, u16, 2);
+string_decoder!(decode_string_u32, u32, 4);
+
+fn decode_string(
+    stream: &mut impl Iterator<Item = u8>,
+    size: usize,
+) -> Result<PackStreamValue, PackStreamError> {
+    let mut bytes = Vec::with_capacity(size);
+    for _ in 0..size {
+        bytes.push(stream.next().ok_or("less string bytes than announced")?);
+    }
+    let str = String::from_utf8_lossy(bytes.as_slice()).into_owned();
+    Ok(PackStreamValue::String(str))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rstest::rstest;
 
     #[rstest]
-    #[case(vec![0xC0], Value::Null)]
-    fn test_null(#[case] input: Vec<u8>, #[case] output: Value) {
+    #[case(vec![0xC0], PackStreamValue::Null)]
+    fn test_null(#[case] input: Vec<u8>, #[case] output: PackStreamValue) {
         dbg!(&input);
         let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
@@ -150,9 +192,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec![0xC2], Value::Boolean(false))]
-    #[case(vec![0xC3], Value::Boolean(true))]
-    fn test_bool(#[case] input: Vec<u8>, #[case] output: Value) {
+    #[case(vec![0xC2], PackStreamValue::Boolean(false))]
+    #[case(vec![0xC3], PackStreamValue::Boolean(true))]
+    fn test_bool(#[case] input: Vec<u8>, #[case] output: PackStreamValue) {
         dbg!(&input);
         let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
@@ -161,44 +203,44 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec![0xF0], Value::Integer(-16))]
-    #[case(vec![0xFF], Value::Integer(-1))]
-    #[case(vec![0x00], Value::Integer(0))]
-    #[case(vec![0x01], Value::Integer(1))]
-    #[case(vec![0x7F], Value::Integer(127))]
-    #[case(vec![0xC8, 0x80], Value::Integer(-128))]
-    #[case(vec![0xC8, 0xD6], Value::Integer(-42))]
-    #[case(vec![0xC8, 0x00], Value::Integer(0))]
-    #[case(vec![0xC8, 0x2A], Value::Integer(42))]
-    #[case(vec![0xC8, 0x7F], Value::Integer(127))]
-    #[case(vec![0xC9, 0x80, 0x00], Value::Integer(-32768))]
-    #[case(vec![0xC9, 0xFF, 0x80], Value::Integer(-128))]
-    #[case(vec![0xC9, 0xFF, 0xD6], Value::Integer(-42))]
-    #[case(vec![0xC9, 0x00, 0x00], Value::Integer(0))]
-    #[case(vec![0xC9, 0x00, 0x2A], Value::Integer(42))]
-    #[case(vec![0xC9, 0x00, 0x7F], Value::Integer(127))]
-    #[case(vec![0xC9, 0x7F, 0xFF], Value::Integer(32767))]
-    #[case(vec![0xCA, 0x80, 0x00, 0x00, 0x00], Value::Integer(-2147483648))]
-    #[case(vec![0xCA, 0xFF, 0xFF, 0x80, 0x00], Value::Integer(-32768))]
-    #[case(vec![0xCA, 0xFF, 0xFF, 0xFF, 0x80], Value::Integer(-128))]
-    #[case(vec![0xCA, 0xFF, 0xFF, 0xFF, 0xD6], Value::Integer(-42))]
-    #[case(vec![0xCA, 0x00, 0x00, 0x00, 0x00], Value::Integer(0))]
-    #[case(vec![0xCA, 0x00, 0x00, 0x00, 0x2A], Value::Integer(42))]
-    #[case(vec![0xCA, 0x00, 0x00, 0x00, 0x7F], Value::Integer(127))]
-    #[case(vec![0xCA, 0x00, 0x00, 0x7F, 0xFF], Value::Integer(32767))]
-    #[case(vec![0xCA, 0x7F, 0xFF, 0xFF, 0xFF], Value::Integer(2147483647))]
-    #[case(vec![0xCB, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], Value::Integer(-9223372036854775808))]
-    #[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0x00], Value::Integer(-2147483648))]
-    #[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x00], Value::Integer(-32768))]
-    #[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80], Value::Integer(-128))]
-    #[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xD6], Value::Integer(-42))]
-    #[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], Value::Integer(0))]
-    #[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2A], Value::Integer(42))]
-    #[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7F], Value::Integer(127))]
-    #[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFF], Value::Integer(32767))]
-    #[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFF, 0xFF, 0xFF], Value::Integer(2147483647))]
-    #[case(vec![0xCB, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], Value::Integer(9223372036854775807))]
-    fn test_integer(#[case] input: Vec<u8>, #[case] output: Value) {
+    #[case(vec![0xF0], PackStreamValue::Integer(-16))]
+    #[case(vec![0xFF], PackStreamValue::Integer(-1))]
+    #[case(vec![0x00], PackStreamValue::Integer(0))]
+    #[case(vec![0x01], PackStreamValue::Integer(1))]
+    #[case(vec![0x7F], PackStreamValue::Integer(127))]
+    #[case(vec![0xC8, 0x80], PackStreamValue::Integer(-128))]
+    #[case(vec![0xC8, 0xD6], PackStreamValue::Integer(-42))]
+    #[case(vec![0xC8, 0x00], PackStreamValue::Integer(0))]
+    #[case(vec![0xC8, 0x2A], PackStreamValue::Integer(42))]
+    #[case(vec![0xC8, 0x7F], PackStreamValue::Integer(127))]
+    #[case(vec![0xC9, 0x80, 0x00], PackStreamValue::Integer(-32768))]
+    #[case(vec![0xC9, 0xFF, 0x80], PackStreamValue::Integer(-128))]
+    #[case(vec![0xC9, 0xFF, 0xD6], PackStreamValue::Integer(-42))]
+    #[case(vec![0xC9, 0x00, 0x00], PackStreamValue::Integer(0))]
+    #[case(vec![0xC9, 0x00, 0x2A], PackStreamValue::Integer(42))]
+    #[case(vec![0xC9, 0x00, 0x7F], PackStreamValue::Integer(127))]
+    #[case(vec![0xC9, 0x7F, 0xFF], PackStreamValue::Integer(32767))]
+    #[case(vec![0xCA, 0x80, 0x00, 0x00, 0x00], PackStreamValue::Integer(-2147483648))]
+    #[case(vec![0xCA, 0xFF, 0xFF, 0x80, 0x00], PackStreamValue::Integer(-32768))]
+    #[case(vec![0xCA, 0xFF, 0xFF, 0xFF, 0x80], PackStreamValue::Integer(-128))]
+    #[case(vec![0xCA, 0xFF, 0xFF, 0xFF, 0xD6], PackStreamValue::Integer(-42))]
+    #[case(vec![0xCA, 0x00, 0x00, 0x00, 0x00], PackStreamValue::Integer(0))]
+    #[case(vec![0xCA, 0x00, 0x00, 0x00, 0x2A], PackStreamValue::Integer(42))]
+    #[case(vec![0xCA, 0x00, 0x00, 0x00, 0x7F], PackStreamValue::Integer(127))]
+    #[case(vec![0xCA, 0x00, 0x00, 0x7F, 0xFF], PackStreamValue::Integer(32767))]
+    #[case(vec![0xCA, 0x7F, 0xFF, 0xFF, 0xFF], PackStreamValue::Integer(2147483647))]
+    #[case(vec![0xCB, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], PackStreamValue::Integer(-9223372036854775808))]
+    #[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0x00], PackStreamValue::Integer(-2147483648))]
+    #[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x00], PackStreamValue::Integer(-32768))]
+    #[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80], PackStreamValue::Integer(-128))]
+    #[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xD6], PackStreamValue::Integer(-42))]
+    #[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], PackStreamValue::Integer(0))]
+    #[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2A], PackStreamValue::Integer(42))]
+    #[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7F], PackStreamValue::Integer(127))]
+    #[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFF], PackStreamValue::Integer(32767))]
+    #[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFF, 0xFF, 0xFF], PackStreamValue::Integer(2147483647))]
+    #[case(vec![0xCB, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], PackStreamValue::Integer(9223372036854775807))]
+    fn test_integer(#[case] input: Vec<u8>, #[case] output: PackStreamValue) {
         dbg!(&input);
         let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
@@ -219,11 +261,11 @@ mod tests {
         let result = decode(&mut input).unwrap();
         if output.is_nan() {
             match result {
-                Value::Float(result) => assert!(result.is_nan()),
+                PackStreamValue::Float(result) => assert!(result.is_nan()),
                 _ => panic!("output was not float"),
             }
         } else {
-            assert_eq!(result, Value::Float(output));
+            assert_eq!(result, PackStreamValue::Float(output));
         }
         assert_eq!(input.collect::<Vec<_>>(), vec![]);
     }
@@ -261,8 +303,28 @@ mod tests {
         // dbg!(&input);
         let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
-        assert_eq!(result, Value::Bytes(output));
+
+        assert_eq!(result, PackStreamValue::Bytes(output));
         assert_eq!(input.collect::<Vec<_>>(), vec![]);
+    }
+
+    #[rstest]
+    #[case(vec![0x80], "")]
+    #[case(vec![0x81, 0x41], "A")]
+    #[case(vec![0x84, 0xF0, 0x9F, 0xA4, 0x98], "🤘")]
+    #[case(vec![0xD0, 0x1A, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C,
+                0x4D, 0x4E, 0x4F, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A],
+           "ABCDEFGHIJKLMNOPQRSTUVWXYZ")]
+    #[case(vec![0xD0, 0x12, 0x47, 0x72, 0xC3, 0xB6, 0xC3, 0x9F, 0x65, 0x6E, 0x6D, 0x61, 0xC3, 0x9F,
+                0x73, 0x74, 0xC3, 0xA4, 0x62, 0x65],
+           "Größenmaßstäbe")]
+    #[case(vec![0xD1, 0x00, 0x01, 0x41], "A")]
+    #[case(vec![0xD2, 0x00, 0x00, 0x00, 0x01, 0x41], "A")]
+    fn test_string(#[case] input: Vec<u8>, #[case] output: &str) {
+        let mut input = input.into_iter();
+        let result = decode(&mut input).unwrap();
+
+        assert_eq!(result, PackStreamValue::String(String::from(output)));
     }
 
     #[rstest]
