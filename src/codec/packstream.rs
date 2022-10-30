@@ -113,6 +113,15 @@ pub fn decode(stream: &mut impl Iterator<Item = u8>) -> Result<PackStreamValue, 
         decode_string_u16(stream)
     } else if marker == 0xD2 {
         decode_string_u32(stream)
+    } else if 0x90 <= marker && marker <= 0x9F {
+        let size = marker - 0x90;
+        decode_list(stream, size as usize)
+    } else if marker == 0xD4 {
+        decode_list_u8(stream)
+    } else if marker == 0xD5 {
+        decode_list_u16(stream)
+    } else if marker == 0xD6 {
+        decode_list_u32(stream)
     } else {
         Err(PackStreamError::from(format!("unknown marker {}", marker)))
     }
@@ -195,6 +204,39 @@ fn decode_string(
     }
     let str = String::from_utf8_lossy(bytes.as_slice()).into_owned();
     Ok(str.into())
+}
+
+macro_rules! list_decoder {
+    ( $name:ident, $header_t:ty, $size:expr ) => {
+        fn $name(
+            stream: &mut impl Iterator<Item = u8>,
+        ) -> Result<PackStreamValue, PackStreamError> {
+            let mut size_buffer = [0; $size];
+            for byte in size_buffer.iter_mut() {
+                *byte = stream.next().ok_or("incomplete list size")?;
+            }
+            let size = <$header_t>::from_be_bytes(size_buffer);
+            if (size as u128).saturating_mul(8) >= usize::MAX as u128 {
+                panic!("server wants to send more list elements than are addressable")
+            }
+            decode_list(stream, size as usize)
+        }
+    };
+}
+
+list_decoder!(decode_list_u8, u8, 1);
+list_decoder!(decode_list_u16, u16, 2);
+list_decoder!(decode_list_u32, u32, 4);
+
+fn decode_list(
+    stream: &mut impl Iterator<Item = u8>,
+    size: usize,
+) -> Result<PackStreamValue, PackStreamError> {
+    let mut list = Vec::with_capacity(size);
+    for _ in 0..size {
+        list.push(decode(stream)?);
+    }
+    Ok(list.into())
 }
 
 #[cfg(test)]
@@ -371,5 +413,32 @@ mod tests {
         assert!(format!("{}", result.reason).to_lowercase().contains(error));
         let input: Vec<_> = input.collect();
         assert_eq!(input, vec![]);
+    }
+
+    #[rstest]
+    #[case(vec![0x90], vec![])]
+    #[case(vec![0xD4, 0x00], vec![])]
+    #[case(vec![0xD5, 0x00, 0x00], vec![])]
+    #[case(vec![0xD6, 0x00, 0x00, 0x00, 0x00], vec![])]
+    #[case(vec![0x91, 0x01], vec![1.into()])]
+    #[case(vec![0xD4, 0x01, 0x01], vec![1.into()])]
+    #[case(vec![0xD4, 0x03, 0x01, 0x02, 0x03], vec![1.into(), 2.into(), 3.into()])]
+    #[case(vec![0xD5, 0x00, 0x01, 0x01], vec![1.into()])]
+    #[case(vec![0xD6, 0x00, 0x00, 0x00, 0x01, 0x01], vec![1.into()])]
+    #[case(vec![0x91, 0x91, 0x01], vec![vec![PackStreamValue::Integer(1)].into()])]
+    #[case(
+        vec![
+            0x93,
+            0x01,
+            0xC1, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x85, 0x74, 0x68, 0x72, 0x65, 0x65
+        ],
+        vec![1.into(), 2.0.into(), String::from("three").into()])]
+    fn test_list(#[case] input: Vec<u8>, #[case] output: Vec<PackStreamValue>) {
+        dbg!(&input);
+        let mut input = input.into_iter();
+        let result = decode(&mut input).unwrap();
+
+        assert_eq!(result, PackStreamValue::List(output));
     }
 }
