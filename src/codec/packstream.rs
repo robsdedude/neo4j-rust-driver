@@ -59,6 +59,38 @@ pub struct Structure {
     pub fields: Vec<Value>,
 }
 
+pub fn decode(stream: &mut impl Iterator<Item = u8>) -> Result<Value, PackStreamError> {
+    // TODO: proper errors?
+    let marker = stream.next().ok_or("no marker found")?;
+    if marker == 0xC0 {
+        Ok(Value::Null)
+    } else if marker == 0xC2 {
+        Ok(Value::Boolean(false))
+    } else if marker == 0xC3 {
+        Ok(Value::Boolean(true))
+    } else if 0xF0 <= marker || marker <= 0x7F {
+        Ok(Value::Integer(i8::from_be_bytes([marker]).into()))
+    } else if marker == 0xC8 {
+        decode_i8(stream)
+    } else if marker == 0xC9 {
+        decode_i16(stream)
+    } else if marker == 0xCA {
+        decode_i32(stream)
+    } else if marker == 0xCB {
+        decode_i64(stream)
+    } else if marker == 0xC1 {
+        decode_f64(stream)
+    } else if marker == 0xCC {
+        decode_bytes_u8(stream)
+    } else if marker == 0xCD {
+        decode_bytes_u16(stream)
+    } else if marker == 0xCE {
+        decode_bytes_u32(stream)
+    } else {
+        Err(PackStreamError::from(format!("unknown marker {}", marker)))
+    }
+}
+
 macro_rules! primitive_decoder {
     ( $name:ident, $primitive_t:ty, $size:expr, $value_t:expr ) => {
         fn $name(stream: &mut impl Iterator<Item = u8>) -> Result<Value, PackStreamError> {
@@ -101,38 +133,6 @@ macro_rules! bytes_decoder {
 bytes_decoder!(decode_bytes_u8, u8, 1);
 bytes_decoder!(decode_bytes_u16, u16, 2);
 bytes_decoder!(decode_bytes_u32, u32, 4);
-
-pub fn decode(stream: &mut impl Iterator<Item = u8>) -> Result<Value, PackStreamError> {
-    // TODO: proper errors?
-    let marker = stream.next().ok_or("no marker found")?;
-    if marker == 0xC0 {
-        Ok(Value::Null)
-    } else if marker == 0xC2 {
-        Ok(Value::Boolean(false))
-    } else if marker == 0xC3 {
-        Ok(Value::Boolean(true))
-    } else if 0xF0 <= marker || marker <= 0x7F {
-        Ok(Value::Integer(i8::from_be_bytes([marker]).into()))
-    } else if marker == 0xC8 {
-        decode_i8(stream)
-    } else if marker == 0xC9 {
-        decode_i16(stream)
-    } else if marker == 0xCA {
-        decode_i32(stream)
-    } else if marker == 0xCB {
-        decode_i64(stream)
-    } else if marker == 0xC1 {
-        decode_f64(stream)
-    } else if marker == 0xCC {
-        decode_bytes_u8(stream)
-    } else if marker == 0xCD {
-        decode_bytes_u16(stream)
-    } else if marker == 0xCE {
-        decode_bytes_u32(stream)
-    } else {
-        Err(PackStreamError::from(format!("unknown marker {}", marker)))
-    }
-}
 
 #[cfg(test)]
 mod tests {
