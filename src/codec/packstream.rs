@@ -13,6 +13,35 @@
 // limitations under the License.
 
 use std::collections::{HashMap, VecDeque};
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
+#[derive(Debug)]
+pub struct PackStreamError {
+    reason: String,
+}
+
+impl From<&str> for PackStreamError {
+    fn from(reason: &str) -> Self {
+        PackStreamError {
+            reason: String::from(reason),
+        }
+    }
+}
+
+impl From<String> for PackStreamError {
+    fn from(reason: String) -> Self {
+        PackStreamError { reason }
+    }
+}
+
+impl Display for PackStreamError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.reason)
+    }
+}
+
+impl Error for PackStreamError {}
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
@@ -43,9 +72,12 @@ fn pop_stream_into_buffer(stream: &mut VecDeque<u8>, buffer: &mut [u8]) {
 
 macro_rules! primitive_decoder {
     ( $name:ident, $primitive_t:ty, $size:expr, $value_t:expr ) => {
-        fn $name(stream: &mut VecDeque<u8>) -> Result<Value, &'static str> {
+        fn $name(stream: &mut VecDeque<u8>) -> Result<Value, PackStreamError> {
             if stream.len() < $size {
-                return Err("not enough data after integer marker");
+                return Err(PackStreamError::from(format!(
+                    "not enough data after {} marker",
+                    "$primitive_t"
+                )));
             }
             let mut buffer = [0; $size];
             pop_stream_into_buffer(stream, &mut buffer);
@@ -67,9 +99,9 @@ primitive_decoder!(decode_f64, f64, 8, Value::Float);
 
 macro_rules! bytes_decoder {
     ( $name:ident, $header_t:ty, $size:expr ) => {
-        fn $name(stream: &mut VecDeque<u8>) -> Result<Value, &'static str> {
+        fn $name(stream: &mut VecDeque<u8>) -> Result<Value, PackStreamError> {
             if stream.len() < $size {
-                return Err("incomplete bytes size");
+                return Err(PackStreamError::from("incomplete bytes size"));
             }
             let mut buffer = [0; $size];
             pop_stream_into_buffer(stream, &mut buffer);
@@ -91,12 +123,9 @@ bytes_decoder!(decode_bytes_u8, u8, 1);
 bytes_decoder!(decode_bytes_u16, u16, 2);
 bytes_decoder!(decode_bytes_u32, u32, 4);
 
-pub fn decode(stream: &mut VecDeque<u8>) -> Result<Value, &'static str> {
+pub fn decode(stream: &mut VecDeque<u8>) -> Result<Value, PackStreamError> {
     // TODO: proper errors?
-    if stream.len() < 1 {
-        return Err("empty");
-    }
-    let marker = stream.pop_front().ok_or("empty pack stream")?;
+    let marker = stream.pop_front().ok_or("no marker found")?;
     if marker == 0xC0 {
         Ok(Value::Null)
     } else if marker == 0xC2 {
@@ -122,8 +151,7 @@ pub fn decode(stream: &mut VecDeque<u8>) -> Result<Value, &'static str> {
     } else if marker == 0xCE {
         decode_bytes_u32(stream)
     } else {
-        eprintln!("Unknown marker {}", marker);
-        Err("unknown marker")
+        Err(PackStreamError::from(format!("unknown marker {}", marker)))
     }
 }
 
