@@ -133,6 +133,9 @@ pub fn decode(stream: &mut impl Iterator<Item = u8>) -> Result<PackStreamValue, 
         decode_dict_u16(stream)
     } else if marker == 0xDA {
         decode_dict_u32(stream)
+    } else if 0xB0 <= marker && marker <= 0xBF {
+        let size = marker - 0xB0;
+        decode_struct(stream, size)
     } else {
         Err(PackStreamError::from(format!("unknown marker {}", marker)))
     }
@@ -291,6 +294,18 @@ fn decode_dict(
         dict.insert(key, decode(stream)?);
     }
     Ok(dict.into())
+}
+
+fn decode_struct(
+    stream: &mut impl Iterator<Item = u8>,
+    size: u8,
+) -> Result<PackStreamValue, PackStreamError> {
+    let tag = stream.next().ok_or("missing tag for struct")?;
+    let mut fields = Vec::with_capacity(size.into());
+    for _ in 0..size {
+        fields.push(decode(stream)?);
+    }
+    Ok(PackStreamStructure { tag, size, fields }.into())
 }
 
 #[cfg(test)]
@@ -509,5 +524,18 @@ mod tests {
         let result = decode(&mut input).unwrap();
 
         assert_eq!(result, PackStreamValue::Dictionary(output));
+    }
+
+    #[rstest]
+    #[case(vec![0xB0, 0xFF],
+           PackStreamStructure { size: 0, tag: 0xFF, fields: vec![] })]
+    #[case(vec![0xB1, 0xAA, 0x01],
+           PackStreamStructure { size: 1, tag: 0xAA, fields: vec![1.into()] })]
+    fn test_struct(#[case] input: Vec<u8>, #[case] output: PackStreamStructure) {
+        dbg!(&input);
+        let mut input = input.into_iter();
+        let result = decode(&mut input).unwrap();
+
+        assert_eq!(result, PackStreamValue::Structure(output));
     }
 }
