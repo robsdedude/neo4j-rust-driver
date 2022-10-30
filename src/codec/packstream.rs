@@ -15,6 +15,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::u8;
 
 use thiserror::Error;
 
@@ -58,28 +59,13 @@ pub struct Structure {
     pub fields: Vec<Value>,
 }
 
-fn pop_stream_into_buffer(stream: &mut VecDeque<u8>, buffer: &mut [u8]) {
-    for i in 0..buffer.len() {
-        let first = stream.pop_front().expect("check length above");
-        buffer[i] = first;
-    }
-}
-
 macro_rules! primitive_decoder {
     ( $name:ident, $primitive_t:ty, $size:expr, $value_t:expr ) => {
-        fn $name(stream: &mut VecDeque<u8>) -> Result<Value, PackStreamError> {
-            if stream.len() < $size {
-                return Err(PackStreamError::from(format!(
-                    "not enough data after {} marker",
-                    "$primitive_t"
-                )));
-            }
+        fn $name(stream: &mut impl Iterator<Item = u8>) -> Result<Value, PackStreamError> {
             let mut buffer = [0; $size];
-            pop_stream_into_buffer(stream, &mut buffer);
-            // for i in (0..$size) {
-            //     let first = stream.pop_front().expect("check length above");
-            //     buffer[i] = first;
-            // }
+            for i in 0..$size {
+                buffer[i] = stream.next().ok_or(stringify!(not enough data after $primitive_t marker))?
+            }
             let int = <$primitive_t>::from_be_bytes(buffer);
             Ok($value_t(int.into()))
         }
@@ -94,20 +80,18 @@ primitive_decoder!(decode_f64, f64, 8, Value::Float);
 
 macro_rules! bytes_decoder {
     ( $name:ident, $header_t:ty, $size:expr ) => {
-        fn $name(stream: &mut VecDeque<u8>) -> Result<Value, PackStreamError> {
-            if stream.len() < $size {
-                return Err(PackStreamError::from("incomplete bytes size"));
+        fn $name(stream: &mut impl Iterator<Item = u8>) -> Result<Value, PackStreamError> {
+            let mut size_buffer = [0; $size];
+            for i in 0..$size {
+                size_buffer[i] = stream.next().ok_or("incomplete bytes size")?;
             }
-            let mut buffer = [0; $size];
-            pop_stream_into_buffer(stream, &mut buffer);
-            let size = <$header_t>::from_be_bytes(buffer);
-            if $size / 8 >= usize::BITS {
+            let size = <$header_t>::from_be_bytes(size_buffer);
+            if (size as u128).saturating_mul(8) >= usize::MAX as u128 {
                 panic!("server wants to send more bytes than are addressable")
             }
             let mut bytes = Vec::with_capacity(size as usize);
             for _ in 0..size {
-                let byte = stream.pop_front().ok_or("less bytes than announced")?;
-                bytes.push(byte);
+                bytes.push(stream.next().ok_or("less bytes than announced")?);
             }
             Ok(Value::Bytes(bytes))
         }
@@ -118,9 +102,9 @@ bytes_decoder!(decode_bytes_u8, u8, 1);
 bytes_decoder!(decode_bytes_u16, u16, 2);
 bytes_decoder!(decode_bytes_u32, u32, 4);
 
-pub fn decode(stream: &mut VecDeque<u8>) -> Result<Value, PackStreamError> {
+pub fn decode(stream: &mut impl Iterator<Item = u8>) -> Result<Value, PackStreamError> {
     // TODO: proper errors?
-    let marker = stream.pop_front().ok_or("no marker found")?;
+    let marker = stream.next().ok_or("no marker found")?;
     if marker == 0xC0 {
         Ok(Value::Null)
     } else if marker == 0xC2 {
@@ -159,10 +143,10 @@ mod tests {
     #[case(vec![0xC0], Value::Null)]
     fn test_null(#[case] input: Vec<u8>, #[case] output: Value) {
         dbg!(&input);
-        let mut input = VecDeque::from(input);
+        let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
         assert_eq!(result, output);
-        assert_eq!(input, vec![]);
+        assert_eq!(input.collect::<Vec<_>>(), vec![]);
     }
 
     #[rstest]
@@ -170,10 +154,10 @@ mod tests {
     #[case(vec![0xC3], Value::Boolean(true))]
     fn test_bool(#[case] input: Vec<u8>, #[case] output: Value) {
         dbg!(&input);
-        let mut input = VecDeque::from(input);
+        let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
         assert_eq!(result, output);
-        assert_eq!(input, vec![]);
+        assert_eq!(input.collect::<Vec<_>>(), vec![]);
     }
 
     #[rstest]
@@ -216,10 +200,10 @@ mod tests {
     #[case(vec![0xCB, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], Value::Integer(9223372036854775807))]
     fn test_integer(#[case] input: Vec<u8>, #[case] output: Value) {
         dbg!(&input);
-        let mut input = VecDeque::from(input);
+        let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
         assert_eq!(result, output);
-        assert_eq!(input, vec![]);
+        assert_eq!(input.collect::<Vec<_>>(), vec![]);
     }
 
     #[rstest]
@@ -231,7 +215,7 @@ mod tests {
     #[case(vec![0xC1, 0x3F, 0xF3, 0xAE, 0x14, 0x7A, 0xE1, 0x47, 0xAE], 1.23)]
     fn test_float(#[case] input: Vec<u8>, #[case] output: f64) {
         dbg!(&input);
-        let mut input = VecDeque::from(input);
+        let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
         if output.is_nan() {
             match result {
@@ -241,7 +225,7 @@ mod tests {
         } else {
             assert_eq!(result, Value::Float(output));
         }
-        assert_eq!(input, vec![]);
+        assert_eq!(input.collect::<Vec<_>>(), vec![]);
     }
 
     fn damn_long_vec(header: Option<Vec<u8>>, size: usize) -> Vec<u8> {
@@ -275,10 +259,10 @@ mod tests {
     #[case(damn_long_vec(Some(vec![0xCE, 0x00, 0xFE, 0xFF, 0xFF]), 0x00FEFFFF), damn_long_vec(None, 0x00FEFFFF))]
     fn test_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
         // dbg!(&input);
-        let mut input = VecDeque::from(input);
+        let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
         assert_eq!(result, Value::Bytes(output));
-        assert_eq!(input, vec![])
+        assert_eq!(input.collect::<Vec<_>>(), vec![]);
     }
 
     #[rstest]
@@ -286,12 +270,14 @@ mod tests {
     // TODO: cover all error cases
     fn test_error(#[case] input: Vec<u8>, #[case] error: &'static str) {
         // dbg!(&input);
-        let mut input = VecDeque::from(input);
+        let mut input = input.into_iter();
         let result = decode(&mut input).expect_err("expected to fail");
+
         // dbg!(error);
         // dbg!(result.reason);
         assert!(result.reason.to_lowercase().contains(error));
         // dbg!(format!("{}", result.reason));
         assert!(format!("{}", result.reason).to_lowercase().contains(error));
+        assert_eq!(input.collect::<Vec<_>>(), vec![]);
     }
 }
