@@ -101,11 +101,11 @@ macro_rules! primitive_decoder {
     ( $name:ident, $primitive_t:ty, $size:expr, $value_t:expr ) => {
         fn $name(stream: &mut impl Iterator<Item = u8>) -> Result<PackStreamValue, PackStreamError> {
             let mut buffer = [0; $size];
-            for i in 0..$size {
-                buffer[i] = stream.next().ok_or(stringify!(not enough data after $primitive_t marker))?
+            for byte in buffer.iter_mut() {
+                *byte = stream.next().ok_or(stringify!(not enough data after $primitive_t marker))?
             }
-            let int = <$primitive_t>::from_be_bytes(buffer);
-            Ok($value_t(int.into()))
+            let value = <$primitive_t>::from_be_bytes(buffer);
+            Ok($value_t(value.into()))
         }
     };
 }
@@ -122,8 +122,8 @@ macro_rules! bytes_decoder {
             stream: &mut impl Iterator<Item = u8>,
         ) -> Result<PackStreamValue, PackStreamError> {
             let mut size_buffer = [0; $size];
-            for i in 0..$size {
-                size_buffer[i] = stream.next().ok_or("incomplete bytes size")?;
+            for byte in size_buffer.iter_mut() {
+                *byte = stream.next().ok_or("incomplete bytes size")?;
             }
             let size = <$header_t>::from_be_bytes(size_buffer);
             if (size as u128).saturating_mul(8) >= usize::MAX as u128 {
@@ -321,6 +321,7 @@ mod tests {
     #[case(vec![0xD1, 0x00, 0x01, 0x41], "A")]
     #[case(vec![0xD2, 0x00, 0x00, 0x00, 0x01, 0x41], "A")]
     fn test_string(#[case] input: Vec<u8>, #[case] output: &str) {
+        // dbg!(&input);
         let mut input = input.into_iter();
         let result = decode(&mut input).unwrap();
 
