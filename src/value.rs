@@ -12,4 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod packstream;
+use std::collections::HashMap;
+
+mod de;
+mod ser;
+pub mod spatial;
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Value {
+    Null,
+    Boolean(bool),
+    Integer(i64),
+    Float(f64),
+    Bytes(Vec<u8>),
+    String(String),
+    List(Vec<Value>),
+    Dictionary(HashMap<String, Value>),
+    Cartesian2D(spatial::Cartesian2D),
+    Cartesian3D(spatial::Cartesian3D),
+    WGS84_2D(spatial::WGS84_2D),
+    WGS84_3D(spatial::WGS84_3D),
+    BrokenValue,
+}

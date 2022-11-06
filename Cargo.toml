@@ -3,7 +3,7 @@ name = "neo4j"
 version = "0.0.0"
 edition = "2021"
 readme = "README.md"
-description = "Bolt driver form Neo4j."
+description = "Bolt driver for Neo4j."
 license = "Apache-2.0"
 keywords = ["neo4j", "driver", "network", "bolt", "client"]
 categories = ["database"]
@@ -15,7 +15,7 @@ documentation = "https://github.com/robsdedude/neo4j-rust-driver/"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-thiserror = "1.0.37"
+thiserror = "1.0.0"
 
 [dev-dependencies]
 rstest = "0.15.0"
