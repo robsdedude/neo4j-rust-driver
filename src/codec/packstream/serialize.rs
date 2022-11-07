@@ -101,11 +101,11 @@ impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
         } else if size <= 65_535 {
             self.writer.write_all(&[0xCD])?;
             self.writer.write_all(&u16::to_be_bytes(size as u16))?;
-        } else if size <= 4_294_967_295 {
+        } else if size <= 2_147_483_647 {
             self.writer.write_all(&[0xCE])?;
             self.writer.write_all(&u32::to_be_bytes(size as u32))?;
         } else {
-            return Err("bytes exceed max size of 4,294,967,295".into());
+            return Err("bytes exceed max size of 2,147,483,647".into());
         }
         self.writer.write_all(b)?;
         Ok(())
@@ -122,11 +122,11 @@ impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
         } else if size <= 65_535 {
             self.writer.write_all(&[0xD1])?;
             self.writer.write_all(&u16::to_be_bytes(size as u16))?;
-        } else if size <= 4_294_967_295 {
+        } else if size <= 2_147_483_647 {
             self.writer.write_all(&[0xD2])?;
             self.writer.write_all(&u32::to_be_bytes(size as u32))?;
         } else {
-            return Err("string exceeds max size of 4,294,967,295 bytes".into());
+            return Err("string exceeds max size of 2,147,483,647 bytes".into());
         }
         self.writer.write_all(bytes)?;
         Ok(())
@@ -142,11 +142,11 @@ impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
         } else if size <= 65_535 {
             self.writer.write_all(&[0xD5])?;
             self.writer.write_all(&u16::to_be_bytes(size as u16))?;
-        } else if size <= 4_294_967_295 {
+        } else if size <= 2_147_483_647 {
             self.writer.write_all(&[0xD6])?;
             self.writer.write_all(&u32::to_be_bytes(size as u32))?;
         } else {
-            return Err("list exceeds max size of 4,294,967,295".into());
+            return Err("list exceeds max size of 2,147,483,647".into());
         }
         for value in l {
             value.serialize(self)?;
@@ -167,11 +167,11 @@ impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
         } else if size <= 65_535 {
             self.writer.write_all(&[0xD9])?;
             self.writer.write_all(&u16::to_be_bytes(size as u16))?;
-        } else if size <= 4_294_967_295 {
+        } else if size <= 2_147_483_647 {
             self.writer.write_all(&[0xDA])?;
             self.writer.write_all(&u32::to_be_bytes(size as u32))?;
         } else {
-            return Err("list exceeds max size of 4,294,967,295".into());
+            return Err("list exceeds max size of 2,147,483,647".into());
         }
         for (key, value) in d {
             self.write_string(key)?;

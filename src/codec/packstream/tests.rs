@@ -223,7 +223,7 @@ fn test_decode_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
 // this test is only feasible with a release build
 #[cfg(not(debug_assertions))]
 #[rstest]
-#[case(damn_long_vec(Some(vec![0xCE, 0xFF, 0xFF, 0xFF, 0xFF]), 0xFFFFFFFF), damn_long_vec(None, 0xFFFFFFFF))]
+#[case(damn_long_vec(Some(vec![0xCE, 0x7F, 0xFF, 0xFF, 0xFF]), 0x7FFFFFFF), damn_long_vec(None, 0x7FFFFFFF))]
 fn test_decode_max_len_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
     println!("bytes of length {}", input.len());
 
@@ -257,9 +257,9 @@ fn test_decode_string(#[case] input: Vec<u8>, #[case] output: &str) {
 #[cfg(not(debug_assertions))]
 #[rstest]
 fn test_decode_max_len_string() {
-    let size = 0xFFFFFFFF;
+    let size = 0x7FFFFFFF;
 
-    let mut input = vec![0xD2, 0xFF, 0xFF, 0xFF, 0xFF];
+    let mut input = vec![0xD2, 0x7F, 0xFF, 0xFF, 0xFF];
     input.extend(std::iter::repeat(0x41).take(size));
     let mut output = String::with_capacity(size);
     output.extend(std::iter::repeat('A').take(size));
@@ -446,7 +446,7 @@ fn test_encode_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
 // this test is only feasible with a release build
 #[cfg(not(debug_assertions))]
 #[rstest]
-#[case(damn_long_vec(None, 0xFFFFFFFF), damn_long_vec(Some(vec![0xCE, 0xFF, 0xFF, 0xFF, 0xFF]), 0xFFFFFFFF))]
+#[case(damn_long_vec(None, 0x7FFFFFFF), damn_long_vec(Some(vec![0xCE, 0x7F, 0xFF, 0xFF, 0xFF]), 0x7FFFFFFF))]
 fn test_encode_max_len_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
     println!("bytes of length {}", input.len());
 
@@ -492,9 +492,9 @@ fn test_encode_long_string(#[case] size: usize, #[case] mut header: Vec<u8>) {
 #[cfg(not(debug_assertions))]
 #[rstest]
 fn test_encode_max_len_string() {
-    let size = 0xFFFFFFFF;
+    let size = 0x7FFFFFFF;
 
-    let mut output = vec![0xD2, 0xFF, 0xFF, 0xFF, 0xFF];
+    let mut output = vec![0xD2, 0x7F, 0xFF, 0xFF, 0xFF];
     output.extend(std::iter::repeat(0x41).take(size));
     let mut input = String::with_capacity(size);
     input.extend(std::iter::repeat('A').take(size));
