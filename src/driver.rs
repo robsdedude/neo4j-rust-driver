@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Result;
-
 mod config;
+mod session;
 pub use config::{ConnectionConfig, DriverConfig};
+pub use session::{Session, SessionConfig};
 
 #[derive(Debug)]
 pub struct Driver {
@@ -24,10 +24,31 @@ pub struct Driver {
 }
 
 impl Driver {
-    pub fn new(connection_config: ConnectionConfig, config: DriverConfig) -> Result<Self> {
-        Ok(Driver {
+    pub fn new(connection_config: ConnectionConfig, config: DriverConfig) -> Self {
+        Driver {
             config,
             connection_config,
-        })
+        }
     }
+
+    pub fn session<'a>(&self, config: &'a SessionConfig) -> Session<'a> {
+        Session { config }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // #[test]
+    // fn test_session() {
+    //     let driver = Driver::new(
+    //         ConnectionConfig::new("localhost".into()),
+    //         DriverConfig::new(),
+    //     );
+    //     let db = String::from("foo_bar");
+    //     let session_config = Box::new(SessionConfig::new().with_database(db.as_str()));
+    //     let session = driver.session(&session_config);
+    //     dbg!(&session);
+    // }
 }

@@ -12,31 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-extern crate core;
+use crate::driver::session::Bookmarks;
 
-mod address;
-mod codec;
-mod driver;
-mod error;
-mod util;
-mod value;
-
-pub use address::Address;
-pub use driver::{Driver, DriverConfig, Session, SessionConfig};
-pub use error::{Neo4jError, Result};
-pub use value::Value;
-
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
+#[derive(Debug, Clone)]
+pub struct SessionConfig {
+    pub(crate) database: Option<String>,
+    pub(crate) bookmarks: Bookmarks,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl SessionConfig {
+    pub fn new() -> Self {
+        SessionConfig {
+            database: None,
+            bookmarks: Bookmarks::empty(),
+        }
+    }
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    pub fn with_database(mut self, database: String) -> Self {
+        self.database = Some(database);
+        self
+    }
+
+    pub fn with_default_database(mut self) -> Self {
+        self.database = None;
+        self
     }
 }
