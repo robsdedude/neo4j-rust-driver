@@ -14,10 +14,16 @@
 
 extern crate core;
 
+mod address;
 mod codec;
+mod driver;
+mod error;
 mod util;
 mod value;
 
+pub use address::Address;
+pub use driver::{Driver, DriverConfig};
+pub use error::{Neo4jError, Result};
 pub use value::Value;
 
 pub fn add(left: usize, right: usize) -> usize {
