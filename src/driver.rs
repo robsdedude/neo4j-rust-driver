@@ -13,26 +13,43 @@
 // limitations under the License.
 
 mod config;
+mod io;
+mod record;
+mod record_stream;
 mod session;
+mod summary;
+
 pub use config::{ConnectionConfig, DriverConfig};
+pub use io::bolt::{PackStreamDeserialize, PackStreamSerialize};
+
+use io::{Pool, PoolConfig};
+pub use record::Record;
+pub use record_stream::RecordStream;
 pub use session::{Session, SessionConfig};
+pub use summary::Summary;
 
 #[derive(Debug)]
 pub struct Driver {
-    pub(crate) config: DriverConfig,
-    pub(crate) connection_config: ConnectionConfig,
+    // pub(crate) config: DriverConfig,
+    pub(crate) pool: Pool,
 }
 
 impl Driver {
     pub fn new(connection_config: ConnectionConfig, config: DriverConfig) -> Self {
+        let pool_config = PoolConfig {
+            address: connection_config.address,
+            routing_context: connection_config.routing_context,
+            user_agent: config.user_agent,
+            auth: config.auth,
+        };
         Driver {
-            config,
-            connection_config,
+            // config,
+            pool: Pool::new(pool_config),
         }
     }
 
-    pub fn session<'a>(&self, config: &'a SessionConfig) -> Session<'a> {
-        Session { config }
+    pub fn session<'a>(&'a self, config: &'a SessionConfig) -> Session<'a> {
+        Session::new(config, &self.pool)
     }
 }
 

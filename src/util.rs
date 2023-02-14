@@ -18,13 +18,15 @@ macro_rules! map {
     () => {std::collections::HashMap::new()};
     ( $($key:expr => $value:expr),* ) => {
         {
-            let mut m = std::collections::HashMap::new();
+            let mut m = std::collections::HashMap::with_capacity(map!(capacity($($value)*)));
             $(
                 m.insert($key, $value);
             )*
             m
         }
     };
+    ( capacity() ) => (0usize);
+    ( capacity($x:tt $($xs:tt)*) ) => (1usize + map!(capacity($($xs)*)));
 }
 
 pub(crate) use map;

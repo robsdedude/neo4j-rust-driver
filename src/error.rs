@@ -18,6 +18,7 @@ use std::io;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum Neo4jError {
     /// used when
     ///  * experiencing a socket error
@@ -30,6 +31,9 @@ pub enum Neo4jError {
     /// used when
     ///  * Trying to send an unsupported parameter.  
     ///    e.g., a too large Vec (max. `u32::MAX` elements).
+    ///  * Connecting with an incompatible server.
+    ///  * Non-IO error occurs during serialization (e.g., trying to serialize
+    ///    `Value::BrokenValue`)
     #[error("invalid configuration: {message}")]
     InvalidConfig {
         message: String,
@@ -39,6 +43,11 @@ pub enum Neo4jError {
     ///  * the server returns an error
     #[error("{0}")]
     ServerError(ServerError),
+    #[error(
+        "the driver encountered a protocol violation, \
+        this is likely a bug in the driver or the server: {message}"
+    )]
+    ProtocolError { message: String },
 }
 
 impl Neo4jError {
@@ -67,15 +76,15 @@ impl ServerError {
     }
 
     pub fn classification(&self) -> &str {
-        self.code.split(".").skip(1).next().unwrap_or("")
+        self.code.split('.').nth(1).unwrap_or("")
     }
 
     pub fn category(&self) -> &str {
-        self.code.split(".").skip(2).next().unwrap_or("")
+        self.code.split('.').nth(2).unwrap_or("")
     }
 
     pub fn title(&self) -> &str {
-        self.code.split(".").skip(3).next().unwrap_or("")
+        self.code.split('.').nth(3).unwrap_or("")
     }
 }
 

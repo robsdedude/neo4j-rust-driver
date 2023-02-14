@@ -19,7 +19,7 @@ use std::vec::IntoIter;
 pub(crate) const DEFAULT_PORT: u16 = 7687;
 const COLON_BYTES: usize = 1; // ":".bytes().len()
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct Address {
     pub host: String,
     pub port: u16,
@@ -27,7 +27,7 @@ pub struct Address {
 
 impl Display for Address {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if let Some(_) = self.host.find(":") {
+        if self.host.find(':').is_some() {
             write!(f, "[{}]:{}", self.host, self.port)
         } else {
             write!(f, "{}:{}", self.host, self.port)
@@ -51,8 +51,8 @@ impl From<(&str, u16)> for Address {
 }
 
 fn parse(host: &str) -> (String, u16) {
-    if let Some(pos_colon) = host.rfind(":") {
-        if let Some(pos_bracket) = host.rfind("]") {
+    if let Some(pos_colon) = host.rfind(':') {
+        if let Some(pos_bracket) = host.rfind(']') {
             if pos_bracket < pos_colon {
                 // [IPv6]:port (colon after bracket)
                 let port = if let Ok(port) = host[pos_colon..].parse() {
@@ -65,19 +65,17 @@ fn parse(host: &str) -> (String, u16) {
                 // [IPv6] (bracket after colon)
                 (String::from(host), DEFAULT_PORT)
             }
+        } else if host[..pos_colon].rfind(':').is_some() {
+            // IPv6 (multiple colons)
+            (String::from(host), DEFAULT_PORT)
         } else {
-            if let Some(_) = host[..pos_colon].rfind(":") {
-                // IPv6 (multiple colons)
-                (String::from(host), DEFAULT_PORT)
+            // IPv4:port (single colon)
+            let port = if let Ok(port) = host[pos_colon..].parse() {
+                port
             } else {
-                // IPv4:port (single colon)
-                let port = if let Ok(port) = host[pos_colon..].parse() {
-                    port
-                } else {
-                    DEFAULT_PORT
-                };
-                (String::from(&host[..pos_colon - COLON_BYTES]), port)
-            }
+                DEFAULT_PORT
+            };
+            (String::from(&host[..pos_colon - COLON_BYTES]), port)
         }
     } else {
         // no colon => use default port

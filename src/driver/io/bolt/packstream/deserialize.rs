@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use super::error::PackStreamError;
+use crate::driver::io::bolt::BoltStructTranslator;
 use std::collections::HashMap;
 use std::error::Error;
 use std::io::Read;
@@ -28,13 +29,19 @@ pub trait PackStreamDeserialize {
     fn load_string(s: String) -> Self::Value;
     fn load_list(l: Vec<Self::Value>) -> Self::Value;
     fn load_dict(d: HashMap<String, Self::Value>) -> Self::Value;
-    fn load_struct(tag: u8, fields: Vec<Self::Value>) -> Self::Value;
+    // fn load_struct(tag: u8, fields: Vec<Self::Value>) -> Self::Value;
+    fn load_point_2d(fields: Vec<Self::Value>) -> Self::Value;
+    fn load_point_3d(fields: Vec<Self::Value>) -> Self::Value;
+    fn load_broken(reason: String) -> Self::Value;
 }
 
 pub trait PackStreamDeserializer {
     type Error: Error;
 
-    fn load<S: PackStreamDeserialize>(&mut self) -> Result<S::Value, Self::Error>;
+    fn load<V: PackStreamDeserialize, B: BoltStructTranslator>(
+        &mut self,
+        bolt: &B,
+    ) -> Result<V::Value, Self::Error>;
     fn load_string(&mut self) -> Result<String, Self::Error>;
 }
 
@@ -115,25 +122,27 @@ impl<'a, W: Read + 'a> PackStreamDeserializerImpl<'a, W> {
         Ok(String::from_utf8_lossy(bytes.as_slice()).into_owned())
     }
 
-    fn decode_list<S: PackStreamDeserialize, D: PackStreamDeserializer>(
+    fn decode_list<V: PackStreamDeserialize, D: PackStreamDeserializer, B: BoltStructTranslator>(
         serializer: &mut D,
+        bolt: &B,
         size: usize,
-    ) -> Result<Vec<S::Value>, D::Error> {
+    ) -> Result<Vec<V::Value>, D::Error> {
         let mut list = Vec::with_capacity(size);
         for _ in 0..size {
-            list.push(serializer.load::<S>()?);
+            list.push(serializer.load::<V, _>(bolt)?);
         }
         Ok(list)
     }
 
-    fn decode_dict<S: PackStreamDeserialize, D: PackStreamDeserializer>(
+    fn decode_dict<V: PackStreamDeserialize, D: PackStreamDeserializer, B: BoltStructTranslator>(
         serializer: &mut D,
+        bolt: &B,
         size: usize,
-    ) -> Result<HashMap<String, S::Value>, D::Error> {
+    ) -> Result<HashMap<String, V::Value>, D::Error> {
         let mut dict = HashMap::with_capacity(size);
         for _ in 0..size {
             let key = serializer.load_string()?;
-            let value = serializer.load::<S>()?;
+            let value = serializer.load::<V, _>(bolt)?;
             dict.insert(key, value);
         }
         Ok(dict)
@@ -143,106 +152,111 @@ impl<'a, W: Read + 'a> PackStreamDeserializerImpl<'a, W> {
 impl<'a, W: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'a, W> {
     type Error = PackStreamError;
 
-    fn load<S: PackStreamDeserialize>(&mut self) -> Result<S::Value, Self::Error> {
+    fn load<V: PackStreamDeserialize, B: BoltStructTranslator>(
+        &mut self,
+        bolt: &B,
+    ) -> Result<V::Value, Self::Error> {
         let mut marker = [0; 1];
         self.reader.read_exact(&mut marker)?;
         let marker = marker[0];
         if marker == 0xC0 {
-            Ok(S::load_null())
+            Ok(V::load_null())
         } else if marker == 0xC2 {
-            Ok(S::load_bool(false))
+            Ok(V::load_bool(false))
         } else if marker == 0xC3 {
-            Ok(S::load_bool(true))
+            Ok(V::load_bool(true))
         } else if 0xF0 <= marker || marker <= 0x7F {
-            Ok(S::load_int(i8::from_be_bytes([marker]).into()))
+            Ok(V::load_int(i8::from_be_bytes([marker]).into()))
         } else if marker == 0xC8 {
-            Ok(S::load_int(Self::decode_i8(self.reader)?.into()))
+            Ok(V::load_int(Self::decode_i8(self.reader)?.into()))
         } else if marker == 0xC9 {
-            Ok(S::load_int(Self::decode_i16(self.reader)?.into()))
+            Ok(V::load_int(Self::decode_i16(self.reader)?.into()))
         } else if marker == 0xCA {
-            Ok(S::load_int(Self::decode_i32(self.reader)?.into()))
+            Ok(V::load_int(Self::decode_i32(self.reader)?.into()))
         } else if marker == 0xCB {
-            Ok(S::load_int(Self::decode_i64(self.reader)?))
+            Ok(V::load_int(Self::decode_i64(self.reader)?))
         } else if marker == 0xC1 {
-            Ok(S::load_float(Self::decode_f64(self.reader)?))
+            Ok(V::load_float(Self::decode_f64(self.reader)?))
         } else if marker == 0xCC {
             let size = Self::decode_u8(self.reader)?;
-            Ok(S::load_bytes(Self::decode_bytes(self.reader, size.into())?))
+            Ok(V::load_bytes(Self::decode_bytes(self.reader, size.into())?))
         } else if marker == 0xCD {
             let size = Self::decode_u16(self.reader)?;
-            Ok(S::load_bytes(Self::decode_bytes(self.reader, size.into())?))
+            Ok(V::load_bytes(Self::decode_bytes(self.reader, size.into())?))
         } else if marker == 0xCE {
             if usize::BITS < 32 {
                 Err("server wants to send more dict elements than are addressable".into())
             } else {
                 let size = Self::decode_u32(self.reader)?;
                 let bytes = Self::decode_bytes(self.reader, size as usize)?;
-                Ok(S::load_bytes(bytes))
+                Ok(V::load_bytes(bytes))
             }
         } else if 0x80 <= marker && marker <= 0x8F {
             let size = marker - 0x80;
             let string = Self::decode_string(self.reader, size.into())?;
-            Ok(S::load_string(string))
+            Ok(V::load_string(string))
         } else if marker == 0xD0 {
             let size = Self::decode_u8(self.reader)?;
             let string = Self::decode_string(self.reader, size.into())?;
-            Ok(S::load_string(string))
+            Ok(V::load_string(string))
         } else if marker == 0xD1 {
             let size = Self::decode_u16(self.reader)?;
             let string = Self::decode_string(self.reader, size.into())?;
-            Ok(S::load_string(string))
+            Ok(V::load_string(string))
         } else if marker == 0xD2 {
             if usize::BITS < 32 {
                 return Err("server wants to send more string bytes than are addressable".into());
             }
             let size = Self::decode_u32(self.reader)?;
             let string = Self::decode_string(self.reader, size as usize)?;
-            Ok(S::load_string(string))
+            Ok(V::load_string(string))
         } else if 0x90 <= marker && marker <= 0x9F {
             let size = marker - 0x90;
-            let list = Self::decode_list::<S, Self>(self, size.into())?;
-            Ok(S::load_list(list))
+            let list = Self::decode_list::<V, _, _>(self, bolt, size.into())?;
+            Ok(V::load_list(list))
         } else if marker == 0xD4 {
             let size = Self::decode_u8(self.reader)?;
-            let list = Self::decode_list::<S, Self>(self, size.into())?;
-            Ok(S::load_list(list))
+            let list = Self::decode_list::<V, _, _>(self, bolt, size.into())?;
+            Ok(V::load_list(list))
         } else if marker == 0xD5 {
             let size = Self::decode_u16(self.reader)?;
-            let list = Self::decode_list::<S, Self>(self, size.into())?;
-            Ok(S::load_list(list))
+            let list = Self::decode_list::<V, _, _>(self, bolt, size.into())?;
+            Ok(V::load_list(list))
         } else if marker == 0xD6 {
             if usize::BITS < 32 {
                 return Err("server wants to send more string bytes than are addressable".into());
             }
             let size = Self::decode_u32(self.reader)?;
-            let list = Self::decode_list::<S, Self>(self, size as usize)?;
-            Ok(S::load_list(list))
+            let list = Self::decode_list::<V, _, _>(self, bolt, size as usize)?;
+            Ok(V::load_list(list))
         } else if 0xA0 <= marker && marker <= 0xAF {
             let size = marker - 0xA0;
-            let dict = Self::decode_dict::<S, Self>(self, size.into())?;
-            Ok(S::load_dict(dict))
+            let dict = Self::decode_dict::<V, _, _>(self, bolt, size.into())?;
+            Ok(V::load_dict(dict))
         } else if marker == 0xD8 {
             let size = Self::decode_u8(self.reader)?;
-            let dict = Self::decode_dict::<S, Self>(self, size.into())?;
-            Ok(S::load_dict(dict))
+            let dict = Self::decode_dict::<V, _, _>(self, bolt, size.into())?;
+            Ok(V::load_dict(dict))
         } else if marker == 0xD9 {
             let size = Self::decode_u16(self.reader)?;
-            let dict = Self::decode_dict::<S, Self>(self, size.into())?;
-            Ok(S::load_dict(dict))
+            let dict = Self::decode_dict::<V, _, _>(self, bolt, size.into())?;
+            Ok(V::load_dict(dict))
         } else if marker == 0xDA {
             if usize::BITS < 32 {
                 return Err("server wants to send more dict elements than are addressable".into());
             }
             let size = Self::decode_u32(self.reader)?;
-            let dict = Self::decode_dict::<S, Self>(self, size as usize)?;
-            Ok(S::load_dict(dict))
+            let dict = Self::decode_dict::<V, _, _>(self, bolt, size as usize)?;
+            Ok(V::load_dict(dict))
         } else if 0xB0 <= marker && marker <= 0xBF {
             let size = marker - 0xB0;
             let tag = Self::decode_u8(self.reader)?;
-            let fields = Self::decode_list::<S, Self>(self, size.into())?;
-            Ok(S::load_struct(tag, fields))
+            let fields = Self::decode_list::<V, _, _>(self, bolt, size.into())?;
+            Ok(bolt.deserialize_struct::<V>(tag, fields))
         } else {
-            Err(PackStreamError::from(format!("unknown marker {marker}")))
+            Err(PackStreamError::protocol_violation(format!(
+                "unknown marker {marker}"
+            )))
         }
     }
 
@@ -260,7 +274,7 @@ impl<'a, W: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'a, W> {
             let size = Self::decode_u16(self.reader)?;
             Self::decode_string(self.reader, size.into())
         } else {
-            Err("Expected string".into())
+            Err(PackStreamError::protocol_violation("expected string"))
         }
     }
 }

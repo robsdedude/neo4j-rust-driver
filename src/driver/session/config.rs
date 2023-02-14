@@ -17,15 +17,21 @@ use crate::driver::session::Bookmarks;
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
     pub(crate) database: Option<String>,
-    pub(crate) bookmarks: Bookmarks,
+    pub(crate) bookmarks: Option<Vec<String>>,
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self {
+            database: None,
+            bookmarks: None,
+        }
+    }
 }
 
 impl SessionConfig {
     pub fn new() -> Self {
-        SessionConfig {
-            database: None,
-            bookmarks: Bookmarks::empty(),
-        }
+        Self::default()
     }
 
     pub fn with_database(mut self, database: String) -> Self {
@@ -35,6 +41,16 @@ impl SessionConfig {
 
     pub fn with_default_database(mut self) -> Self {
         self.database = None;
+        self
+    }
+
+    pub fn with_bookmarks(mut self, bookmarks: Bookmarks) -> Self {
+        self.bookmarks = Some(bookmarks.into_raw().collect());
+        self
+    }
+
+    pub fn without_bookmarks(mut self) -> Self {
+        self.bookmarks = None;
         self
     }
 }

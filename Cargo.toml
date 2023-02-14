@@ -19,6 +19,8 @@ documentation = "https://github.com/robsdedude/neo4j-rust-driver/"
 thiserror = "1.0.0"
 uriparse = "0.6.4"
 openssl = "0.10.42"
+log = "0.4.17"
+usize_cast = "1.1.0"
 
 [dev-dependencies]
 rstest = "0.15.0"

@@ -14,12 +14,12 @@
 
 use std::fmt::{Display, Formatter};
 
-const SRID_CARTESIAN_2D: i64 = 7203;
-const SRID_CARTESIAN_3D: i64 = 9157;
-const SRID_WGS84_2D: i64 = 7203;
-const SRID_WGS84_3D: i64 = 4979;
+pub(crate) const SRID_CARTESIAN_2D: i64 = 7203;
+pub(crate) const SRID_CARTESIAN_3D: i64 = 9157;
+pub(crate) const SRID_WGS84_2D: i64 = 4326;
+pub(crate) const SRID_WGS84_3D: i64 = 4979;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Cartesian2D {
     srid: i64,
     coordinates: [f64; 2],
@@ -38,6 +38,9 @@ impl Cartesian2D {
     pub fn y(&self) -> f64 {
         self.coordinates[1]
     }
+    pub fn srid(&self) -> i64 {
+        self.srid
+    }
 }
 
 impl Display for Cartesian2D {
@@ -50,7 +53,7 @@ impl Display for Cartesian2D {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Cartesian3D {
     srid: i64,
     coordinates: [f64; 3],
@@ -72,6 +75,9 @@ impl Cartesian3D {
     pub fn z(&self) -> f64 {
         self.coordinates[2]
     }
+    pub fn srid(&self) -> i64 {
+        self.srid
+    }
 }
 
 impl Display for Cartesian3D {
@@ -84,7 +90,7 @@ impl Display for Cartesian3D {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct WGS84_2D {
     srid: i64,
     coordinates: [f64; 2],
@@ -103,6 +109,9 @@ impl WGS84_2D {
     pub fn latitude(&self) -> f64 {
         self.coordinates[1]
     }
+    pub fn srid(&self) -> i64 {
+        self.srid
+    }
 }
 
 impl Display for WGS84_2D {
@@ -115,7 +124,7 @@ impl Display for WGS84_2D {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct WGS84_3D {
     srid: i64,
     coordinates: [f64; 3],
@@ -136,6 +145,9 @@ impl WGS84_3D {
     }
     pub fn height(&self) -> f64 {
         self.coordinates[2]
+    }
+    pub fn srid(&self) -> i64 {
+        self.srid
     }
 }
 

@@ -12,17 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::super::{Bolt, BoltStructTranslator};
 use super::error::PackStreamError;
 use std::collections::HashMap;
 use std::error::Error;
+use std::fmt::Debug;
 use std::io::Write;
 
-pub trait PackStreamSerialize {
-    fn serialize<S: PackStreamSerializer>(&self, serializer: &mut S) -> Result<(), S::Error>;
+use std::ops::Deref;
+
+use usize_cast::FromUsize;
+
+pub trait PackStreamSerialize: Debug {
+    fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
+        &self,
+        serializer: &mut S,
+        bolt: &B,
+    ) -> Result<(), S::Error>;
 }
 
 pub trait PackStreamSerializer {
     type Error: Error;
+
+    fn error(&self, message: String) -> Result<(), Self::Error>;
 
     fn write_null(&mut self) -> Result<(), Self::Error>;
     fn write_bool(&mut self, b: bool) -> Result<(), Self::Error>;
@@ -30,13 +42,22 @@ pub trait PackStreamSerializer {
     fn write_float(&mut self, f: f64) -> Result<(), Self::Error>;
     fn write_bytes(&mut self, b: &[u8]) -> Result<(), Self::Error>;
     fn write_string(&mut self, s: &str) -> Result<(), Self::Error>;
-    fn write_list<S: PackStreamSerialize>(&mut self, l: &[S]) -> Result<(), Self::Error>;
-    fn write_dict<S: PackStreamSerialize>(
+    fn write_list_header(&mut self, size: u64) -> Result<(), Self::Error>;
+    fn write_list<S: PackStreamSerialize, B: BoltStructTranslator>(
         &mut self,
-        d: &HashMap<String, S>,
+        bolt: &B,
+        l: &[S],
     ) -> Result<(), Self::Error>;
-    fn write_struct<S: PackStreamSerialize>(
+    fn write_dict_header(&mut self, size: u64) -> Result<(), Self::Error>;
+    fn write_dict<S: PackStreamSerialize, B: BoltStructTranslator, K: Deref<Target = str>>(
         &mut self,
+        bolt: &B,
+        d: &HashMap<K, S>,
+    ) -> Result<(), Self::Error>;
+    fn write_struct_header(&mut self, tag: u8, size: u8) -> Result<(), Self::Error>;
+    fn write_struct<S: PackStreamSerialize, B: BoltStructTranslator>(
+        &mut self,
+        bolt: &B,
         tag: u8,
         fields: &[S],
     ) -> Result<(), Self::Error>;
@@ -54,6 +75,10 @@ impl<'a, W: Write> PackStreamSerializerImpl<'a, W> {
 
 impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
     type Error = PackStreamError;
+
+    fn error(&self, message: String) -> Result<(), Self::Error> {
+        Err(message.into())
+    }
 
     fn write_null(&mut self) -> Result<(), Self::Error> {
         self.writer.write_all(&[0xC0])?;
@@ -132,8 +157,7 @@ impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
         Ok(())
     }
 
-    fn write_list<S: PackStreamSerialize>(&mut self, l: &[S]) -> Result<(), Self::Error> {
-        let size = l.len();
+    fn write_list_header(&mut self, size: u64) -> Result<(), Self::Error> {
         if size <= 15 {
             self.writer.write_all(&[0x90 + size as u8])?;
         } else if size <= 255 {
@@ -148,17 +172,21 @@ impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
         } else {
             return Err("list exceeds max size of 2,147,483,647".into());
         }
-        for value in l {
-            value.serialize(self)?;
-        }
         Ok(())
     }
 
-    fn write_dict<S: PackStreamSerialize>(
+    fn write_list<S: PackStreamSerialize, B: BoltStructTranslator>(
         &mut self,
-        d: &HashMap<String, S>,
+        bolt: &B,
+        l: &[S],
     ) -> Result<(), Self::Error> {
-        let size = d.len();
+        self.write_list_header(u64::from_usize(l.len()))?;
+        for value in l {
+            value.serialize(self, bolt)?;
+        }
+        Ok(())
+    }
+    fn write_dict_header(&mut self, size: u64) -> Result<(), Self::Error> {
         if size <= 15 {
             self.writer.write_all(&[0xA0 + size as u8])?;
         } else if size <= 255 {
@@ -173,25 +201,113 @@ impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
         } else {
             return Err("list exceeds max size of 2,147,483,647".into());
         }
-        for (key, value) in d {
-            self.write_string(key)?;
-            value.serialize(self)?;
-        }
         Ok(())
     }
 
-    fn write_struct<S: PackStreamSerialize>(
+    fn write_dict<S: PackStreamSerialize, B: BoltStructTranslator, K: Deref<Target = str>>(
         &mut self,
+        bolt: &B,
+        d: &HashMap<K, S>,
+    ) -> Result<(), Self::Error> {
+        self.write_dict_header(u64::from_usize(d.len()))?;
+        for (key, value) in d {
+            self.write_string(key)?;
+            value.serialize(self, bolt)?;
+        }
+        Ok(())
+    }
+    fn write_struct_header(&mut self, tag: u8, size: u8) -> Result<(), Self::Error> {
+        self.writer.write_all(&[0xB0 + size, tag])?;
+        Ok(())
+    }
+
+    fn write_struct<S: PackStreamSerialize, B: BoltStructTranslator>(
+        &mut self,
+        bolt: &B,
         tag: u8,
         fields: &[S],
     ) -> Result<(), Self::Error> {
-        if fields.len() > 15 {
-            return Err("structure exceeds max number of fields (15)".into());
-        }
-        self.writer.write_all(&[0xB0 + fields.len() as u8, tag])?;
+        self.write_struct_header(
+            tag,
+            fields
+                .len()
+                .try_into()
+                .map_err(|_| "structure exceeds max number of fields (15)")?,
+        )?;
         for field in fields.iter() {
-            field.serialize(self)?;
+            field.serialize(self, bolt)?;
         }
         Ok(())
+    }
+}
+
+macro_rules! impl_packstream_serialize {
+    ( $write_fn:ident, $($ty:ty),* ) => {
+        $(
+            impl PackStreamSerialize for $ty {
+                fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
+                    &self,
+                    serializer: &mut S,
+                    bolt: &B,
+                ) -> Result<(), S::Error> {
+                    serializer.$write_fn((*self).into())
+                }
+            }
+        )*
+    }
+}
+
+macro_rules! impl_packstream_serialize_as_ref {
+    ( $write_fn:ident, $($ty:ty),* ) => {
+        $(
+            impl PackStreamSerialize for $ty {
+                fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
+                    &self,
+                    serializer: &mut S,
+                    bolt: &B,
+                ) -> Result<(), S::Error> {
+                    serializer.$write_fn(self.as_ref())
+                }
+            }
+        )*
+    }
+}
+
+impl_packstream_serialize!(write_bool, bool);
+impl_packstream_serialize!(write_int, u8, u16, u32, i8, i16, i32, i64);
+impl_packstream_serialize!(write_float, f32, f64);
+impl_packstream_serialize!(write_string, str);
+impl_packstream_serialize_as_ref!(write_string, String);
+
+impl<V: PackStreamSerialize> PackStreamSerialize for Option<V> {
+    fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
+        &self,
+        serializer: &mut S,
+        bolt: &B,
+    ) -> Result<(), S::Error> {
+        match self {
+            None => serializer.write_null(),
+            Some(v) => v.serialize(serializer, bolt),
+        }
+    }
+}
+
+impl<V: PackStreamSerialize> PackStreamSerialize for [V] {
+    fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
+        &self,
+        serializer: &mut S,
+        bolt: &B,
+    ) -> Result<(), S::Error> {
+        serializer.write_list(bolt, self)
+    }
+}
+
+impl<V: PackStreamSerialize, K: Deref<Target = str> + Debug> PackStreamSerialize for HashMap<K, V> {
+    fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
+        &self,
+        serializer: &mut S,
+        bolt: &B,
+    ) -> Result<(), S::Error> {
+        serializer.write_dict(bolt, self)
     }
 }

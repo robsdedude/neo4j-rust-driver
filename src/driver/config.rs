@@ -47,16 +47,22 @@ pub struct DriverConfig {
 pub struct ConnectionConfig {
     pub(crate) address: Address,
     // pub(crate) routing: bool,
-    pub(crate) routing_context: Option<HashMap<String, String>>,
+    pub(crate) routing_context: Option<HashMap<String, Value>>,
     pub(crate) ssl_context: Option<SslContext>,
+}
+
+impl Default for DriverConfig {
+    fn default() -> Self {
+        Self {
+            user_agent: String::from(DEFAULT_USER_AGENT),
+            auth: HashMap::new(),
+        }
+    }
 }
 
 impl DriverConfig {
     pub fn new() -> Self {
-        DriverConfig {
-            user_agent: String::from(DEFAULT_USER_AGENT),
-            auth: HashMap::new(),
-        }
+        Self::default()
     }
 
     pub fn with_user_agent(mut self, user_agent: String) -> Self {
@@ -95,14 +101,19 @@ impl ConnectionConfig {
     pub fn with_routing(mut self, routing: bool) -> Self {
         if !routing {
             self.routing_context = None
-        } else if let None = self.routing_context {
+        } else if self.routing_context.is_none() {
             self.routing_context = Some(HashMap::new());
         }
         self
     }
 
     pub fn with_routing_context(mut self, routing_context: HashMap<String, String>) -> Self {
-        self.routing_context = Some(routing_context);
+        self.routing_context = Some(
+            routing_context
+                .into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect(),
+        );
         self
     }
 
@@ -216,12 +227,12 @@ impl ConnectionConfig {
         })
     }
 
-    fn parse_query(query: &Query) -> Result<HashMap<String, String>> {
+    fn parse_query(query: &Query) -> Result<HashMap<String, Value>> {
         let mut result = HashMap::new();
         let mut query = query.to_owned();
         query.normalize();
-        for key_value in query.split("&") {
-            let mut elements: Vec<_> = key_value.split("=").take(3).collect();
+        for key_value in query.split('&') {
+            let mut elements: Vec<_> = key_value.split('=').take(3).collect();
             if elements.len() != 2 {
                 return Err(Neo4jError::InvalidConfig {
                     message: format!(

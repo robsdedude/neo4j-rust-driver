@@ -12,11 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod deserialize;
-mod error;
-mod serialize;
-#[cfg(test)]
-mod tests;
+pub(crate) mod bolt;
+mod pool;
 
-pub use deserialize::{PackStreamDeserialize, PackStreamDeserializerImpl};
-pub use serialize::{PackStreamSerialize, PackStreamSerializerImpl};
+pub use pool::{Pool, PoolConfig};

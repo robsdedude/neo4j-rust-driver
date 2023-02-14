@@ -15,6 +15,7 @@
 use crate::Result;
 use std::collections::HashSet;
 use std::ops::{Add, AddAssign};
+use std::option::IntoIter;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -23,6 +24,13 @@ pub struct Bookmarks {
 }
 
 impl Bookmarks {
+    pub fn from_raw(raw: Vec<String>) -> Result<Self> {
+        for bm in raw.iter() {
+            // TODO: do sanity check
+        }
+        Ok(Self::from_raw_unchecked(raw))
+    }
+
     pub(crate) fn from_raw_unchecked(raw: Vec<String>) -> Self {
         Bookmarks {
             bookmarks: raw.into_iter().collect(),
@@ -39,15 +47,12 @@ impl Bookmarks {
         self.bookmarks.len()
     }
 
-    pub fn from_raw(raw: Vec<String>) -> Result<Self> {
-        for bm in raw.iter() {
-            // TODO: do sanity check
-        }
-        Ok(Self::from_raw_unchecked(raw))
+    pub fn into_raw(self) -> impl Iterator<Item = String> {
+        self.bookmarks.into_iter()
     }
 
-    pub fn to_raw(self) -> Vec<String> {
-        self.bookmarks.into_iter().collect()
+    pub fn raw(&self) -> impl Iterator<Item = &String> {
+        self.bookmarks.iter()
     }
 }
 
@@ -85,6 +90,7 @@ impl Add<&Bookmarks> for &Bookmarks {
     type Output = Bookmarks;
 
     fn add(self, rhs: &Bookmarks) -> Self::Output {
+        #[allow(clippy::suspicious_arithmetic_impl)]
         Bookmarks {
             bookmarks: &self.bookmarks | &rhs.bookmarks,
         }

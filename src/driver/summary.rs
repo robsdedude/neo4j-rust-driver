@@ -12,31 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod address;
-mod driver;
-mod error;
-mod util;
-mod value;
-
-pub use address::Address;
-pub use driver::{
-    Driver, DriverConfig, PackStreamDeserialize, PackStreamSerialize, Record, RecordStream,
-    Session, SessionConfig, Summary,
-};
-pub use error::{Neo4jError, Result};
-pub use value::Value;
-
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+#[derive(Debug)]
+pub struct Summary {}
