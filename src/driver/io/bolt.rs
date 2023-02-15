@@ -14,6 +14,7 @@
 
 mod bolt5x0;
 mod chunk;
+mod message;
 mod packstream;
 mod response;
 
@@ -31,6 +32,7 @@ use usize_cast::FromUsize;
 use crate::{Address, Neo4jError, Result, Value};
 use bolt5x0::Bolt5x0StructTranslator;
 use chunk::{Chunker, Dechunker};
+use message::BoltMessage;
 pub use packstream::{
     PackStreamDeserialize, PackStreamDeserializer, PackStreamDeserializerImpl, PackStreamSerialize,
     PackStreamSerializer, PackStreamSerializerImpl,
@@ -313,14 +315,16 @@ impl<R: Read, W: Write> Bolt<R, W> {
             .pop_front()
             .expect("called Bolt::read_one with empty response queue");
         let mut dechunker = Dechunker::new(&mut self.reader);
-        let mut deserializer = PackStreamDeserializerImpl::new(&mut dechunker);
+        // let mut deserializer = PackStreamDeserializerImpl::new(&mut dechunker);
         let translator = Bolt5x0StructTranslator {};
-        let message = deserializer.load::<Value, _>(&translator)?;
-        let _: i64 = "a"; // forced compilation error to find where I want to pick up again
+        let message: BoltMessage<Value> = BoltMessage::load(&mut dechunker, |r| {
+            let mut deserializer = PackStreamDeserializerImpl::new(r);
+            Ok(deserializer.load::<Value, _>(&translator)?)
+        })?;
+        let _; // forced compilation error to find where I want to pick up again
 
         todo!();
-        // TODO: decode
-        //       - use custom message decoder (per Bolt version) wrapping the Dechunker
+        // TODO: handle messages (callbacks and what not)
         // TODO: logging
         Ok(())
     }

@@ -45,12 +45,12 @@ pub trait PackStreamDeserializer {
     fn load_string(&mut self) -> Result<String, Self::Error>;
 }
 
-pub struct PackStreamDeserializerImpl<'a, W: Read> {
-    reader: &'a mut W,
+pub struct PackStreamDeserializerImpl<'a, R: Read> {
+    reader: &'a mut R,
 }
 
-impl<'a, W: Read + 'a> PackStreamDeserializerImpl<'a, W> {
-    pub fn new(reader: &'a mut W) -> PackStreamDeserializerImpl<'a, W> {
+impl<'a, R: Read + 'a> PackStreamDeserializerImpl<'a, R> {
+    pub fn new(reader: &'a mut R) -> PackStreamDeserializerImpl<'a, R> {
         PackStreamDeserializerImpl { reader }
     }
 
@@ -149,7 +149,7 @@ impl<'a, W: Read + 'a> PackStreamDeserializerImpl<'a, W> {
     }
 }
 
-impl<'a, W: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'a, W> {
+impl<'a, R: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'a, R> {
     type Error = PackStreamError;
 
     fn load<V: PackStreamDeserialize, B: BoltStructTranslator>(
