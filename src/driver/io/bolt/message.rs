@@ -19,8 +19,8 @@ use crate::{Neo4jError, Result};
 
 #[derive(Debug)]
 pub(crate) struct BoltMessage<V: PackStreamDeserialize> {
-    tag: u8,
-    fields: Vec<V::Value>,
+    pub tag: u8,
+    pub fields: Vec<V::Value>,
 }
 
 impl<V: PackStreamDeserialize> BoltMessage<V> {

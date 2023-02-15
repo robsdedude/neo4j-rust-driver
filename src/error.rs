@@ -24,8 +24,8 @@ pub enum Neo4jError {
     ///  * experiencing a socket error
     #[error("connection lost")]
     Disconnect {
-        #[from]
         // #[backtrace]
+        #[from]
         source: io::Error,
     },
     /// used when
@@ -47,7 +47,10 @@ pub enum Neo4jError {
         "the driver encountered a protocol violation, \
         this is likely a bug in the driver or the server: {message}"
     )]
-    ProtocolError { message: String },
+    ProtocolError {
+        message: String,
+        // backtrace: Backtrace
+    },
 }
 
 impl Neo4jError {

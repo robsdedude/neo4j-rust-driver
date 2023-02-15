@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::driver::io::bolt::chunk;
 use std::cmp;
 use std::io::Read;
 use std::ops::Deref;
+
+use usize_cast::IntoUsize;
 
 pub(crate) struct Chunker<'a> {
     buf: &'a [u8],
@@ -41,7 +42,7 @@ impl<'a> Iterator for Chunker<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if !self.ended {
             if !self.buf.is_empty() {
-                let end = cmp::min(self.buf.len(), u16::MAX as usize);
+                let end = cmp::min(self.buf.len(), u16::MAX.into_usize());
                 if self.in_chunk {
                     let (chunk, new_buf) = self.buf.split_at(end);
                     self.buf = new_buf;
@@ -76,18 +77,40 @@ impl<'a> Deref for Chunk<'a> {
     }
 }
 
-pub(crate) struct Dechunker<R: Read> {
+pub(crate) struct Dechunker<R: Read, F: FnMut()> {
     reader: R,
+    current_chunk_size: Option<usize>,
+    on_error: F,
 }
 
-impl<R: Read> Dechunker<R> {
-    pub(crate) fn new(reader: R) -> Self {
-        Self { reader }
+impl<R: Read, F: FnMut()> Dechunker<R, F> {
+    pub(crate) fn new(reader: R, on_error: F) -> Self {
+        Self {
+            reader,
+            current_chunk_size: None,
+            on_error,
+        }
+    }
+
+    fn error_wrap<T, E>(&mut self, res: Result<T, E>) -> Result<T, E> {
+        if res.is_err() {
+            (self.on_error)();
+        }
+        res
     }
 }
 
-impl<R: Read> Read for Dechunker<R> {
+impl<R: Read, F: FnMut()> Read for Dechunker<R, F> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        todo!()
+        if self.current_chunk_size.is_none() {
+            let mut size_buf = [0; 2];
+            let res = self.reader.read_exact(&mut size_buf);
+            self.error_wrap(res)?;
+            self.current_chunk_size = Some(u16::from_be_bytes(size_buf).into_usize());
+        }
+        let new_buf_size = cmp::min(buf.len(), self.current_chunk_size.unwrap());
+        let buf = &mut buf[..new_buf_size];
+        let res = self.reader.read(buf);
+        self.error_wrap(res)
     }
 }

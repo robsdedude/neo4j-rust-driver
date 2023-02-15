@@ -78,6 +78,7 @@ pub struct Bolt<R: Read, W: Write> {
     writer: W,
     socket: Option<TcpStream>,
     version: (u8, u8),
+    closed: bool,
 }
 
 pub(crate) type TcpBolt = Bolt<BufReader<TcpStream>, BufWriter<TcpStream>>;
@@ -114,6 +115,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
             writer,
             socket,
             version,
+            closed: false,
         }
     }
 
@@ -314,16 +316,36 @@ impl<R: Read, W: Write> Bolt<R, W> {
             .responses
             .pop_front()
             .expect("called Bolt::read_one with empty response queue");
-        let mut dechunker = Dechunker::new(&mut self.reader);
+
+        let mut dechunker = Dechunker::new(&mut self.reader, || self.closed = true);
         // let mut deserializer = PackStreamDeserializerImpl::new(&mut dechunker);
         let translator = Bolt5x0StructTranslator {};
         let message: BoltMessage<Value> = BoltMessage::load(&mut dechunker, |r| {
             let mut deserializer = PackStreamDeserializerImpl::new(r);
             Ok(deserializer.load::<Value, _>(&translator)?)
         })?;
+        match message {
+            BoltMessage { tag: 0x70, fields } => {
+                // SUCCESS
+            }
+            BoltMessage { tag: 0x7E, fields } => {
+                // IGNORED
+            }
+            BoltMessage { tag: 0x7F, fields } => {
+                // FAILURE
+            }
+            BoltMessage { tag: 0x71, fields } => {
+                // RECORD
+            }
+            BoltMessage { tag, .. } => {
+                return Err(Neo4jError::ProtocolError {
+                    message: format!("unknown response message tag {:02X?}", tag),
+                })
+            }
+        }
         let _; // forced compilation error to find where I want to pick up again
 
-        todo!();
+        // todo!();
         // TODO: handle messages (callbacks and what not)
         // TODO: logging
         Ok(())
@@ -331,9 +353,12 @@ impl<R: Read, W: Write> Bolt<R, W> {
 
     pub(crate) fn write_one(&mut self) -> Result<()> {
         if let Some(message_buff) = self.message_buff.pop_front() {
-            let mut chunker = Chunker::new(&message_buff);
+            let chunker = Chunker::new(&message_buff);
             for chunk in chunker {
-                self.writer.write_all(&chunk)?
+                if let Err(e) = self.writer.write_all(&chunk) {
+                    self.closed = true;
+                    return Err(e.into());
+                }
             }
         }
         Ok(())
