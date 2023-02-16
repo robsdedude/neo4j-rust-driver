@@ -41,7 +41,6 @@ impl<V: PackStreamDeserialize> BoltMessage<V> {
         let mut tag = [0; 1];
         reader.read_exact(&mut tag)?;
         let tag = u8::from_be_bytes(tag);
-        let mut deserializer = PackStreamDeserializerImpl::new(reader);
         let fields = (0..size)
             .map(|_| load_value(reader))
             .collect::<Result<_>>()?;

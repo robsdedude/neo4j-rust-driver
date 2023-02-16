@@ -43,72 +43,32 @@ impl BoltResponse {
     pub(crate) fn from_message(message: ResponseMessage) -> Self {
         Self::new(message, ResponseCallbacks::new())
     }
-
-    // pub(crate) fn onSuccess<F: FnMut(HashMap<String, Value>) -> Result<()> + 'static>(
-    //     &mut self,
-    //     cb: F,
-    // ) {
-    //     self.on_success.push(Box::new(cb));
-    // }
-    //
-    // pub(crate) fn callOnSuccess(&mut self, meta: Value) -> Result<()> {
-    //     match meta {
-    //         Value::Map(meta) => {
-    //             let metas = vec![meta; self.on_success.len()].into_iter();
-    //             self.on_success
-    //                 .iter_mut()
-    //                 .zip(metas)
-    //                 .map(|(cb, meta)| cb(meta))
-    //                 .collect::<Result<_>>()?;
-    //             Ok(())
-    //         }
-    //         _ => Err(Neo4jError::ProtocolError {
-    //             message: "onSuccess meta was not a Dictionary".into(),
-    //         }),
-    //     }
-    // }
-
-    // pub(crate) fn onFailure<F: FnMut(&HashMap<String, Value>) -> Result<()>>(&mut self, cb: F) {
-    //     self.on_failure.push(Box::new(cb));
-    // }
-    //
-    // pub(crate) fn callOnFailure<F: FnMut(HashMap<String, Value>) -> Result<()>>(
-    //     &self,
-    //     meta: Value,
-    // ) -> Result<()> {
-    //     match meta {
-    //         Value::Map(meta) => self
-    //             .on_failure
-    //             .iter()
-    //             .zip(vec![meta; self.on_failure.len()].into_iter())
-    //             .each(|(cb, meta)| cb(meta))
-    //             .collect(),
-    //         _ => {
-    //             return Err(Neo4jError::ProtocolError {
-    //                 message: "onFailure meta was not a Dictionary".into(),
-    //             })
-    //         }
-    //     }
-    //     Ok(())
-    // }
 }
 
+type OptBox<T> = Option<Box<T>>;
+type BoltMeta = HashMap<String, Value>;
+type RecordFields = Vec<Value>;
+
 pub(crate) struct ResponseCallbacks {
-    on_success_cb: Option<Box<dyn FnMut(HashMap<String, Value>) -> Result<()>>>,
-    on_record_cb: Option<Box<dyn FnMut(Vec<Value>) -> Result<()>>>,
-    on_failure_cb: Option<Box<dyn FnMut(HashMap<String, Value>) -> Result<()>>>,
+    on_success_cb: OptBox<dyn FnMut(BoltMeta) -> Result<()>>,
+    on_failure_cb: OptBox<dyn FnMut(BoltMeta) -> Result<()>>,
+    on_ignored_cb: OptBox<dyn FnMut() -> Result<()>>,
+    on_record_cb: OptBox<dyn FnMut(RecordFields) -> Result<()>>,
+    on_summary_cb: OptBox<dyn FnMut()>,
 }
 
 impl ResponseCallbacks {
     pub(crate) fn new() -> Self {
         Self {
             on_success_cb: None,
-            on_record_cb: None,
             on_failure_cb: None,
+            on_ignored_cb: None,
+            on_record_cb: None,
+            on_summary_cb: None,
         }
     }
 
-    pub(crate) fn with_on_success<F: FnMut(HashMap<String, Value>) -> Result<()> + 'static>(
+    pub(crate) fn with_on_success<F: FnMut(BoltMeta) -> Result<()> + 'static>(
         mut self,
         cb: F,
     ) -> Self {
@@ -116,8 +76,34 @@ impl ResponseCallbacks {
         self
     }
 
+    pub(crate) fn with_on_failure<F: FnMut(BoltMeta) -> Result<()> + 'static>(
+        mut self,
+        cb: F,
+    ) -> Self {
+        self.on_failure_cb = Some(Box::new(cb));
+        self
+    }
+
+    pub(crate) fn with_on_ignored<F: FnMut() -> Result<()> + 'static>(mut self, cb: F) -> Self {
+        self.on_ignored_cb = Some(Box::new(cb));
+        self
+    }
+
+    pub(crate) fn with_on_record<F: FnMut(RecordFields) -> Result<()> + 'static>(
+        mut self,
+        cb: F,
+    ) -> Self {
+        self.on_record_cb = Some(Box::new(cb));
+        self
+    }
+
+    pub(crate) fn with_on_summary<F: FnMut() + 'static>(mut self, cb: F) -> Self {
+        self.on_summary_cb = Some(Box::new(cb));
+        self
+    }
+
     pub(crate) fn on_success(&mut self, meta: Value) -> Result<()> {
-        match meta {
+        let res = match meta {
             Value::Map(meta) => match self.on_success_cb.as_mut() {
                 None => Ok(()),
                 Some(cb) => cb(meta),
@@ -125,15 +111,29 @@ impl ResponseCallbacks {
             _ => Err(Neo4jError::ProtocolError {
                 message: "onSuccess meta was not a Dictionary".into(),
             }),
-        }
+        };
+        self.on_summary();
+        res
     }
 
-    pub(crate) fn with_on_record<F: FnMut(Vec<Value>) -> Result<()> + 'static>(
-        mut self,
-        cb: F,
-    ) -> Self {
-        self.on_record_cb = Some(Box::new(cb));
-        self
+    pub(crate) fn on_failure(&mut self, meta: Value) -> Result<()> {
+        let res = match meta {
+            Value::Map(meta) => match self.on_failure_cb.as_mut() {
+                None => Ok(()),
+                Some(cb) => cb(meta),
+            },
+            _ => Err(Neo4jError::ProtocolError {
+                message: "onFailure meta was not a Dictionary".into(),
+            }),
+        };
+        self.on_summary();
+        res
+    }
+
+    pub(crate) fn on_ignored(&mut self) -> Result<()> {
+        let res = self.on_ignored_cb.as_mut().map(|cb| cb()).unwrap_or(Ok(()));
+        self.on_summary();
+        res
     }
 
     pub(crate) fn on_record(&mut self, meta: Value) -> Result<()> {
@@ -147,16 +147,25 @@ impl ResponseCallbacks {
             }),
         }
     }
+
+    fn on_summary(&mut self) {
+        if let Some(cb) = self.on_summary_cb.as_mut() {
+            cb()
+        }
+    }
 }
 
 impl Debug for ResponseCallbacks {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "ResponseCallbacks {{\n  on_success: {:?}\n  #on_record: {:?}\n  #on_failure: {:?}\n}}",
+            "ResponseCallbacks {{\n  on_success: {:?}\n  #on_failure: {:?}\n  #on_ignored: {:?}\n  \
+             #on_record: {:?}\n  #on_summary: {:?}\n}}",
             self.on_success_cb.as_ref().map(|_| "..."),
+            self.on_failure_cb.as_ref().map(|_| "..."),
+            self.on_ignored_cb.as_ref().map(|_| "..."),
             self.on_record_cb.as_ref().map(|_| "..."),
-            self.on_failure_cb.as_ref().map(|_| "...")
+            self.on_summary_cb.as_ref().map(|_| "..."),
         )
     }
 }

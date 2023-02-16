@@ -266,7 +266,6 @@ impl<R: Read, W: Write> Bolt<R, W> {
         }
         if let Some(imp_user) = imp_user {
             debug_buf!(log_buf, "{}{:?}: {:?}", sep, "imp_user", imp_user);
-            sep = ", ";
             serializer.write_string("imp_user")?;
             imp_user.serialize(&mut serializer, &translator)?;
         }
@@ -312,7 +311,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
     }
 
     pub(crate) fn read_one(&mut self) -> Result<()> {
-        let response = self
+        let mut response = self
             .responses
             .pop_front()
             .expect("called Bolt::read_one with empty response queue");
@@ -325,30 +324,65 @@ impl<R: Read, W: Write> Bolt<R, W> {
             Ok(deserializer.load::<Value, _>(&translator)?)
         })?;
         match message {
-            BoltMessage { tag: 0x70, fields } => {
+            BoltMessage {
+                tag: 0x70,
+                mut fields,
+            } => {
                 // SUCCESS
+                Self::assert_response_field_count("SUCCESS", &fields, 1)?;
+                let meta = fields.pop().unwrap();
+                debug!("S: SUCCESS {:?}", meta);
+                response.callbacks.on_success(meta)
             }
             BoltMessage { tag: 0x7E, fields } => {
                 // IGNORED
+                Self::assert_response_field_count("IGNORED", &fields, 0)?;
+                debug!("S: IGNORED");
+                response.callbacks.on_ignored()
             }
-            BoltMessage { tag: 0x7F, fields } => {
+            BoltMessage {
+                tag: 0x7F,
+                mut fields,
+            } => {
                 // FAILURE
+                Self::assert_response_field_count("FAILURE", &fields, 1)?;
+                let meta = fields.pop().unwrap();
+                debug!("S: FAILURE {:?}", meta);
+                response.callbacks.on_failure(meta)
             }
-            BoltMessage { tag: 0x71, fields } => {
+            BoltMessage {
+                tag: 0x71,
+                mut fields,
+            } => {
                 // RECORD
+                Self::assert_response_field_count("RECORD", &fields, 1)?;
+                let data = fields.pop().unwrap();
+                debug!("S: RECORD [...]");
+                response.callbacks.on_record(data)
             }
-            BoltMessage { tag, .. } => {
-                return Err(Neo4jError::ProtocolError {
-                    message: format!("unknown response message tag {:02X?}", tag),
-                })
-            }
+            BoltMessage { tag, .. } => Err(Neo4jError::ProtocolError {
+                message: format!("unknown response message tag {:02X?}", tag),
+            }),
         }
-        let _; // forced compilation error to find where I want to pick up again
+    }
 
-        // todo!();
-        // TODO: handle messages (callbacks and what not)
-        // TODO: logging
-        Ok(())
+    fn assert_response_field_count<T>(
+        name: &str,
+        fields: &[T],
+        expected_count: usize,
+    ) -> Result<()> {
+        if fields.len() == expected_count {
+            Ok(())
+        } else {
+            Err(Neo4jError::ProtocolError {
+                message: format!(
+                    "{} response should have {} field but found {:?}",
+                    name,
+                    expected_count,
+                    fields.len()
+                ),
+            })
+        }
     }
 
     pub(crate) fn write_one(&mut self) -> Result<()> {
@@ -430,7 +464,7 @@ const BOLT_VERSION_OFFER: [u8; 16] = [
 ];
 
 pub(crate) fn open(address: &Address) -> Result<TcpBolt> {
-    let mut stream = TcpStream::connect(address)?;
+    let stream = TcpStream::connect(address)?;
 
     // TODO: TLS
 

@@ -79,21 +79,24 @@ impl<'a> Deref for Chunk<'a> {
 
 pub(crate) struct Dechunker<R: Read, F: FnMut()> {
     reader: R,
-    current_chunk_size: Option<usize>,
+    chunk_size: usize,
     on_error: F,
+    broken: bool,
 }
 
 impl<R: Read, F: FnMut()> Dechunker<R, F> {
     pub(crate) fn new(reader: R, on_error: F) -> Self {
         Self {
             reader,
-            current_chunk_size: None,
+            chunk_size: 0,
             on_error,
+            broken: false,
         }
     }
 
     fn error_wrap<T, E>(&mut self, res: Result<T, E>) -> Result<T, E> {
         if res.is_err() {
+            self.broken = true;
             (self.on_error)();
         }
         res
@@ -102,15 +105,19 @@ impl<R: Read, F: FnMut()> Dechunker<R, F> {
 
 impl<R: Read, F: FnMut()> Read for Dechunker<R, F> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.current_chunk_size.is_none() {
+        if self.broken {
+            panic!("attempted to read from a broken dechunker");
+        }
+        while self.chunk_size == 0 {
             let mut size_buf = [0; 2];
             let res = self.reader.read_exact(&mut size_buf);
             self.error_wrap(res)?;
-            self.current_chunk_size = Some(u16::from_be_bytes(size_buf).into_usize());
+            self.chunk_size = u16::from_be_bytes(size_buf).into_usize();
         }
-        let new_buf_size = cmp::min(buf.len(), self.current_chunk_size.unwrap());
+        let new_buf_size = cmp::min(buf.len(), self.chunk_size);
         let buf = &mut buf[..new_buf_size];
-        let res = self.reader.read(buf);
+        let res = self.reader.read_exact(buf).map(|_| new_buf_size);
+        self.chunk_size -= new_buf_size;
         self.error_wrap(res)
     }
 }

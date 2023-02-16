@@ -248,7 +248,7 @@ macro_rules! impl_packstream_serialize {
                 fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
                     &self,
                     serializer: &mut S,
-                    bolt: &B,
+                    _: &B,
                 ) -> Result<(), S::Error> {
                     serializer.$write_fn((*self).into())
                 }
@@ -264,7 +264,7 @@ macro_rules! impl_packstream_serialize_as_ref {
                 fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
                     &self,
                     serializer: &mut S,
-                    bolt: &B,
+                    _: &B,
                 ) -> Result<(), S::Error> {
                     serializer.$write_fn(self.as_ref())
                 }
