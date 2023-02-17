@@ -18,7 +18,7 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::rc::Rc;
 
-use super::io::bolt::{BoltMeta, BoltRecordFields, ResponseCallbacks, TcpBolt};
+use super::io::bolt::{BoltMeta, BoltRecordFields, BoltResponse, ResponseCallbacks, TcpBolt};
 use crate::error::ServerError;
 use crate::{Neo4jError, PackStreamSerialize, Record, Result, Summary, Value};
 
@@ -79,10 +79,11 @@ impl<'a> RecordStream<'a> {
 
     fn pull(&mut self) -> Result<()> {
         let listener = Rc::downgrade(&self.listener);
-        let mut callbacks = ResponseCallbacks::new().with_on_summary(move || {
+        let mut callbacks = ResponseCallbacks::new().with_on_success(move |meta| {
             if let Some(listener) = listener.upgrade() {
-                listener.borrow_mut().pull_summary_cb();
+                return listener.borrow_mut().pull_success_cb(meta);
             }
+            Ok(())
         });
         let listener = Rc::downgrade(&self.listener);
         callbacks = callbacks.with_on_record(move |data| {
@@ -101,15 +102,19 @@ impl<'a> Iterator for RecordStream<'a> {
     type Item = Result<Record>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let listener_rc = Rc::clone(&self.listener);
-        let mut listener = listener_rc.borrow_mut();
+        fn need_to_pull(listener: &Rc<RefCell<RecordListener>>) -> bool {
+            let listener = listener.borrow();
+            listener.buffer.is_empty() && listener.error.is_none() && listener.streaming
+        }
 
-        while listener.buffer.is_empty() && listener.error.is_none() && listener.streaming {
+        while need_to_pull(&self.listener) {
             if let Err(err) = self.pull() {
-                listener.streaming = false;
+                self.listener.borrow_mut().streaming = false;
                 return Some(Err(err));
             }
         }
+
+        let mut listener = self.listener.borrow_mut();
 
         if let Some(record) = listener.buffer.pop_front() {
             Some(Ok(record))
@@ -185,7 +190,11 @@ impl RecordListener {
         Ok(())
     }
 
-    fn pull_summary_cb(&mut self) {
-        self.streaming = false;
+    fn pull_success_cb(&mut self, meta: BoltMeta) -> Result<()> {
+        let Some(Value::Boolean(true)) = meta.get("has_more") else {
+            self.streaming = false;
+            return Ok(());
+        };
+        Ok(())
     }
 }

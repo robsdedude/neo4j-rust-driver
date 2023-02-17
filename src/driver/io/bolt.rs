@@ -340,11 +340,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 Self::assert_response_field_count("SUCCESS", &fields, 1)?;
                 let meta = fields.pop().unwrap();
                 debug!("S: SUCCESS {:?}", meta);
-                let is_summary = BoltResponse::is_summary(&meta);
                 let res = response.callbacks.on_success(meta);
-                if !is_summary {
-                    self.responses.push_front(response);
-                }
                 res
             }
             BoltMessage { tag: 0x7E, fields } => {
