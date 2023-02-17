@@ -15,6 +15,8 @@
 // TODO: remove when prototyping phase is done
 #![allow(dead_code)]
 
+extern crate core;
+
 mod address;
 mod driver;
 mod error;
@@ -23,8 +25,8 @@ mod value;
 
 pub use address::Address;
 pub use driver::{
-    Driver, DriverConfig, PackStreamDeserialize, PackStreamSerialize, Record, RecordStream,
-    Session, SessionConfig, Summary,
+    ConnectionConfig, Driver, DriverConfig, PackStreamDeserialize, PackStreamSerialize, Record,
+    RecordStream, Session, SessionConfig, SessionRunConfig, Summary,
 };
 pub use error::{Neo4jError, Result};
 pub use value::Value;

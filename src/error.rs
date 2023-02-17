@@ -17,6 +17,9 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use thiserror::Error;
 
+use crate::driver::io::bolt::BoltMeta;
+use crate::Value;
+
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Neo4jError {
@@ -54,8 +57,12 @@ pub enum Neo4jError {
 }
 
 impl Neo4jError {
-    pub fn is_retryable() {
-        todo!();
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Neo4jError::ServerError(err) => err.is_retryable(),
+            Neo4jError::Disconnect { .. } => true,
+            _ => false,
+        }
     }
 }
 
@@ -67,7 +74,19 @@ pub struct ServerError {
 
 impl ServerError {
     pub fn new(code: String, message: String) -> Self {
-        ServerError { code, message }
+        Self { code, message }
+    }
+
+    pub fn from_meta(mut meta: BoltMeta) -> Self {
+        let code = match meta.remove("code") {
+            Some(Value::String(code)) => code,
+            _ => "Neo.DatabaseError.General.UnknownError".into(),
+        };
+        let message = match meta.remove("message") {
+            Some(Value::String(message)) => message,
+            _ => "An unknown error occurred.".into(),
+        };
+        Self { code, message }
     }
 
     pub fn code(&self) -> &str {
@@ -89,6 +108,10 @@ impl ServerError {
     pub fn title(&self) -> &str {
         self.code.split('.').nth(3).unwrap_or("")
     }
+
+    fn is_retryable(&self) -> bool {
+        todo!()
+    }
 }
 
 impl Display for ServerError {
@@ -98,3 +121,9 @@ impl Display for ServerError {
 }
 
 pub type Result<T> = std::result::Result<T, Neo4jError>;
+
+impl From<ServerError> for Neo4jError {
+    fn from(err: ServerError) -> Self {
+        Neo4jError::ServerError(err)
+    }
+}

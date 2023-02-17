@@ -14,19 +14,10 @@
 
 use crate::driver::session::Bookmarks;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SessionConfig {
     pub(crate) database: Option<String>,
     pub(crate) bookmarks: Option<Vec<String>>,
-}
-
-impl Default for SessionConfig {
-    fn default() -> Self {
-        Self {
-            database: None,
-            bookmarks: None,
-        }
-    }
 }
 
 impl SessionConfig {

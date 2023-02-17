@@ -49,6 +49,7 @@ impl<'a> Iterator for Chunker<'a> {
                     Some(Chunk::Buffer(chunk))
                 } else {
                     let size = (end as u16).to_be_bytes();
+                    self.in_chunk = true;
                     Some(Chunk::Size(size))
                 }
             } else {

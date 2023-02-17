@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod bookmarks;
-mod config;
+pub(crate) mod bookmarks;
+pub(crate) mod config;
 
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -34,12 +34,12 @@ pub struct Session<'a> {
     // run_record_stream: Option<RecordStream>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SessionRunConfig<
-    K1: Deref<Target = str> + Debug,
-    S1: PackStreamSerialize,
-    K2: Deref<Target = str> + Debug,
-    S2: PackStreamSerialize,
+    K1: Deref<Target = str> + Debug = String,
+    S1: PackStreamSerialize = String,
+    K2: Deref<Target = str> + Debug = String,
+    S2: PackStreamSerialize = String,
 > {
     parameters: Option<HashMap<K1, S1>>,
     tx_meta: Option<HashMap<K2, S2>>,
@@ -55,31 +55,14 @@ impl<'a> Session<'a> {
         }
     }
 
-    pub fn run<
-        F: Fn(&mut RecordStream) -> Result<()>,
-        K1: Deref<Target = str> + Debug,
-        S1: PackStreamSerialize,
-        K2: Deref<Target = str> + Debug,
-        S2: PackStreamSerialize,
-    >(
+    pub fn run<F: FnOnce(&mut RecordStream) -> Result<R>, R>(
         &mut self,
-        receiver: F,
         query: &str,
-        config: &SessionRunConfig<K1, S1, K2, S2>,
-    ) -> Result<()> {
+        config: &SessionRunConfig,
+        receiver: F,
+    ) -> Result<R> {
         self.connect()?;
         let cx = self.connection.as_mut().unwrap();
-        // cx.run(
-        //     query: &str,
-        //     parameters: Option<&HashMap<String, Value>>,
-        //     bookmarks: Option<&[String]>,
-        //     tx_timeout: Option<i64>,
-        //     tx_meta: Option<&HashMap<String, Value>>,
-        //     mode: Option<&str>,
-        //     db: Option<&str>,
-        //     imp_user: Option<&str>,
-        // )?;
-
         let mut record_stream = RecordStream::new(cx);
         record_stream.run(
             query,
@@ -91,8 +74,7 @@ impl<'a> Session<'a> {
             self.config.database.as_deref(),
             None,
         )?;
-        let result = receiver(&mut record_stream);
-        Ok(())
+        receiver(&mut record_stream)
     }
 
     fn connect(&mut self) -> Result<()> {

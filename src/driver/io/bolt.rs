@@ -20,11 +20,13 @@ mod response;
 
 use log::Level;
 use log::{debug, log_enabled};
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Formatter};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::TcpStream;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
+use std::rc::Weak;
 use std::result;
 
 use usize_cast::FromUsize;
@@ -33,12 +35,14 @@ use crate::{Address, Neo4jError, Result, Value};
 use bolt5x0::Bolt5x0StructTranslator;
 use chunk::{Chunker, Dechunker};
 use message::BoltMessage;
-pub use packstream::{
-    PackStreamDeserialize, PackStreamDeserializer, PackStreamDeserializerImpl, PackStreamSerialize,
-    PackStreamSerializer, PackStreamSerializerImpl,
+pub use packstream::{PackStreamDeserialize, PackStreamSerialize};
+pub(crate) use packstream::{
+    PackStreamDeserializer, PackStreamDeserializerImpl, PackStreamSerializer,
+    PackStreamSerializerImpl,
 };
-use response::BoltResponse;
-pub(crate) use response::{ResponseCallbacks, ResponseMessage};
+pub(crate) use response::{
+    BoltMeta, BoltRecordFields, BoltResponse, ResponseCallbacks, ResponseMessage,
+};
 
 // trait Bolt: Debug {
 //     fn version(&self) -> (u8, u8) {
@@ -278,7 +282,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
         Ok(())
     }
 
-    pub(crate) fn discard(&mut self, n: i64, qid: i64) -> Result<()> {
+    pub(crate) fn discard(&mut self, n: i64, qid: i64, callbacks: ResponseCallbacks) -> Result<()> {
         let mut message_buff = Vec::new();
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(0x2F, 1)?;
@@ -290,11 +294,13 @@ impl<R: Read, W: Write> Bolt<R, W> {
         serializer.write_int(qid)?;
 
         self.message_buff.push_back(message_buff);
+        self.responses
+            .push_back(BoltResponse::new(ResponseMessage::Discard, callbacks));
         debug!("C: DISCARD {{{:?}: {:?}, {:?}: {:?}}}", "n", n, "qid", qid);
         Ok(())
     }
 
-    pub(crate) fn pull(&mut self, n: i64, qid: i64) -> Result<()> {
+    pub(crate) fn pull(&mut self, n: i64, qid: i64, callbacks: ResponseCallbacks) -> Result<()> {
         let mut message_buff = Vec::new();
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(0x3F, 1)?;
@@ -306,6 +312,8 @@ impl<R: Read, W: Write> Bolt<R, W> {
         serializer.write_int(qid)?;
 
         self.message_buff.push_back(message_buff);
+        self.responses
+            .push_back(BoltResponse::new(ResponseMessage::Run, callbacks));
         debug!("C: PULL {{{:?}: {:?}, {:?}: {:?}}}", "n", n, "qid", qid);
         Ok(())
     }
@@ -402,6 +410,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 }
             }
         }
+        self.writer.flush()?;
         Ok(())
     }
 

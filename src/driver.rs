@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod config;
-mod io;
-mod record;
-mod record_stream;
-mod session;
-mod summary;
+pub(crate) mod config;
+pub(crate) mod io;
+pub(crate) mod record;
+pub(crate) mod record_stream;
+pub(crate) mod session;
+pub(crate) mod summary;
 
 pub use config::{ConnectionConfig, DriverConfig};
 pub use io::bolt::{PackStreamDeserialize, PackStreamSerialize};
@@ -25,7 +25,7 @@ pub use io::bolt::{PackStreamDeserialize, PackStreamSerialize};
 use io::{Pool, PoolConfig};
 pub use record::Record;
 pub use record_stream::RecordStream;
-pub use session::{Session, SessionConfig};
+pub use session::{Session, SessionConfig, SessionRunConfig};
 pub use summary::Summary;
 
 #[derive(Debug)]

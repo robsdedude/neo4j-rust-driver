@@ -56,14 +56,14 @@ impl BoltResponse {
 }
 
 type OptBox<T> = Option<Box<T>>;
-type BoltMeta = HashMap<String, Value>;
-type RecordFields = Vec<Value>;
+pub(crate) type BoltMeta = HashMap<String, Value>;
+pub(crate) type BoltRecordFields = Vec<Value>;
 
 pub(crate) struct ResponseCallbacks {
     on_success_cb: OptBox<dyn FnMut(BoltMeta) -> Result<()>>,
     on_failure_cb: OptBox<dyn FnMut(BoltMeta) -> Result<()>>,
     on_ignored_cb: OptBox<dyn FnMut() -> Result<()>>,
-    on_record_cb: OptBox<dyn FnMut(RecordFields) -> Result<()>>,
+    on_record_cb: OptBox<dyn FnMut(BoltRecordFields) -> Result<()>>,
     on_summary_cb: OptBox<dyn FnMut()>,
 }
 
@@ -99,7 +99,7 @@ impl ResponseCallbacks {
         self
     }
 
-    pub(crate) fn with_on_record<F: FnMut(RecordFields) -> Result<()> + 'static>(
+    pub(crate) fn with_on_record<F: FnMut(BoltRecordFields) -> Result<()> + 'static>(
         mut self,
         cb: F,
     ) -> Self {

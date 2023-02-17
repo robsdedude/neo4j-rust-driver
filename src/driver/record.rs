@@ -12,5 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::io::bolt::BoltRecordFields;
+
 #[derive(Debug)]
-pub struct Record {}
+pub struct Record {
+    pub(crate) fields: BoltRecordFields,
+}
