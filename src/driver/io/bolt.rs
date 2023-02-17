@@ -332,7 +332,12 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 Self::assert_response_field_count("SUCCESS", &fields, 1)?;
                 let meta = fields.pop().unwrap();
                 debug!("S: SUCCESS {:?}", meta);
-                response.callbacks.on_success(meta)
+                let is_summary = BoltResponse::is_summary(&meta);
+                let res = response.callbacks.on_success(meta);
+                if !is_summary {
+                    self.responses.push_front(response);
+                }
+                res
             }
             BoltMessage { tag: 0x7E, fields } => {
                 // IGNORED
@@ -358,7 +363,9 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 Self::assert_response_field_count("RECORD", &fields, 1)?;
                 let data = fields.pop().unwrap();
                 debug!("S: RECORD [...]");
-                response.callbacks.on_record(data)
+                let res = response.callbacks.on_record(data);
+                self.responses.push_front(response);
+                res
             }
             BoltMessage { tag, .. } => Err(Neo4jError::ProtocolError {
                 message: format!("unknown response message tag {:02X?}", tag),

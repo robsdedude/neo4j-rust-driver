@@ -43,6 +43,16 @@ impl BoltResponse {
     pub(crate) fn from_message(message: ResponseMessage) -> Self {
         Self::new(message, ResponseCallbacks::new())
     }
+
+    pub(crate) fn is_summary(meta: &Value) -> bool {
+        match &meta {
+            Value::Map(m) => match m.get("has_more") {
+                Some(Value::Boolean(b)) => !*b,
+                _ => true,
+            },
+            _ => true,
+        }
+    }
 }
 
 type OptBox<T> = Option<Box<T>>;
@@ -103,6 +113,7 @@ impl ResponseCallbacks {
     }
 
     pub(crate) fn on_success(&mut self, meta: Value) -> Result<()> {
+        let is_summary = BoltResponse::is_summary(&meta);
         let res = match meta {
             Value::Map(meta) => match self.on_success_cb.as_mut() {
                 None => Ok(()),
@@ -112,7 +123,9 @@ impl ResponseCallbacks {
                 message: "onSuccess meta was not a Dictionary".into(),
             }),
         };
-        self.on_summary();
+        if is_summary {
+            self.on_summary();
+        }
         res
     }
 
@@ -136,14 +149,14 @@ impl ResponseCallbacks {
         res
     }
 
-    pub(crate) fn on_record(&mut self, meta: Value) -> Result<()> {
-        match meta {
+    pub(crate) fn on_record(&mut self, data: Value) -> Result<()> {
+        match data {
             Value::List(values) => match self.on_record_cb.as_mut() {
                 None => Ok(()),
                 Some(cb) => cb(values),
             },
             _ => Err(Neo4jError::ProtocolError {
-                message: "onRecord meta was not a List".into(),
+                message: "onRecord data was not a List".into(),
             }),
         }
     }
