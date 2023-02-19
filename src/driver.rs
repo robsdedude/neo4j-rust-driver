@@ -48,7 +48,7 @@ impl Driver {
         }
     }
 
-    pub fn session<'a>(&'a self, config: &'a SessionConfig) -> Session<'a> {
+    pub fn session<C: AsRef<SessionConfig>>(&self, config: C) -> Session<C> {
         Session::new(config, &self.pool)
     }
 }

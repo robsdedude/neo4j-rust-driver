@@ -45,3 +45,9 @@ impl SessionConfig {
         self
     }
 }
+
+impl AsRef<SessionConfig> for SessionConfig {
+    fn as_ref(&self) -> &SessionConfig {
+        self
+    }
+}

@@ -27,8 +27,8 @@ pub use bookmarks::Bookmarks;
 pub use config::SessionConfig;
 
 #[derive(Debug)]
-pub struct Session<'a> {
-    config: &'a SessionConfig,
+pub struct Session<'a, C> {
+    config: C,
     pool: &'a Pool,
     connection: Option<TcpBolt>,
     // run_record_stream: Option<RecordStream>,
@@ -45,8 +45,8 @@ pub struct SessionRunConfig<
     tx_meta: Option<HashMap<K2, S2>>,
 }
 
-impl<'a> Session<'a> {
-    pub(crate) fn new(config: &'a SessionConfig, pool: &'a Pool) -> Self {
+impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
+    pub(crate) fn new(config: C, pool: &'a Pool) -> Self {
         Session {
             config,
             pool,
@@ -64,17 +64,28 @@ impl<'a> Session<'a> {
         self.connect()?;
         let cx = self.connection.as_mut().unwrap();
         let mut record_stream = RecordStream::new(cx);
-        record_stream.run(
-            query,
-            config.parameters.as_ref(),
-            self.config.bookmarks.as_deref(),
-            None,
-            config.tx_meta.as_ref(),
-            None,
-            self.config.database.as_deref(),
-            None,
-        )?;
-        receiver(&mut record_stream)
+        let res = record_stream
+            .run(
+                query,
+                config.parameters.as_ref(),
+                self.config.as_ref().bookmarks.as_deref(),
+                None,
+                config.tx_meta.as_ref(),
+                None,
+                self.config.as_ref().database.as_deref(),
+                None,
+            )
+            .and_then(|_| receiver(&mut record_stream));
+        match res {
+            Ok(r) => {
+                record_stream.consume()?;
+                Ok(r)
+            }
+            Err(e) => {
+                let _ = record_stream.consume();
+                Err(e)
+            }
+        }
     }
 
     fn connect(&mut self) -> Result<()> {

@@ -340,8 +340,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 Self::assert_response_field_count("SUCCESS", &fields, 1)?;
                 let meta = fields.pop().unwrap();
                 debug!("S: SUCCESS {:?}", meta);
-                let res = response.callbacks.on_success(meta);
-                res
+                response.callbacks.on_success(meta)
             }
             BoltMessage { tag: 0x7E, fields } => {
                 // IGNORED
@@ -424,11 +423,11 @@ impl<R: Read, W: Write> Bolt<R, W> {
         Ok(())
     }
 
-    fn has_buffered_message(&self) -> bool {
+    pub(crate) fn has_buffered_message(&self) -> bool {
         !self.message_buff.is_empty()
     }
 
-    fn expects_reply(&self) -> bool {
+    pub(crate) fn expects_reply(&self) -> bool {
         !self.responses.is_empty()
     }
 }
