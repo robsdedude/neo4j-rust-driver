@@ -16,19 +16,22 @@ use std::cmp;
 use std::io::Read;
 use std::ops::Deref;
 
+use log::trace;
 use usize_cast::IntoUsize;
 
-pub(crate) struct Chunker<'a> {
-    buf: &'a [u8],
+pub(crate) struct Chunker<'a, T: Deref<Target = [u8]>> {
+    buffers: &'a [T],
+    buffer_start: usize,
     chunk_size: [u8; 2],
     in_chunk: bool,
     ended: bool,
 }
 
-impl<'a> Chunker<'a> {
-    pub(crate) fn new(buf: &'a [u8]) -> Self {
+impl<'a, T: Deref<Target = [u8]>> Chunker<'a, T> {
+    pub(crate) fn new(buf: &'a [T]) -> Self {
         Chunker {
-            buf,
+            buffers: buf,
+            buffer_start: 0,
             chunk_size: [0; 2],
             in_chunk: false,
             ended: false,
@@ -36,19 +39,36 @@ impl<'a> Chunker<'a> {
     }
 }
 
-impl<'a> Iterator for Chunker<'a> {
+impl<'a, T: Deref<Target = [u8]>> Iterator for Chunker<'a, T> {
     type Item = Chunk<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.ended {
-            if !self.buf.is_empty() {
-                let end = cmp::min(self.buf.len(), u16::MAX.into_usize());
+            while let Some(true) = self.buffers.first().map(|b| b.len() == 0) {
+                self.buffers = &self.buffers[1..];
+            }
+            if !self.buffers.is_empty() {
                 if self.in_chunk {
-                    let (chunk, new_buf) = self.buf.split_at(end);
-                    self.buf = new_buf;
+                    let buffer_len = cmp::min(
+                        self.buffers[0].len() - self.buffer_start,
+                        u16::MAX.into_usize(),
+                    );
+                    let buffer_end = self.buffer_start + buffer_len;
+                    let chunk = &self.buffers[0][self.buffer_start..buffer_end];
+                    self.buffer_start = buffer_end;
+                    if self.buffer_start == self.buffers[0].len() {
+                        self.buffers = &self.buffers[1..];
+                        self.buffer_start = 0;
+                    }
                     Some(Chunk::Buffer(chunk))
                 } else {
-                    let size = (end as u16).to_be_bytes();
+                    let size = self
+                        .buffers
+                        .iter()
+                        .map(|b| b.len().try_into().unwrap_or(u16::MAX))
+                        .reduce(|acc, x| acc.saturating_add(x))
+                        .expect("known to not be empty");
+                    let size = size.to_be_bytes();
                     self.in_chunk = true;
                     Some(Chunk::Size(size))
                 }
@@ -71,10 +91,13 @@ impl<'a> Deref for Chunk<'a> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        match self {
+        let res = match self {
             Chunk::Buffer(buf) => buf,
-            Chunk::Size(size) => size,
-        }
+            Chunk::Size(size) => size.as_ref(),
+        };
+        trace!("C: <RAW> {:02X?}", res);
+        trace!("C:       {}", String::from_utf8_lossy(res));
+        res
     }
 }
 
@@ -112,12 +135,18 @@ impl<R: Read, F: FnMut()> Read for Dechunker<R, F> {
         while self.chunk_size == 0 {
             let mut size_buf = [0; 2];
             let res = self.reader.read_exact(&mut size_buf);
+            trace!("S: <RAW> {:02X?}", &size_buf);
+            trace!("S:       {}", String::from_utf8_lossy(&size_buf));
             self.error_wrap(res)?;
             self.chunk_size = u16::from_be_bytes(size_buf).into_usize();
         }
         let new_buf_size = cmp::min(buf.len(), self.chunk_size);
         let buf = &mut buf[..new_buf_size];
         let res = self.reader.read_exact(buf).map(|_| new_buf_size);
+        if res.is_ok() {
+            trace!("S: <RAW> {:02X?}", buf);
+            trace!("S:       {}", String::from_utf8_lossy(buf));
+        }
         self.chunk_size -= new_buf_size;
         self.error_wrap(res)
     }

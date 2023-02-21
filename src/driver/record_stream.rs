@@ -21,7 +21,9 @@ use std::rc::Rc;
 
 use duplicate::duplicate_item;
 
-use super::io::bolt::{BoltMeta, BoltRecordFields, BoltResponse, ResponseCallbacks, TcpBolt};
+use super::io::bolt::{
+    BoltMeta, BoltRecordFields, BoltResponse, ResponseCallbacks, RunPreparation, TcpBolt,
+};
 use crate::error::ServerError;
 use crate::{Neo4jError, PackStreamSerialize, Record, Result, Summary, Value};
 
@@ -39,22 +41,7 @@ impl<'a> RecordStream<'a> {
         }
     }
 
-    pub(crate) fn run<
-        K1: Deref<Target = str> + Debug,
-        S1: PackStreamSerialize,
-        K2: Deref<Target = str> + Debug,
-        S2: PackStreamSerialize,
-    >(
-        &mut self,
-        query: &str,
-        parameters: Option<&HashMap<K1, S1>>,
-        bookmarks: Option<&[String]>,
-        tx_timeout: Option<i64>,
-        tx_meta: Option<&HashMap<K2, S2>>,
-        mode: Option<&str>,
-        db: Option<&str>,
-        imp_user: Option<&str>,
-    ) -> Result<()> {
+    pub(crate) fn run(&mut self, run_prep: RunPreparation) -> Result<()> {
         let listener = Rc::downgrade(&self.listener);
         let mut callbacks = ResponseCallbacks::new().with_on_success(move |meta| {
             if let Some(listener) = listener.upgrade() {
@@ -73,12 +60,10 @@ impl<'a> RecordStream<'a> {
         assert!(!self.connection.has_buffered_message());
         assert!(!self.connection.expects_reply());
 
+        self.connection.run_submit(run_prep, callbacks);
+
         if let Err(e) = self
-            .connection
-            .run(
-                query, parameters, bookmarks, tx_timeout, tx_meta, mode, db, imp_user, callbacks,
-            )
-            .and_then(|_| self.pull(false))
+            .pull(false)
             .and_then(|_| self.connection.write_all())
             .and_then(|_| self.connection.read_one())
         {

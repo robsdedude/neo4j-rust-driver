@@ -25,7 +25,7 @@ pub struct Summary {
     // pub profile: Option<...>,
     // pub plan: Option<...>,
     pub query_type: SummaryQueryType,
-    pub database: String,
+    pub database: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -59,10 +59,18 @@ impl Summary {
         if let Some(t_last) = meta.remove("t_last") {
             let Value::Integer(t_last) = t_last else {
                 return Err(Neo4jError::ProtocolError {
-                    message: format!("t_last in_summary was not integer but {:?}", t_last),
+                    message: format!("t_last in summary was not integer but {:?}", t_last),
                 })
             };
             self.result_consumed_after = t_last;
+        }
+        if let Some(db) = meta.remove("db") {
+            let Value::String(db) = db else {
+                return Err(Neo4jError::ProtocolError {
+                    message: format!("db in summary was not string but {:?}", db),
+                })
+            };
+            self.database = Some(db);
         }
         if let Some(query_type) = meta.remove("type") {
             let Value::String(query_type) = query_type else {

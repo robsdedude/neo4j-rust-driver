@@ -15,14 +15,15 @@
 pub(crate) mod bookmarks;
 pub(crate) mod config;
 
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::ops::Deref;
 use std::sync::Arc;
 
-use super::io::{bolt::TcpBolt, Pool};
-use crate::{PackStreamSerialize, RecordStream, Result, Value};
+use super::io::{bolt::RunPreparation, bolt::TcpBolt, Pool};
+use crate::{PackStreamSerialize, RecordStream, Result};
 pub use bookmarks::Bookmarks;
 pub use config::SessionConfig;
 
@@ -31,18 +32,6 @@ pub struct Session<'a, C> {
     config: C,
     pool: &'a Pool,
     connection: Option<TcpBolt>,
-    // run_record_stream: Option<RecordStream>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct SessionRunConfig<
-    K1: Deref<Target = str> + Debug = String,
-    S1: PackStreamSerialize = String,
-    K2: Deref<Target = str> + Debug = String,
-    S2: PackStreamSerialize = String,
-> {
-    parameters: Option<HashMap<K1, S1>>,
-    tx_meta: Option<HashMap<K2, S2>>,
 }
 
 impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
@@ -51,30 +40,34 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
             config,
             pool,
             connection: None,
-            // run_record_stream: None,
         }
     }
 
-    pub fn run<F: FnOnce(&mut RecordStream) -> Result<R>, R>(
+    pub fn run_with_config<
+        FConf: FnOnce(&mut SessionRunConfig) -> Result<()>,
+        FRes: FnOnce(&mut RecordStream) -> Result<R>,
+        R,
+    >(
         &mut self,
-        query: &str,
-        config: &SessionRunConfig,
-        receiver: F,
+        query: impl AsRef<str>,
+        config_cb: FConf,
+        receiver: FRes,
     ) -> Result<R> {
         self.connect()?;
         let cx = self.connection.as_mut().unwrap();
+        let run_prep = cx.run_prepare(
+            query.as_ref(),
+            self.config.as_ref().bookmarks.as_deref(),
+            None,
+            self.config.as_ref().database.as_deref(),
+            None,
+        )?;
+        let mut conf = SessionRunConfig::new(run_prep);
+        config_cb(&mut conf)?;
+        let run_prep = conf.into_run_prep();
         let mut record_stream = RecordStream::new(cx);
         let res = record_stream
-            .run(
-                query,
-                config.parameters.as_ref(),
-                self.config.as_ref().bookmarks.as_deref(),
-                None,
-                config.tx_meta.as_ref(),
-                None,
-                self.config.as_ref().database.as_deref(),
-                None,
-            )
+            .run(run_prep)
             .and_then(|_| receiver(&mut record_stream));
         match res {
             Ok(r) => {
@@ -88,6 +81,14 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
         }
     }
 
+    pub fn run<FRes: FnOnce(&mut RecordStream) -> Result<R>, R>(
+        &mut self,
+        query: impl AsRef<str>,
+        receiver: FRes,
+    ) -> Result<R> {
+        self.run_with_config(query, |_| Ok(()), receiver)
+    }
+
     fn connect(&mut self) -> Result<()> {
         if self.connection.is_some() {
             self.disconnect()?;
@@ -99,5 +100,49 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
     fn disconnect(&mut self) -> Result<()> {
         self.connection = None;
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct SessionRunConfig {
+    run_prep: RunPreparation,
+}
+
+impl SessionRunConfig {
+    fn new(run_prep: RunPreparation) -> Self {
+        Self { run_prep }
+    }
+
+    pub fn with_parameters<
+        K: AsRef<str> + Debug,
+        S: PackStreamSerialize,
+        P: Borrow<HashMap<K, S>>,
+    >(
+        &mut self,
+        parameters: P,
+    ) -> Result<()> {
+        self.run_prep.with_parameters(parameters.borrow())?;
+        Ok(())
+    }
+
+    pub fn with_transaction_meta<
+        K: AsRef<str> + Debug,
+        S: PackStreamSerialize,
+        P: Borrow<HashMap<K, S>>,
+    >(
+        &mut self,
+        tx_meta: P,
+    ) -> Result<()> {
+        self.run_prep.with_tx_meta(tx_meta.borrow())?;
+        Ok(())
+    }
+
+    pub fn with_transaction_timeout(&mut self, timeout: i64) -> Result<()> {
+        self.run_prep.with_tx_timeout(timeout)?;
+        Ok(())
+    }
+
+    fn into_run_prep(self) -> RunPreparation {
+        self.run_prep
     }
 }

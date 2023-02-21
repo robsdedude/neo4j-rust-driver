@@ -49,7 +49,7 @@ pub trait PackStreamSerializer {
         l: &[S],
     ) -> Result<(), Self::Error>;
     fn write_dict_header(&mut self, size: u64) -> Result<(), Self::Error>;
-    fn write_dict<S: PackStreamSerialize, B: BoltStructTranslator, K: Deref<Target = str>>(
+    fn write_dict<S: PackStreamSerialize, B: BoltStructTranslator, K: AsRef<str>>(
         &mut self,
         bolt: &B,
         d: &HashMap<K, S>,
@@ -204,14 +204,14 @@ impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
         Ok(())
     }
 
-    fn write_dict<S: PackStreamSerialize, B: BoltStructTranslator, K: Deref<Target = str>>(
+    fn write_dict<S: PackStreamSerialize, B: BoltStructTranslator, K: AsRef<str>>(
         &mut self,
         bolt: &B,
         d: &HashMap<K, S>,
     ) -> Result<(), Self::Error> {
         self.write_dict_header(u64::from_usize(d.len()))?;
         for (key, value) in d {
-            self.write_string(key)?;
+            self.write_string(key.as_ref())?;
             value.serialize(self, bolt)?;
         }
         Ok(())
@@ -276,7 +276,7 @@ macro_rules! impl_packstream_serialize_as_ref {
 impl_packstream_serialize!(write_bool, bool);
 impl_packstream_serialize!(write_int, u8, u16, u32, i8, i16, i32, i64);
 impl_packstream_serialize!(write_float, f32, f64);
-impl_packstream_serialize!(write_string, str);
+impl_packstream_serialize!(write_string, &str);
 impl_packstream_serialize_as_ref!(write_string, String);
 
 impl<V: PackStreamSerialize> PackStreamSerialize for Option<V> {
@@ -302,7 +302,7 @@ impl<V: PackStreamSerialize> PackStreamSerialize for [V] {
     }
 }
 
-impl<V: PackStreamSerialize, K: Deref<Target = str> + Debug> PackStreamSerialize for HashMap<K, V> {
+impl<V: PackStreamSerialize, K: AsRef<str> + Debug> PackStreamSerialize for HashMap<K, V> {
     fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
         &self,
         serializer: &mut S,
