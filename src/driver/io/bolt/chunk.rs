@@ -16,8 +16,10 @@ use std::cmp;
 use std::io::Read;
 use std::ops::Deref;
 
-use log::trace;
+use log::{log_enabled, trace, Level};
 use usize_cast::IntoUsize;
+
+use crate::util::truncate_string;
 
 pub(crate) struct Chunker<'a, T: Deref<Target = [u8]>> {
     buffers: &'a [T],
@@ -91,13 +93,17 @@ impl<'a> Deref for Chunk<'a> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        let res = match self {
-            Chunk::Buffer(buf) => buf,
-            Chunk::Size(size) => size.as_ref(),
-        };
-        trace!("C: <RAW> {:02X?}", res);
-        trace!("C:       {}", String::from_utf8_lossy(res));
-        res
+        match self {
+            Chunk::Buffer(buf) => {
+                trace!("C: <RAW> {:02X?}", buf);
+                trace!("C:       {}", String::from_utf8_lossy(buf));
+                buf
+            }
+            Chunk::Size(size) => {
+                trace!("C: <RAW> {:02X?}", size);
+                size
+            }
+        }
     }
 }
 
@@ -106,15 +112,24 @@ pub(crate) struct Dechunker<R: Read, F: FnMut()> {
     chunk_size: usize,
     on_error: F,
     broken: bool,
+    chunk_log_raw: Option<String>,
+    chunk_log: Option<String>,
 }
 
 impl<R: Read, F: FnMut()> Dechunker<R, F> {
     pub(crate) fn new(reader: R, on_error: F) -> Self {
+        let (chunk_log_raw, chunk_log) = if log_enabled!(Level::Trace) {
+            (Some(String::new()), Some(String::new()))
+        } else {
+            (None, None)
+        };
         Self {
             reader,
             chunk_size: 0,
             on_error,
             broken: false,
+            chunk_log_raw,
+            chunk_log,
         }
     }
 
@@ -135,19 +150,51 @@ impl<R: Read, F: FnMut()> Read for Dechunker<R, F> {
         while self.chunk_size == 0 {
             let mut size_buf = [0; 2];
             let res = self.reader.read_exact(&mut size_buf);
-            trace!("S: <RAW> {:02X?}", &size_buf);
-            trace!("S:       {}", String::from_utf8_lossy(&size_buf));
             self.error_wrap(res)?;
             self.chunk_size = u16::from_be_bytes(size_buf).into_usize();
+            if log_enabled!(Level::Trace) {
+                let log_raw = self.chunk_log_raw.as_mut().unwrap();
+                let log = self.chunk_log.as_mut().unwrap();
+                if !log.is_empty() {
+                    trace!("{}]", log_raw);
+                    trace!("{}", log);
+                    log_raw.clear();
+                    log.clear();
+                }
+                trace!("S: <RAW> {:02X?}", &size_buf);
+                if self.chunk_size > 0 {
+                    log_raw.push_str(&format!(
+                        "S: <RAW> [{}",
+                        truncate_string(&format!("{:02X?}", &size_buf), 1, 1)
+                    ));
+                    log.push_str(&format!("S:       {}", String::from_utf8_lossy(&size_buf)));
+                }
+            }
         }
         let new_buf_size = cmp::min(buf.len(), self.chunk_size);
         let buf = &mut buf[..new_buf_size];
         let res = self.reader.read_exact(buf).map(|_| new_buf_size);
-        if res.is_ok() {
-            trace!("S: <RAW> {:02X?}", buf);
-            trace!("S:       {}", String::from_utf8_lossy(buf));
+        if log_enabled!(Level::Trace) && res.is_ok() {
+            let log_raw = self.chunk_log_raw.as_mut().unwrap();
+            let log = self.chunk_log.as_mut().unwrap();
+            log_raw.push_str(", ");
+            log_raw.push_str(truncate_string(&format!("{:02X?}", buf), 1, 1));
+            log.push_str(&String::from_utf8_lossy(buf));
         }
         self.chunk_size -= new_buf_size;
         self.error_wrap(res)
+    }
+}
+
+impl<R: Read, F: FnMut()> Drop for Dechunker<R, F> {
+    fn drop(&mut self) {
+        if log_enabled!(Level::Trace) {
+            let log = self.chunk_log.as_mut().unwrap();
+            let log_raw = self.chunk_log_raw.as_mut().unwrap();
+            if !log.is_empty() {
+                trace!("{}]", log_raw);
+                trace!("{}", log);
+            }
+        }
     }
 }
