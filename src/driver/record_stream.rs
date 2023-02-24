@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::mem;
-use std::ops::Deref;
-use std::rc::Rc;
+use std::sync::Arc;
 
+use atomic_refcell::AtomicRefCell;
 use duplicate::duplicate_item;
 
 use super::io::bolt::{
@@ -30,26 +30,26 @@ use crate::{Neo4jError, PackStreamSerialize, Record, Result, Summary, Value};
 #[derive(Debug)]
 pub struct RecordStream<'a> {
     connection: &'a mut TcpBolt,
-    listener: Rc<RefCell<RecordListener>>,
+    listener: Arc<AtomicRefCell<RecordListener>>,
 }
 
 impl<'a> RecordStream<'a> {
     pub fn new(connection: &'a mut TcpBolt) -> Self {
         Self {
             connection,
-            listener: Rc::new(RefCell::new(RecordListener::new())),
+            listener: Arc::new(AtomicRefCell::new(RecordListener::new())),
         }
     }
 
     pub(crate) fn run(&mut self, run_prep: RunPreparation) -> Result<()> {
-        let listener = Rc::downgrade(&self.listener);
+        let listener = Arc::downgrade(&self.listener);
         let mut callbacks = ResponseCallbacks::new().with_on_success(move |meta| {
             if let Some(listener) = listener.upgrade() {
                 return listener.borrow_mut().run_success_cb(meta);
             }
             Ok(())
         });
-        let listener = Rc::downgrade(&self.listener);
+        let listener = Arc::downgrade(&self.listener);
         callbacks = callbacks.with_on_failure(move |meta| {
             if let Some(listener) = listener.upgrade() {
                 return listener.borrow_mut().failure_cb(meta);
@@ -94,21 +94,21 @@ impl<'a> RecordStream<'a> {
     }
 
     pub(crate) fn into_bookmarks(self) -> Vec<String> {
-        Rc::try_unwrap(self.listener)
+        Arc::try_unwrap(self.listener)
             .unwrap()
             .into_inner()
             .bookmarks
     }
 
     fn pull(&mut self, flush: bool) -> Result<()> {
-        let listener = Rc::downgrade(&self.listener);
+        let listener = Arc::downgrade(&self.listener);
         let mut callbacks = ResponseCallbacks::new().with_on_success(move |meta| {
             if let Some(listener) = listener.upgrade() {
                 return listener.borrow_mut().pull_success_cb(meta);
             }
             Ok(())
         });
-        let listener = Rc::downgrade(&self.listener);
+        let listener = Arc::downgrade(&self.listener);
         callbacks = callbacks.with_on_record(move |data| {
             if let Some(listener) = listener.upgrade() {
                 return listener.borrow_mut().record_cb(data);
@@ -124,7 +124,7 @@ impl<'a> RecordStream<'a> {
     }
 
     fn discard(&mut self, flush: bool) -> Result<()> {
-        let listener = Rc::downgrade(&self.listener);
+        let listener = Arc::downgrade(&self.listener);
         let callbacks = ResponseCallbacks::new().with_on_success(move |meta| {
             if let Some(listener) = listener.upgrade() {
                 return listener.borrow_mut().pull_success_cb(meta);
@@ -144,12 +144,12 @@ impl<'a> Iterator for RecordStream<'a> {
     type Item = Result<Record>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        fn need_to_pull(listener: &Rc<RefCell<RecordListener>>) -> bool {
+        fn need_to_pull(listener: &Arc<AtomicRefCell<RecordListener>>) -> bool {
             let listener = listener.borrow();
             listener.buffer.is_empty() && listener.state.is_streaming()
         }
 
-        fn need_to_discard(listener: &Rc<RefCell<RecordListener>>) -> bool {
+        fn need_to_discard(listener: &Arc<AtomicRefCell<RecordListener>>) -> bool {
             let listener = listener.borrow();
             listener.buffer.is_empty() && listener.state.is_discarding()
         }

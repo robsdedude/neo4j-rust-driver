@@ -15,14 +15,14 @@
 pub(crate) mod bookmarks;
 pub(crate) mod config;
 
-use std::borrow::Borrow;
+use std::borrow::{Borrow, BorrowMut};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{Read, Write};
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
-use super::io::{bolt::RunPreparation, bolt::TcpBolt, Pool};
+use super::io::{bolt::RunPreparation, Pool, PooledBolt};
 use crate::{PackStreamSerialize, RecordStream, Result};
 pub use bookmarks::Bookmarks;
 pub use config::SessionConfig;
@@ -31,7 +31,7 @@ pub use config::SessionConfig;
 pub struct Session<'a, C> {
     config: C,
     pool: &'a Pool,
-    connection: Option<TcpBolt>,
+    connection: Option<PooledBolt>,
 }
 
 impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
@@ -54,7 +54,8 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
         receiver: FRes,
     ) -> Result<R> {
         self.connect()?;
-        let cx = self.connection.as_mut().unwrap();
+        let cx_cell = self.connection.as_ref().unwrap();
+        let mut cx = cx_cell.deref().borrow_mut();
         let run_prep = cx.run_prepare(
             query.as_ref(),
             self.config.as_ref().bookmarks.as_deref(),
@@ -65,7 +66,7 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
         let mut conf = SessionRunConfig::new(run_prep);
         config_cb(&mut conf)?;
         let run_prep = conf.into_run_prep();
-        let mut record_stream = RecordStream::new(cx);
+        let mut record_stream = RecordStream::new(cx.deref_mut());
         let res = record_stream
             .run(run_prep)
             .and_then(|_| receiver(&mut record_stream));

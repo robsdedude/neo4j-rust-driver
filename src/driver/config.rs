@@ -33,14 +33,14 @@ const DEFAULT_USER_AGENT: &str = env!("NEO4J_DEFAULT_USER_AGENT");
 pub struct DriverConfig {
     pub(crate) user_agent: String,
     pub(crate) auth: HashMap<String, Value>, // max_connection_lifetime
-                                             // max_connection_pool_size
-                                             // connection_timeout
-                                             // trust
-                                             // resolver
-                                             // encrypted
-                                             // trusted_certificates
-                                             // ssl_context
-                                             // keep_alive
+    pub(crate) max_connection_pool_size: usize,
+    // connection_timeout
+    // trust
+    // resolver
+    // encrypted
+    // trusted_certificates
+    // ssl_context
+    // keep_alive
 }
 
 #[derive(Debug)]
@@ -56,6 +56,7 @@ impl Default for DriverConfig {
         Self {
             user_agent: String::from(DEFAULT_USER_AGENT),
             auth: HashMap::new(),
+            max_connection_pool_size: 100,
         }
     }
 }
@@ -80,6 +81,11 @@ impl DriverConfig {
         }
         self.auth = auth;
 
+        self
+    }
+
+    pub fn with_max_connection_pool_size(mut self, max_connection_pool_size: usize) -> Self {
+        self.max_connection_pool_size = max_connection_pool_size;
         self
     }
 }

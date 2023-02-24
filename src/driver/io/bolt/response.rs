@@ -50,11 +50,11 @@ pub(crate) type BoltMeta = HashMap<String, Value>;
 pub(crate) type BoltRecordFields = Vec<Value>;
 
 pub(crate) struct ResponseCallbacks {
-    on_success_cb: OptBox<dyn FnMut(BoltMeta) -> Result<()>>,
-    on_failure_cb: OptBox<dyn FnMut(BoltMeta) -> Result<()>>,
-    on_ignored_cb: OptBox<dyn FnMut() -> Result<()>>,
-    on_record_cb: OptBox<dyn FnMut(BoltRecordFields) -> Result<()>>,
-    on_summary_cb: OptBox<dyn FnMut()>,
+    on_success_cb: OptBox<dyn FnMut(BoltMeta) -> Result<()> + Send + Sync>,
+    on_failure_cb: OptBox<dyn FnMut(BoltMeta) -> Result<()> + Send + Sync>,
+    on_ignored_cb: OptBox<dyn FnMut() -> Result<()> + Send + Sync>,
+    on_record_cb: OptBox<dyn FnMut(BoltRecordFields) -> Result<()> + Send + Sync>,
+    on_summary_cb: OptBox<dyn FnMut() + Send + Sync>,
 }
 
 impl ResponseCallbacks {
@@ -68,7 +68,7 @@ impl ResponseCallbacks {
         }
     }
 
-    pub(crate) fn with_on_success<F: FnMut(BoltMeta) -> Result<()> + 'static>(
+    pub(crate) fn with_on_success<F: FnMut(BoltMeta) -> Result<()> + Send + Sync + 'static>(
         mut self,
         cb: F,
     ) -> Self {
@@ -76,7 +76,7 @@ impl ResponseCallbacks {
         self
     }
 
-    pub(crate) fn with_on_failure<F: FnMut(BoltMeta) -> Result<()> + 'static>(
+    pub(crate) fn with_on_failure<F: FnMut(BoltMeta) -> Result<()> + Send + Sync + 'static>(
         mut self,
         cb: F,
     ) -> Self {
@@ -84,12 +84,17 @@ impl ResponseCallbacks {
         self
     }
 
-    pub(crate) fn with_on_ignored<F: FnMut() -> Result<()> + 'static>(mut self, cb: F) -> Self {
+    pub(crate) fn with_on_ignored<F: FnMut() -> Result<()> + Send + Sync + 'static>(
+        mut self,
+        cb: F,
+    ) -> Self {
         self.on_ignored_cb = Some(Box::new(cb));
         self
     }
 
-    pub(crate) fn with_on_record<F: FnMut(BoltRecordFields) -> Result<()> + 'static>(
+    pub(crate) fn with_on_record<
+        F: FnMut(BoltRecordFields) -> Result<()> + Send + Sync + 'static,
+    >(
         mut self,
         cb: F,
     ) -> Self {
@@ -97,7 +102,7 @@ impl ResponseCallbacks {
         self
     }
 
-    pub(crate) fn with_on_summary<F: FnMut() + 'static>(mut self, cb: F) -> Self {
+    pub(crate) fn with_on_summary<F: FnMut() + Send + Sync + 'static>(mut self, cb: F) -> Self {
         self.on_summary_cb = Some(Box::new(cb));
         self
     }

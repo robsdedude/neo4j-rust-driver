@@ -94,6 +94,10 @@ impl<R: Read, W: Write> Bolt<R, W> {
     //     self.version
     // }
 
+    pub(crate) fn closed(&self) -> bool {
+        self.closed
+    }
+
     pub(crate) fn hello(
         &mut self,
         user_agent: &str,
@@ -337,6 +341,20 @@ impl<R: Read, W: Write> Debug for Bolt<R, W> {
             "Bolt5x0 {{\n  message_buff: {:?}\n  responses: {:?}\n}}",
             self.message_buff, self.responses
         )
+    }
+}
+
+impl<R: Read, W: Write> Drop for Bolt<R, W> {
+    fn drop(&mut self) {
+        if self.closed {
+            return;
+        }
+        self.message_buff.clear();
+        self.responses.clear();
+        if let Err(_) = self.goodbye() {
+            return;
+        }
+        let _ = self.write_all();
     }
 }
 

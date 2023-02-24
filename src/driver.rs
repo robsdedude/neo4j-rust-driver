@@ -41,6 +41,7 @@ impl Driver {
             routing_context: connection_config.routing_context,
             user_agent: config.user_agent,
             auth: config.auth,
+            max_connection_pool_size: config.max_connection_pool_size,
         };
         Driver {
             // config,

@@ -19,7 +19,7 @@ use std::vec::IntoIter;
 pub(crate) const DEFAULT_PORT: u16 = 7687;
 const COLON_BYTES: usize = 1; // ":".bytes().len()
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct Address {
     pub host: String,
     pub port: u16,
