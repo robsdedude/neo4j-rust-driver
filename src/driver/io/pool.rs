@@ -14,9 +14,9 @@
 
 use atomic_refcell::AtomicRefCell;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::mem::ManuallyDrop;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Condvar, Mutex};
 
 use itertools::Itertools;
@@ -35,7 +35,7 @@ pub(crate) struct PoolConfig {
     pub(crate) max_connection_pool_size: usize,
 }
 
-type PoolConnection = Arc<AtomicRefCell<TcpBolt>>;
+type PoolElement = TcpBolt;
 
 #[derive(Debug)]
 pub(crate) struct InnerPool {
@@ -46,16 +46,18 @@ pub(crate) struct InnerPool {
 
 #[derive(Debug)]
 struct InnerPoolInMutex {
-    raw_pool: Vec<PoolConnection>,
+    raw_pool: VecDeque<PoolElement>,
     reservations: usize,
+    borrowed: usize,
 }
 
 impl InnerPool {
     fn new(config: PoolConfig) -> Self {
-        let raw_pool = Vec::with_capacity(config.max_connection_pool_size);
+        let raw_pool = VecDeque::with_capacity(config.max_connection_pool_size);
         let synced = Mutex::new(InnerPoolInMutex {
             raw_pool,
             reservations: 0,
+            borrowed: 0,
         });
         Self {
             config,
@@ -77,11 +79,8 @@ impl Pool {
         {
             let mut synced = self.synced.lock().unwrap();
             loop {
-                if let Some(connection) = self.acquire_existing(&mut synced.raw_pool) {
-                    return Ok(PooledBolt::new(
-                        Arc::clone(&connection),
-                        Arc::clone(&self.0),
-                    ));
+                if let Some(connection) = self.acquire_existing(&mut synced) {
+                    return Ok(PooledBolt::new(connection, Arc::clone(&self.0)));
                 }
                 if self.has_room(&synced) {
                     synced.reservations += 1;
@@ -91,28 +90,33 @@ impl Pool {
                 }
             }
         }
-        let connection = self.open_new();
-        let mut sync = self.synced.lock().unwrap();
-        sync.reservations -= 1;
-        let connection = connection?;
-        sync.raw_pool.push(Arc::clone(&connection));
+        let connection = self.acquire_new()?;
         Ok(PooledBolt::new(connection, Arc::clone(&self.0)))
     }
 
     fn has_room(&self, synced: &InnerPoolInMutex) -> bool {
-        synced.raw_pool.len() + synced.reservations < self.config.max_connection_pool_size
+        synced.raw_pool.len() + synced.borrowed + synced.reservations
+            < self.config.max_connection_pool_size
     }
 
-    fn acquire_existing(&self, connections: &mut Vec<PoolConnection>) -> Option<PoolConnection> {
-        for connection in connections {
-            if Arc::strong_count(connection) == 1 {
-                return Some(Arc::clone(connection));
-            }
+    fn acquire_existing(&self, synced: &mut InnerPoolInMutex) -> Option<PoolElement> {
+        let connection = synced.raw_pool.pop_front();
+        if connection.is_some() {
+            synced.borrowed += 1;
         }
-        None
+        connection
     }
 
-    fn open_new(&self) -> Result<PoolConnection> {
+    fn acquire_new(&self) -> Result<PoolElement> {
+        let connection = self.open_new();
+        let mut sync = self.synced.lock().unwrap();
+        sync.reservations -= 1;
+        let connection = connection?;
+        sync.borrowed += 1;
+        Ok(connection)
+    }
+
+    fn open_new(&self) -> Result<PoolElement> {
         let mut connection = bolt::open(&self.config.address)?;
         connection.hello(
             self.config.user_agent.as_str(),
@@ -121,23 +125,26 @@ impl Pool {
         )?;
         connection.write_all()?;
         connection.read_all()?;
-        Ok(Arc::new(AtomicRefCell::new(connection)))
+        Ok(connection)
     }
 
-    /// safety: drops the ManuallyDrop: don't use it afterwards!
-    unsafe fn release(inner_pool: &Arc<InnerPool>, connection: &mut ManuallyDrop<PoolConnection>) {
+    fn release(inner_pool: &Arc<InnerPool>, mut connection: PoolElement) {
         let mut lock = inner_pool.synced.lock().unwrap();
-        if connection.deref().borrow().closed() {
-            if let Some((idx, _)) = lock
-                .raw_pool
-                .iter()
-                .find_position(|c| Arc::ptr_eq(c, connection))
-            {
-                lock.raw_pool.remove(idx);
-            }
+        lock.borrowed -= 1;
+        if connection.needs_reset() {
+            let _ = connection
+                .reset()
+                .and_then(|_| {
+                    let res = connection.write_all();
+                    res
+                })
+                .and_then(|_| {
+                    let res = connection.read_all();
+                    res
+                });
         }
-        unsafe {
-            ManuallyDrop::drop(connection);
+        if !connection.closed() {
+            lock.raw_pool.push_back(connection);
         }
         inner_pool.condition.notify_one();
     }
@@ -159,11 +166,11 @@ impl Deref for Pool {
 #[derive(Debug)]
 pub(crate) struct PooledBolt {
     pool: Arc<InnerPool>,
-    bolt: ManuallyDrop<PoolConnection>,
+    bolt: ManuallyDrop<PoolElement>,
 }
 
 impl PooledBolt {
-    fn new(bolt: PoolConnection, pool: Arc<InnerPool>) -> Self {
+    fn new(bolt: PoolElement, pool: Arc<InnerPool>) -> Self {
         Self {
             pool,
             bolt: ManuallyDrop::new(bolt),
@@ -173,17 +180,25 @@ impl PooledBolt {
 
 impl Drop for PooledBolt {
     fn drop(&mut self) {
-        // safety: we're not using bolt after this call
+        // safety: we're not using ManuallyDrop after this call
+        let bolt;
         unsafe {
-            Pool::release(&self.pool, &mut self.bolt);
+            bolt = ManuallyDrop::take(&mut self.bolt);
         }
+        Pool::release(&self.pool, bolt);
     }
 }
 
 impl Deref for PooledBolt {
-    type Target = AtomicRefCell<TcpBolt>;
+    type Target = TcpBolt;
 
     fn deref(&self) -> &Self::Target {
-        self.bolt.deref()
+        &self.bolt
+    }
+}
+
+impl DerefMut for PooledBolt {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.bolt
     }
 }

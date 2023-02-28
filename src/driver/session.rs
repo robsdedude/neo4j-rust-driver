@@ -31,16 +31,11 @@ pub use config::SessionConfig;
 pub struct Session<'a, C> {
     config: C,
     pool: &'a Pool,
-    connection: Option<PooledBolt>,
 }
 
 impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
     pub(crate) fn new(config: C, pool: &'a Pool) -> Self {
-        Session {
-            config,
-            pool,
-            connection: None,
-        }
+        Session { config, pool }
     }
 
     pub fn run_with_config<
@@ -53,9 +48,7 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
         config_cb: FConf,
         receiver: FRes,
     ) -> Result<R> {
-        self.connect()?;
-        let cx_cell = self.connection.as_ref().unwrap();
-        let mut cx = cx_cell.deref().borrow_mut();
+        let mut cx = self.pool.acquire()?;
         let run_prep = cx.run_prepare(
             query.as_ref(),
             self.config.as_ref().bookmarks.as_deref(),
@@ -66,7 +59,7 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
         let mut conf = SessionRunConfig::new(run_prep);
         config_cb(&mut conf)?;
         let run_prep = conf.into_run_prep();
-        let mut record_stream = RecordStream::new(cx.deref_mut());
+        let mut record_stream = RecordStream::new(&mut cx);
         let res = record_stream
             .run(run_prep)
             .and_then(|_| receiver(&mut record_stream));
@@ -88,19 +81,6 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
         receiver: FRes,
     ) -> Result<R> {
         self.run_with_config(query, |_| Ok(()), receiver)
-    }
-
-    fn connect(&mut self) -> Result<()> {
-        if self.connection.is_some() {
-            self.disconnect()?;
-        }
-        self.connection = Some(self.pool.acquire()?);
-        Ok(())
-    }
-
-    fn disconnect(&mut self) -> Result<()> {
-        self.connection = None;
-        Ok(())
     }
 }
 

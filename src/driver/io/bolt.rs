@@ -13,6 +13,7 @@
 // limitations under the License.
 
 mod bolt5x0;
+mod bolt_state;
 mod chunk;
 mod message;
 mod packstream;
@@ -31,6 +32,7 @@ use usize_cast::FromUsize;
 
 use crate::{Address, Neo4jError, Result, Value};
 use bolt5x0::Bolt5x0StructTranslator;
+use bolt_state::{BoltState, BoltStateTracker};
 use chunk::{Chunker, Dechunker};
 use message::BoltMessage;
 pub use packstream::{PackStreamDeserialize, PackStreamSerialize};
@@ -50,6 +52,7 @@ pub struct Bolt<R: Read, W: Write> {
     socket: Option<TcpStream>,
     version: (u8, u8),
     closed: bool,
+    state: BoltStateTracker,
 }
 
 pub(crate) type TcpBolt = Bolt<BufReader<TcpStream>, BufWriter<TcpStream>>;
@@ -87,6 +90,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
             socket,
             version,
             closed: false,
+            state: BoltStateTracker::new(version),
         }
     }
 
@@ -149,6 +153,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(0x02, 0)?;
         self.message_buff.push_back(vec![message_buff]);
+        self.closed = true;
         debug!("C: GOODBYE");
         Ok(())
     }
@@ -158,6 +163,8 @@ impl<R: Read, W: Write> Bolt<R, W> {
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(0x0F, 0)?;
         self.message_buff.push_back(vec![message_buff]);
+        self.responses
+            .push_back(BoltResponse::from_message(ResponseMessage::Reset));
         debug!("C: RESET");
         Ok(())
     }
@@ -211,7 +218,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
 
         self.message_buff.push_back(vec![message_buff]);
         self.responses
-            .push_back(BoltResponse::new(ResponseMessage::Run, callbacks));
+            .push_back(BoltResponse::new(ResponseMessage::Pull, callbacks));
         debug!("C: PULL {{{:?}: {:?}, {:?}: {:?}}}", "n", n, "qid", qid);
         Ok(())
     }
@@ -241,6 +248,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 Self::assert_response_field_count("SUCCESS", &fields, 1)?;
                 let meta = fields.pop().unwrap();
                 debug!("S: SUCCESS {:?}", meta);
+                self.state.success(response.message, &meta);
                 response.callbacks.on_success(meta)
             }
             BoltMessage { tag: 0x7E, fields } => {
@@ -257,6 +265,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 Self::assert_response_field_count("FAILURE", &fields, 1)?;
                 let meta = fields.pop().unwrap();
                 debug!("S: FAILURE {:?}", meta);
+                self.state.failure();
                 response.callbacks.on_failure(meta)
             }
             BoltMessage {
@@ -331,6 +340,15 @@ impl<R: Read, W: Write> Bolt<R, W> {
 
     pub(crate) fn expects_reply(&self) -> bool {
         !self.responses.is_empty()
+    }
+
+    pub(crate) fn needs_reset(&self) -> bool {
+        if let Some(response) = self.responses.iter().last() {
+            if response.message == ResponseMessage::Reset {
+                return false;
+            }
+        }
+        !(self.state.state() == BoltState::Ready && self.responses.is_empty())
     }
 }
 

@@ -16,7 +16,7 @@ use crate::{Neo4jError, Result, Value};
 use core::fmt::{Debug, Formatter};
 use std::collections::HashMap;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub(crate) enum ResponseMessage {
     Hello,
     Reset,
