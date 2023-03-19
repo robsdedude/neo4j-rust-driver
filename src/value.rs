@@ -19,7 +19,7 @@ use std::collections::HashMap;
 
 pub mod spatial;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Value {
     Null,

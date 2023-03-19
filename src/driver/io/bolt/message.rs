@@ -30,7 +30,7 @@ impl<V: PackStreamDeserialize> BoltMessage<V> {
         CB: FnMut(&mut R) -> Result<V::Value>,
     {
         let mut marker = [0; 1];
-        reader.read_exact(&mut marker)?;
+        Neo4jError::wrap_read(reader.read_exact(&mut marker))?;
         let marker = marker[0];
         if !(0xB0..=0xBF).contains(&marker) {
             return Err(Neo4jError::ProtocolError {
@@ -39,7 +39,7 @@ impl<V: PackStreamDeserialize> BoltMessage<V> {
         }
         let size = marker - 0xB0;
         let mut tag = [0; 1];
-        reader.read_exact(&mut tag)?;
+        Neo4jError::wrap_read(reader.read_exact(&mut tag))?;
         let tag = u8::from_be_bytes(tag);
         let fields = (0..size)
             .map(|_| load_value(reader))

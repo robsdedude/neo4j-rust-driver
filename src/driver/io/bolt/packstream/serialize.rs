@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::super::{Bolt, BoltStructTranslator};
-use super::error::PackStreamError;
+use super::error::PackStreamSerializeError;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
@@ -74,7 +74,7 @@ impl<'a, W: Write> PackStreamSerializerImpl<'a, W> {
 }
 
 impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
-    type Error = PackStreamError;
+    type Error = PackStreamSerializeError;
 
     fn error(&self, message: String) -> Result<(), Self::Error> {
         Err(message.into())

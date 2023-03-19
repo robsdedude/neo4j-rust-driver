@@ -20,10 +20,9 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
 
-use super::io::{bolt::RunPreparation, Pool, PooledBolt};
-use crate::{PackStreamSerialize, RecordStream, Result};
+use super::io::{bolt::RunPreparation, AcquireConfig, Pool, PooledBolt};
+use crate::{PackStreamSerialize, RecordStream, Result, RoutingControl};
 pub use bookmarks::Bookmarks;
 pub use config::SessionConfig;
 
@@ -31,11 +30,16 @@ pub use config::SessionConfig;
 pub struct Session<'a, C> {
     config: C,
     pool: &'a Pool,
+    resolved_db: Option<String>,
 }
 
 impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
     pub(crate) fn new(config: C, pool: &'a Pool) -> Self {
-        Session { config, pool }
+        Session {
+            config,
+            pool,
+            resolved_db: None,
+        }
     }
 
     pub fn run_with_config<
@@ -48,7 +52,10 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
         config_cb: FConf,
         receiver: FRes,
     ) -> Result<R> {
-        let mut cx = self.pool.acquire()?;
+        let mut cx = self.pool.acquire(AcquireConfig {
+            db: self.resolved_db()?,
+            mode: RoutingControl::Write,
+        })?;
         let run_prep = cx.run_prepare(
             query.as_ref(),
             self.config.as_ref().bookmarks.as_deref(),
@@ -81,6 +88,16 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
         receiver: FRes,
     ) -> Result<R> {
         self.run_with_config(query, |_| Ok(()), receiver)
+    }
+
+    fn resolved_db(&mut self) -> Result<&Option<String>> {
+        if self.resolved_db.is_none()
+            && self.config.as_ref().database.is_none()
+            && self.pool.is_routing()
+        {
+            self.resolved_db = self.pool.resolve_home_db()?;
+        }
+        Ok(&self.resolved_db)
     }
 }
 

@@ -15,6 +15,7 @@
 // use std::backtrace::Backtrace;
 use std::fmt::{Display, Formatter};
 use std::io;
+use std::io::Error;
 use thiserror::Error;
 
 use crate::driver::io::bolt::BoltMeta;
@@ -24,17 +25,22 @@ use crate::Value;
 #[non_exhaustive]
 pub enum Neo4jError {
     /// used when
-    ///  * experiencing a socket error
-    #[error("connection lost")]
+    ///  * Experiencing a connectivity error.  
+    ///    E.g., not able to connect, a broken socket,
+    ///    not able to fetch routing information
+    #[error("connection failed: {message}")]
     Disconnect {
         // #[backtrace]
-        #[from]
-        source: io::Error,
+        // #[from]
+        message: String,
+        // #[source]
+        source: Option<io::Error>,
     },
     /// used when
     ///  * Trying to send an unsupported parameter.  
     ///    e.g., a too large Vec (max. `u32::MAX` elements).
-    ///  * Connecting with an incompatible server.
+    ///  * Connecting with an incompatible server/using a feature that's not
+    ///    supported over the negotiated protocol version.
     ///  * Non-IO error occurs during serialization (e.g., trying to serialize
     ///    `Value::BrokenValue`)
     #[error("invalid configuration: {message}")]
@@ -63,6 +69,60 @@ impl Neo4jError {
             Neo4jError::Disconnect { .. } => true,
             _ => false,
         }
+    }
+
+    pub(crate) fn read_err(err: io::Error) -> Self {
+        Self::Disconnect {
+            message: format!("failed to read: {}", err),
+            source: Some(err),
+        }
+    }
+
+    pub(crate) fn wrap_read<T>(res: io::Result<T>) -> Result<T> {
+        match res {
+            Ok(t) => Ok(t),
+            Err(err) => Err(Self::read_err(err)),
+        }
+    }
+
+    pub(crate) fn write_error(err: io::Error) -> Neo4jError {
+        Self::Disconnect {
+            message: format!("failed to write: {}", err),
+            source: Some(err),
+        }
+    }
+
+    pub(crate) fn wrap_write<T>(res: io::Result<T>) -> Result<T> {
+        match res {
+            Ok(t) => Ok(t),
+            Err(err) => Err(Self::write_error(err)),
+        }
+    }
+
+    pub(crate) fn connect_error(err: io::Error) -> Neo4jError {
+        Self::Disconnect {
+            message: format!("failed to open connection: {}", err),
+            source: Some(err),
+        }
+    }
+
+    pub(crate) fn wrap_connect<T>(res: io::Result<T>) -> Result<T> {
+        match res {
+            Ok(t) => Ok(t),
+            Err(err) => Err(Self::connect_error(err)),
+        }
+    }
+
+    pub(crate) fn disconnect<S: Into<String>>(message: S) -> Self {
+        Self::Disconnect {
+            message: message.into(),
+            source: None,
+        }
+    }
+
+    pub(crate) fn fatal_during_discovery(&self) -> bool {
+        // TODO: implement real logic
+        false
     }
 }
 

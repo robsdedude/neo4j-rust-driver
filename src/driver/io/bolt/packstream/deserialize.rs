@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::error::PackStreamError;
+use super::error::PackStreamDeserializeError;
 use crate::driver::io::bolt::BoltStructTranslator;
 use std::collections::HashMap;
 use std::error::Error;
@@ -54,70 +54,76 @@ impl<'a, R: Read + 'a> PackStreamDeserializerImpl<'a, R> {
         PackStreamDeserializerImpl { reader }
     }
 
-    fn decode_i8(reader: &mut impl Read) -> Result<i8, PackStreamError> {
+    fn decode_i8(reader: &mut impl Read) -> Result<i8, PackStreamDeserializeError> {
         let mut buffer = [0; 1];
         reader.read_exact(&mut buffer)?;
         let value = i8::from_be_bytes(buffer);
         Ok(value)
     }
 
-    fn decode_i16(reader: &mut impl Read) -> Result<i16, PackStreamError> {
+    fn decode_i16(reader: &mut impl Read) -> Result<i16, PackStreamDeserializeError> {
         let mut buffer = [0; 2];
         reader.read_exact(&mut buffer)?;
         let value = i16::from_be_bytes(buffer);
         Ok(value)
     }
 
-    fn decode_i32(reader: &mut impl Read) -> Result<i32, PackStreamError> {
+    fn decode_i32(reader: &mut impl Read) -> Result<i32, PackStreamDeserializeError> {
         let mut buffer = [0; 4];
         reader.read_exact(&mut buffer)?;
         let value = i32::from_be_bytes(buffer);
         Ok(value)
     }
 
-    fn decode_i64(reader: &mut impl Read) -> Result<i64, PackStreamError> {
+    fn decode_i64(reader: &mut impl Read) -> Result<i64, PackStreamDeserializeError> {
         let mut buffer = [0; 8];
         reader.read_exact(&mut buffer)?;
         let value = i64::from_be_bytes(buffer);
         Ok(value)
     }
 
-    fn decode_f64(reader: &mut impl Read) -> Result<f64, PackStreamError> {
+    fn decode_f64(reader: &mut impl Read) -> Result<f64, PackStreamDeserializeError> {
         let mut buffer = [0; 8];
         reader.read_exact(&mut buffer)?;
         let value = f64::from_be_bytes(buffer);
         Ok(value)
     }
 
-    fn decode_u8(reader: &mut impl Read) -> Result<u8, PackStreamError> {
+    fn decode_u8(reader: &mut impl Read) -> Result<u8, PackStreamDeserializeError> {
         let mut buffer = [0; 1];
         reader.read_exact(&mut buffer)?;
         let value = u8::from_be_bytes(buffer);
         Ok(value)
     }
 
-    fn decode_u16(reader: &mut impl Read) -> Result<u16, PackStreamError> {
+    fn decode_u16(reader: &mut impl Read) -> Result<u16, PackStreamDeserializeError> {
         let mut buffer = [0; 2];
         reader.read_exact(&mut buffer)?;
         let value = u16::from_be_bytes(buffer);
         Ok(value)
     }
 
-    fn decode_u32(reader: &mut impl Read) -> Result<u32, PackStreamError> {
+    fn decode_u32(reader: &mut impl Read) -> Result<u32, PackStreamDeserializeError> {
         let mut buffer = [0; 4];
         reader.read_exact(&mut buffer)?;
         let value = u32::from_be_bytes(buffer);
         Ok(value)
     }
 
-    fn decode_bytes(reader: &mut impl Read, size: usize) -> Result<Vec<u8>, PackStreamError> {
+    fn decode_bytes(
+        reader: &mut impl Read,
+        size: usize,
+    ) -> Result<Vec<u8>, PackStreamDeserializeError> {
         let mut bytes = Vec::new();
         bytes.resize(size, 0);
         reader.read_exact(bytes.as_mut_slice())?;
         Ok(bytes)
     }
 
-    fn decode_string(reader: &mut impl Read, size: usize) -> Result<String, PackStreamError> {
+    fn decode_string(
+        reader: &mut impl Read,
+        size: usize,
+    ) -> Result<String, PackStreamDeserializeError> {
         let bytes = Self::decode_bytes(reader, size)?;
         Ok(String::from_utf8_lossy(bytes.as_slice()).into_owned())
     }
@@ -150,7 +156,7 @@ impl<'a, R: Read + 'a> PackStreamDeserializerImpl<'a, R> {
 }
 
 impl<'a, R: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'a, R> {
-    type Error = PackStreamError;
+    type Error = PackStreamDeserializeError;
 
     fn load<V: PackStreamDeserialize, B: BoltStructTranslator>(
         &mut self,
@@ -254,7 +260,7 @@ impl<'a, R: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'a, R> {
             let fields = Self::decode_list::<V, _, _>(self, bolt, size.into())?;
             Ok(bolt.deserialize_struct::<V>(tag, fields))
         } else {
-            Err(PackStreamError::protocol_violation(format!(
+            Err(PackStreamDeserializeError::protocol_violation(format!(
                 "unknown marker {marker}"
             )))
         }
@@ -274,7 +280,9 @@ impl<'a, R: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'a, R> {
             let size = Self::decode_u16(self.reader)?;
             Self::decode_string(self.reader, size.into())
         } else {
-            Err(PackStreamError::protocol_violation("expected string"))
+            Err(PackStreamDeserializeError::protocol_violation(
+                "expected string",
+            ))
         }
     }
 }

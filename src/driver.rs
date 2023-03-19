@@ -21,6 +21,7 @@ pub(crate) mod summary;
 
 pub use config::{ConnectionConfig, DriverConfig};
 pub use io::bolt::{PackStreamDeserialize, PackStreamSerialize};
+use std::sync::Arc;
 
 use io::{Pool, PoolConfig};
 pub use record::Record;
@@ -37,7 +38,7 @@ pub struct Driver {
 impl Driver {
     pub fn new(connection_config: ConnectionConfig, config: DriverConfig) -> Self {
         let pool_config = PoolConfig {
-            address: connection_config.address,
+            address: Arc::new(connection_config.address),
             routing_context: connection_config.routing_context,
             user_agent: config.user_agent,
             auth: config.auth,

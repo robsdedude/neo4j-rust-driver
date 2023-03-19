@@ -25,7 +25,7 @@ use std::fmt::{Debug, Formatter};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::{Shutdown, TcpStream};
 use std::ops::DerefMut;
-use std::result;
+use std::{io, result};
 
 use log::{debug, log_enabled, Level};
 use usize_cast::FromUsize;
@@ -114,7 +114,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         let translator = Bolt5x0StructTranslator {};
         serializer.write_struct_header(0x01, 1)?;
-        let extra_size = 1 + routing_context.map(HashMap::len).unwrap_or(0) + auth.len();
+        let extra_size = 1 + <bool as Into<usize>>::into(routing_context.is_some()) + auth.len();
         serializer.write_dict_header(u64::from_usize(extra_size))?;
 
         debug_buf!(log_buf, "{:?}: {:?}", "user_agent", user_agent);
@@ -122,11 +122,8 @@ impl<R: Read, W: Write> Bolt<R, W> {
         serializer.write_string(user_agent)?;
 
         if let Some(routing_context) = routing_context {
-            for (k, v) in routing_context {
-                debug_buf!(log_buf, ", {:?}: {:?}", k, v);
-                serializer.write_string(k)?;
-                v.serialize(&mut serializer, &translator)?;
-            }
+            debug_buf!(log_buf, ", \"routing\": {:?}", routing_context);
+            routing_context.serialize(&mut serializer, &translator)?;
         }
 
         for (k, v) in auth {
@@ -223,6 +220,56 @@ impl<R: Read, W: Write> Bolt<R, W> {
         Ok(())
     }
 
+    pub(crate) fn route(
+        &mut self,
+        routing_context: &HashMap<String, Value>,
+        bookmarks: Option<&[String]>,
+        db: Option<&str>,
+        imp_user: Option<&str>,
+        callbacks: ResponseCallbacks,
+    ) -> Result<()> {
+        debug_buf_start!(log_buf);
+        debug_buf!(log_buf, "C: ROUTE ");
+        let translator = Bolt5x0StructTranslator {};
+        let mut message_buff = Vec::new();
+        let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
+        serializer.write_struct_header(0x66, 3)?;
+
+        debug_buf!(log_buf, "{:?} ", routing_context);
+        serializer.write_dict(&translator, routing_context)?;
+        match bookmarks {
+            None => {
+                debug_buf!(log_buf, "[] ");
+                serializer.write_list_header(0)?;
+            }
+            Some(bms) => {
+                debug_buf!(log_buf, "{:?} ", bms);
+                serializer.write_list(&translator, bms)?;
+            }
+        }
+
+        debug_buf!(log_buf, "{{");
+        let extra_size = <bool as Into<usize>>::into(db.is_some())
+            + <bool as Into<usize>>::into(imp_user.is_some());
+        serializer.write_dict_header(u64::from_usize(extra_size))?;
+
+        let mut sep = "";
+        if let Some(db) = db {
+            sep = ", ";
+            debug_buf!(log_buf, "\"db\": {:?}", db);
+            serializer.write_string(db)?;
+        }
+
+        if let Some(imp_user) = imp_user {
+            debug_buf!(log_buf, "{}\"imp_user\": {:?}", sep, imp_user);
+            serializer.write_string(imp_user)?;
+        }
+        debug_buf!(log_buf, "}}");
+
+        debug_buf_end!(log_buf);
+        Ok(())
+    }
+
     pub(crate) fn read_one(&mut self) -> Result<()> {
         let mut response = self
             .responses
@@ -312,11 +359,11 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 if let Err(e) = self.writer.write_all(&chunk) {
                     self.closed = true;
                     self.socket.as_ref().map(|s| s.shutdown(Shutdown::Both));
-                    return Err(e.into());
+                    return Err(Neo4jError::write_error(e));
                 }
             }
         }
-        self.writer.flush()?;
+        Neo4jError::wrap_write(self.writer.flush())?;
         Ok(())
     }
 
@@ -409,21 +456,21 @@ const BOLT_VERSION_OFFER: [u8; 16] = [
 ];
 
 pub(crate) fn open(address: &Address) -> Result<TcpBolt> {
-    let stream = TcpStream::connect(address)?;
+    let stream = Neo4jError::wrap_connect(TcpStream::connect(address))?;
 
     // TODO: TLS
 
-    let mut reader = BufReader::new(stream.try_clone()?);
-    let mut writer = BufWriter::new(stream.try_clone()?);
+    let mut reader = BufReader::new(Neo4jError::wrap_connect(stream.try_clone())?);
+    let mut writer = BufWriter::new(Neo4jError::wrap_connect(stream.try_clone())?);
 
     debug!("C: <HANDSHAKE> {:02X?}", BOLT_MAGIC_PREAMBLE);
-    writer.write_all(&BOLT_MAGIC_PREAMBLE)?;
+    Neo4jError::wrap_write(writer.write_all(&BOLT_MAGIC_PREAMBLE))?;
     debug!("C: <BOLT> {:02X?}", BOLT_VERSION_OFFER);
-    writer.write_all(&BOLT_VERSION_OFFER)?;
-    writer.flush()?;
+    Neo4jError::wrap_write(writer.write_all(&BOLT_VERSION_OFFER))?;
+    Neo4jError::wrap_write(writer.flush())?;
 
     let mut negotiated_version = [0u8; 4];
-    reader.read_exact(&mut negotiated_version)?;
+    Neo4jError::wrap_read(reader.read_exact(&mut negotiated_version))?;
     debug!("S: <BOLT> {:02X?}", negotiated_version);
 
     let version = match negotiated_version {

@@ -15,11 +15,10 @@
 // TODO: remove when prototyping phase is done
 #![allow(dead_code)]
 
-extern crate core;
-
 mod address;
 mod driver;
 mod error;
+mod sync;
 mod util;
 mod value;
 
@@ -30,6 +29,20 @@ pub use driver::{
 };
 pub use error::{Neo4jError, Result};
 pub use value::Value;
+
+#[derive(Debug, Copy, Clone)]
+enum RoutingControl {
+    Read,
+    Write,
+}
+
+// TODO: decide if this concept should remain
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+enum Database<'a> {
+    Named(&'a str),
+    UnresolvedHome,
+    ResolvedHome,
+}
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right

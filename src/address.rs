@@ -13,16 +13,51 @@
 // limitations under the License.
 
 use std::fmt::{Debug, Display, Formatter};
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::hash::{Hash, Hasher};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::str::FromStr;
 use std::vec::IntoIter;
 
 pub(crate) const DEFAULT_PORT: u16 = 7687;
 const COLON_BYTES: usize = 1; // ":".bytes().len()
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 pub struct Address {
     pub host: String,
     pub port: u16,
+    key: String,
+    pub(crate) is_resolved: bool,
+}
+
+impl PartialEq for Address {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key && self.port == other.port
+    }
+}
+
+impl Eq for Address {}
+
+impl Hash for Address {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.key.hash(state);
+        self.port.hash(state);
+    }
+}
+
+impl Address {
+    pub(crate) fn resolve(&self) -> std::io::Result<Vec<Address>> {
+        if self.is_resolved {
+            return Ok(vec![self.clone()]);
+        }
+        Ok(self.to_socket_addrs()?.map(Address::from).collect())
+    }
+
+    fn normalize_ip(host: &str) -> (bool, String) {
+        IpAddr::from_str(host)
+            .map(|addr| (true, format!("{}", addr)))
+            .unwrap_or_else(|_| (false, String::from(host)))
+    }
 }
 
 impl Display for Address {
@@ -37,15 +72,24 @@ impl Display for Address {
 
 impl From<(String, u16)> for Address {
     fn from((host, port): (String, u16)) -> Self {
-        Address { host, port }
+        let (is_resolved, key) = Self::normalize_ip(&host);
+        Self {
+            host,
+            port,
+            key,
+            is_resolved,
+        }
     }
 }
 
 impl From<(&str, u16)> for Address {
     fn from((host, port): (&str, u16)) -> Self {
-        Address {
+        let (is_resolved, key) = Self::normalize_ip(host);
+        Self {
             host: String::from(host),
             port,
+            key,
+            is_resolved,
         }
     }
 }
@@ -86,7 +130,19 @@ fn parse(host: &str) -> (String, u16) {
 impl From<&str> for Address {
     fn from(host: &str) -> Self {
         let (host, port) = parse(host);
-        Address { host, port }
+        let (is_resolved, key) = Self::normalize_ip(&host);
+        Self {
+            host,
+            port,
+            key,
+            is_resolved,
+        }
+    }
+}
+
+impl From<SocketAddr> for Address {
+    fn from(addr: SocketAddr) -> Self {
+        Self::from((format!("{}", addr.ip()), addr.port()))
     }
 }
 

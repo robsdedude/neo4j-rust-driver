@@ -46,7 +46,6 @@ pub struct DriverConfig {
 #[derive(Debug)]
 pub struct ConnectionConfig {
     pub(crate) address: Address,
-    // pub(crate) routing: bool,
     pub(crate) routing_context: Option<HashMap<String, Value>>,
     pub(crate) ssl_context: Option<SslContext>,
 }
