@@ -19,7 +19,7 @@ use std::str::FromStr;
 use std::vec::IntoIter;
 
 pub(crate) const DEFAULT_PORT: u16 = 7687;
-const COLON_BYTES: usize = 1; // ":".bytes().len()
+const COLON_BYTES: usize = ':'.len_utf8();
 
 #[derive(Debug, Clone)]
 pub struct Address {

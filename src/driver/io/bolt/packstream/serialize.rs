@@ -16,7 +16,8 @@ use super::super::{Bolt, BoltStructTranslator};
 use super::error::PackStreamSerializeError;
 use std::collections::HashMap;
 use std::error::Error;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
+use std::io;
 use std::io::Write;
 
 use std::ops::Deref;
@@ -234,6 +235,160 @@ impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
                 .try_into()
                 .map_err(|_| "structure exceeds max number of fields (15)")?,
         )?;
+        for field in fields.iter() {
+            field.serialize(self, bolt)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct PackStreamSerializerDebugImpl {
+    buff: String,
+    stack: Vec<(&'static str, &'static str, u64)>,
+}
+
+impl PackStreamSerializerDebugImpl {
+    pub fn new() -> Self {
+        Self {
+            buff: String::new(),
+            stack: Vec::new(),
+        }
+    }
+
+    #[inline]
+    pub fn flush(&mut self) -> String {
+        self.buff.split_off(0)
+    }
+
+    #[inline]
+    fn format_display<D: Display>(&mut self, data: D) -> Result<(), io::Error> {
+        self.buff += &format!("{}", data);
+        self.handle_stack();
+        Ok(())
+    }
+
+    #[inline]
+    fn format_debug<D: Debug>(&mut self, data: D) -> Result<(), io::Error> {
+        self.buff += &format!("{:?}", data);
+        self.handle_stack();
+        Ok(())
+    }
+
+    #[inline]
+    fn handle_stack(&mut self) {
+        while let Some((sep, terminal, size)) = self.stack.pop() {
+            assert!(size > 0);
+            let (new_sep, new_size) = match (sep, terminal, size) {
+                (": ", "}", size) => (", ", size),
+                (", ", "}", size) => (": ", size - 1),
+                (sep, _, size) => (sep, size - 1),
+            };
+            if new_size > 0 {
+                self.buff += sep;
+                self.stack.push((new_sep, terminal, new_size));
+                break;
+            } else {
+                self.buff += terminal;
+            }
+        }
+    }
+}
+
+impl PackStreamSerializer for PackStreamSerializerDebugImpl {
+    type Error = io::Error;
+
+    fn error(&self, _: String) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn write_null(&mut self) -> Result<(), Self::Error> {
+        self.format_display("null")
+    }
+
+    fn write_bool(&mut self, b: bool) -> Result<(), Self::Error> {
+        self.format_debug(b)
+    }
+
+    fn write_int(&mut self, i: i64) -> Result<(), Self::Error> {
+        self.format_display(i)
+    }
+
+    fn write_float(&mut self, f: f64) -> Result<(), Self::Error> {
+        self.format_display(f)
+    }
+
+    fn write_bytes(&mut self, b: &[u8]) -> Result<(), Self::Error> {
+        self.buff += &format!("bytes{:02X?}", b);
+        self.handle_stack();
+        Ok(())
+    }
+
+    fn write_string(&mut self, s: &str) -> Result<(), Self::Error> {
+        self.format_debug(s)
+    }
+
+    fn write_list_header(&mut self, size: u64) -> Result<(), Self::Error> {
+        if size > 0 {
+            self.buff.push('[');
+            self.stack.push((", ", "]", size));
+        } else {
+            self.buff += "[]"
+        }
+        Ok(())
+    }
+
+    fn write_list<S: PackStreamSerialize, B: BoltStructTranslator>(
+        &mut self,
+        bolt: &B,
+        l: &[S],
+    ) -> Result<(), Self::Error> {
+        self.write_list_header(u64::from_usize(l.len())).unwrap();
+        for value in l {
+            value.serialize(self, bolt).unwrap();
+        }
+        Ok(())
+    }
+
+    fn write_dict_header(&mut self, size: u64) -> Result<(), Self::Error> {
+        if size > 0 {
+            self.buff.push('{');
+            self.stack.push((": ", "}", size));
+        } else {
+            self.buff += "{}"
+        }
+        Ok(())
+    }
+
+    fn write_dict<S: PackStreamSerialize, B: BoltStructTranslator, K: AsRef<str>>(
+        &mut self,
+        bolt: &B,
+        d: &HashMap<K, S>,
+    ) -> Result<(), Self::Error> {
+        self.write_dict_header(u64::from_usize(d.len())).unwrap();
+        for (key, value) in d {
+            self.write_string(key.as_ref()).unwrap();
+            value.serialize(self, bolt).unwrap();
+        }
+        Ok(())
+    }
+
+    fn write_struct_header(&mut self, tag: u8, size: u8) -> Result<(), Self::Error> {
+        if size > 0 {
+            self.buff += &format!("Structure[{:#02X?}; {}](", tag, size);
+            self.stack.push((", ", ")", size.into()));
+        } else {
+            self.buff += &format!("Structure[{:#02X?}; 0]()", tag);
+        }
+        Ok(())
+    }
+
+    fn write_struct<S: PackStreamSerialize, B: BoltStructTranslator>(
+        &mut self,
+        bolt: &B,
+        tag: u8,
+        fields: &[S],
+    ) -> Result<(), Self::Error> {
         for field in fields.iter() {
             field.serialize(self, bolt)?;
         }

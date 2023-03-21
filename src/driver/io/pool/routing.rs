@@ -109,7 +109,7 @@ impl RoutingTable {
             }
         }
 
-        let initialized_without_writers = !writers.is_empty();
+        let initialized_without_writers = writers.is_empty();
 
         Ok(Self {
             routers,

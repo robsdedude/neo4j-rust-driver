@@ -19,12 +19,15 @@ mod message;
 mod packstream;
 mod response;
 
+use atomic_refcell::AtomicRefCell;
 use std::borrow::Borrow;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Formatter};
 use std::io::{BufReader, BufWriter, Read, Write};
+use std::mem::swap;
 use std::net::{Shutdown, TcpStream};
 use std::ops::DerefMut;
+use std::sync::Arc;
 use std::{io, result};
 
 use log::{debug, log_enabled, Level};
@@ -38,24 +41,11 @@ use message::BoltMessage;
 pub use packstream::{PackStreamDeserialize, PackStreamSerialize};
 pub(crate) use packstream::{
     PackStreamDeserializer, PackStreamDeserializerImpl, PackStreamSerializer,
-    PackStreamSerializerImpl,
+    PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
 pub(crate) use response::{
     BoltMeta, BoltRecordFields, BoltResponse, ResponseCallbacks, ResponseMessage,
 };
-
-pub struct Bolt<R: Read, W: Write> {
-    message_buff: VecDeque<Vec<Vec<u8>>>,
-    responses: VecDeque<BoltResponse>,
-    reader: R,
-    writer: W,
-    socket: Option<TcpStream>,
-    version: (u8, u8),
-    closed: bool,
-    state: BoltStateTracker,
-}
-
-pub(crate) type TcpBolt = Bolt<BufReader<TcpStream>, BufWriter<TcpStream>>;
 
 macro_rules! debug_buf_start {
     ($name:ident) => {
@@ -75,10 +65,58 @@ macro_rules! debug_buf {
 }
 
 macro_rules! debug_buf_end {
-    ($name:ident) => {
-        debug!("{}", $name.as_ref().map(|s| s.as_str()).unwrap_or(""));
+    ($bolt:expr, $name:ident) => {
+        debug!(
+            "{}{}",
+            $bolt.dbg_extra(),
+            $name.as_ref().map(|s| s.as_str()).unwrap_or("")
+        );
     };
 }
+
+macro_rules! bolt_debug {
+    ($bolt:expr, $($args:tt)+) => {
+        debug!(
+            "{}{}",
+            $bolt.dbg_extra(),
+            format!($($args)*)
+        );
+    };
+}
+
+macro_rules! socket_debug {
+    ($socket:expr, $($args:tt)+) => {
+        debug!(
+            "{}{}",
+            dbg_extra(Some($socket), None),
+            format!($($args)*)
+        );
+    };
+}
+
+fn dbg_extra(socket: Option<&TcpStream>, bolt_id: Option<&str>) -> String {
+    format!(
+        "[#{:04X} {:<10}] ",
+        socket
+            .map(|s| s.local_addr().map(|addr| addr.port()).unwrap_or(0))
+            .unwrap_or(0),
+        bolt_id.unwrap_or("")
+    )
+}
+
+pub struct Bolt<R: Read, W: Write> {
+    message_buff: VecDeque<Vec<Vec<u8>>>,
+    responses: VecDeque<BoltResponse>,
+    reader: R,
+    writer: W,
+    socket: Option<TcpStream>,
+    version: (u8, u8),
+    closed: bool,
+    state: BoltStateTracker,
+    meta: Arc<AtomicRefCell<HashMap<String, Value>>>,
+}
+
+pub(crate) type TcpBolt = Bolt<BufReader<TcpStream>, BufWriter<TcpStream>>;
 
 impl<R: Read, W: Write> Bolt<R, W> {
     fn new(version: (u8, u8), reader: R, writer: W, socket: Option<TcpStream>) -> Self {
@@ -91,12 +129,24 @@ impl<R: Read, W: Write> Bolt<R, W> {
             version,
             closed: false,
             state: BoltStateTracker::new(version),
+            meta: Arc::new(AtomicRefCell::new(HashMap::new())),
         }
     }
 
     // fn version(&self) -> (u8, u8) {
     //     self.version
     // }
+
+    fn dbg_extra(&self) -> String {
+        let meta = self.meta.try_borrow();
+        let Ok(meta) = meta else {
+             return dbg_extra(self.socket.as_ref(), Some("!!!!"));
+        };
+        let Some(Value::String(id)) = meta.get("connection_id") else {
+            return dbg_extra(self.socket.as_ref(), None);
+        };
+        dbg_extra(self.socket.as_ref(), Some(id))
+    }
 
     pub(crate) fn closed(&self) -> bool {
         self.closed
@@ -110,6 +160,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
     ) -> Result<()> {
         debug_buf_start!(log_buf);
         debug_buf!(log_buf, "C: HELLO {{");
+        let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
         let mut message_buff = Vec::new();
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         let translator = Bolt5x0StructTranslator {};
@@ -122,7 +173,13 @@ impl<R: Read, W: Write> Bolt<R, W> {
         serializer.write_string(user_agent)?;
 
         if let Some(routing_context) = routing_context {
-            debug_buf!(log_buf, ", \"routing\": {:?}", routing_context);
+            debug_buf!(log_buf, ", \"routing\": {}", {
+                routing_context
+                    .serialize(&mut dbg_serializer, &translator)
+                    .unwrap();
+                dbg_serializer.flush()
+            });
+            serializer.write_string("routing")?;
             routing_context.serialize(&mut serializer, &translator)?;
         }
 
@@ -130,7 +187,10 @@ impl<R: Read, W: Write> Bolt<R, W> {
             if k == "credentials" {
                 debug_buf!(log_buf, ", {:?}: {:?}", k, "**********");
             } else {
-                debug_buf!(log_buf, ", {:?}: {:?}", k, v);
+                debug_buf!(log_buf, ", {:?}: {}", k, {
+                    v.serialize(&mut dbg_serializer, &translator).unwrap();
+                    dbg_serializer.flush()
+                });
             }
             serializer.write_string(k)?;
             v.serialize(&mut serializer, &translator)?;
@@ -138,10 +198,16 @@ impl<R: Read, W: Write> Bolt<R, W> {
 
         debug_buf!(log_buf, "}}");
         self.message_buff.push_back(vec![message_buff]);
-        debug_buf_end!(log_buf);
+        debug_buf_end!(self, log_buf);
 
-        self.responses
-            .push_back(BoltResponse::from_message(ResponseMessage::Hello));
+        let self_meta = Arc::clone(&self.meta);
+        self.responses.push_back(BoltResponse::new(
+            ResponseMessage::Hello,
+            ResponseCallbacks::new().with_on_success(move |mut meta| {
+                swap(&mut *self_meta.borrow_mut(), &mut meta);
+                Ok(())
+            }),
+        ));
         Ok(())
     }
 
@@ -179,7 +245,8 @@ impl<R: Read, W: Write> Bolt<R, W> {
 
     pub(crate) fn run_submit(&mut self, run_prep: RunPreparation, callbacks: ResponseCallbacks) {
         assert_eq!(run_prep.bolt_version, self.version);
-        self.message_buff.push_back(run_prep.into_message_buff());
+        self.message_buff
+            .push_back(run_prep.into_message_buff(self));
         self.responses
             .push_back(BoltResponse::new(ResponseMessage::Run, callbacks));
     }
@@ -198,7 +265,14 @@ impl<R: Read, W: Write> Bolt<R, W> {
         self.message_buff.push_back(vec![message_buff]);
         self.responses
             .push_back(BoltResponse::new(ResponseMessage::Discard, callbacks));
-        debug!("C: DISCARD {{{:?}: {:?}, {:?}: {:?}}}", "n", n, "qid", qid);
+        bolt_debug!(
+            self,
+            "C: DISCARD {{{:?}: {:?}, {:?}: {:?}}}",
+            "n",
+            n,
+            "qid",
+            qid
+        );
         Ok(())
     }
 
@@ -216,7 +290,14 @@ impl<R: Read, W: Write> Bolt<R, W> {
         self.message_buff.push_back(vec![message_buff]);
         self.responses
             .push_back(BoltResponse::new(ResponseMessage::Pull, callbacks));
-        debug!("C: PULL {{{:?}: {:?}, {:?}: {:?}}}", "n", n, "qid", qid);
+        bolt_debug!(
+            self,
+            "C: PULL {{{:?}: {:?}, {:?}: {:?}}}",
+            "n",
+            n,
+            "qid",
+            qid
+        );
         Ok(())
     }
 
@@ -231,11 +312,17 @@ impl<R: Read, W: Write> Bolt<R, W> {
         debug_buf_start!(log_buf);
         debug_buf!(log_buf, "C: ROUTE ");
         let translator = Bolt5x0StructTranslator {};
+        let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
         let mut message_buff = Vec::new();
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(0x66, 3)?;
 
-        debug_buf!(log_buf, "{:?} ", routing_context);
+        debug_buf!(log_buf, "{} ", {
+            dbg_serializer
+                .write_dict(&translator, routing_context)
+                .unwrap();
+            dbg_serializer.flush()
+        });
         serializer.write_dict(&translator, routing_context)?;
         match bookmarks {
             None => {
@@ -266,7 +353,10 @@ impl<R: Read, W: Write> Bolt<R, W> {
         }
         debug_buf!(log_buf, "}}");
 
-        debug_buf_end!(log_buf);
+        self.message_buff.push_back(vec![message_buff]);
+        self.responses
+            .push_back(BoltResponse::new(ResponseMessage::Route, callbacks));
+        debug_buf_end!(self, log_buf);
         Ok(())
     }
 
@@ -280,12 +370,13 @@ impl<R: Read, W: Write> Bolt<R, W> {
             self.closed = true;
             self.socket.as_ref().map(|s| s.shutdown(Shutdown::Both));
         });
-        // let mut deserializer = PackStreamDeserializerImpl::new(&mut dechunker);
         let translator = Bolt5x0StructTranslator {};
+        let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
         let message: BoltMessage<Value> = BoltMessage::load(&mut dechunker, |r| {
             let mut deserializer = PackStreamDeserializerImpl::new(r);
             Ok(deserializer.load::<Value, _>(&translator)?)
         })?;
+        drop(dechunker);
         match message {
             BoltMessage {
                 tag: 0x70,
@@ -294,14 +385,17 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 // SUCCESS
                 Self::assert_response_field_count("SUCCESS", &fields, 1)?;
                 let meta = fields.pop().unwrap();
-                debug!("S: SUCCESS {:?}", meta);
+                bolt_debug!(self, "S: SUCCESS {}", {
+                    meta.serialize(&mut dbg_serializer, &translator).unwrap();
+                    dbg_serializer.flush()
+                });
                 self.state.success(response.message, &meta);
                 response.callbacks.on_success(meta)
             }
             BoltMessage { tag: 0x7E, fields } => {
                 // IGNORED
                 Self::assert_response_field_count("IGNORED", &fields, 0)?;
-                debug!("S: IGNORED");
+                bolt_debug!(self, "S: IGNORED");
                 response.callbacks.on_ignored()
             }
             BoltMessage {
@@ -311,7 +405,10 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 // FAILURE
                 Self::assert_response_field_count("FAILURE", &fields, 1)?;
                 let meta = fields.pop().unwrap();
-                debug!("S: FAILURE {:?}", meta);
+                bolt_debug!(self, "S: FAILURE {}", {
+                    meta.serialize(&mut dbg_serializer, &translator).unwrap();
+                    dbg_serializer.flush()
+                });
                 self.state.failure();
                 response.callbacks.on_failure(meta)
             }
@@ -322,7 +419,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 // RECORD
                 Self::assert_response_field_count("RECORD", &fields, 1)?;
                 let data = fields.pop().unwrap();
-                debug!("S: RECORD [...]");
+                bolt_debug!(self, "S: RECORD [...]");
                 let res = response.callbacks.on_record(data);
                 self.responses.push_front(response);
                 res
@@ -416,7 +513,7 @@ impl<R: Read, W: Write> Drop for Bolt<R, W> {
         }
         self.message_buff.clear();
         self.responses.clear();
-        if let Err(_) = self.goodbye() {
+        if self.goodbye().is_err() {
             return;
         }
         let _ = self.write_all();
@@ -463,15 +560,15 @@ pub(crate) fn open(address: &Address) -> Result<TcpBolt> {
     let mut reader = BufReader::new(Neo4jError::wrap_connect(stream.try_clone())?);
     let mut writer = BufWriter::new(Neo4jError::wrap_connect(stream.try_clone())?);
 
-    debug!("C: <HANDSHAKE> {:02X?}", BOLT_MAGIC_PREAMBLE);
+    socket_debug!(&stream, "C: <HANDSHAKE> {:02X?}", BOLT_MAGIC_PREAMBLE);
     Neo4jError::wrap_write(writer.write_all(&BOLT_MAGIC_PREAMBLE))?;
-    debug!("C: <BOLT> {:02X?}", BOLT_VERSION_OFFER);
+    socket_debug!(&stream, "C: <BOLT> {:02X?}", BOLT_VERSION_OFFER);
     Neo4jError::wrap_write(writer.write_all(&BOLT_VERSION_OFFER))?;
     Neo4jError::wrap_write(writer.flush())?;
 
     let mut negotiated_version = [0u8; 4];
     Neo4jError::wrap_read(reader.read_exact(&mut negotiated_version))?;
-    debug!("S: <BOLT> {:02X?}", negotiated_version);
+    socket_debug!(&stream, "S: <BOLT> {:02X?}", negotiated_version);
 
     let version = match negotiated_version {
         [0, 0, 0, 0] => Err(Neo4jError::InvalidConfig {
@@ -533,7 +630,7 @@ impl RunPreparation {
         };
 
         let mut log_head = log_msg.as_mut().map(|m| &mut m[RUN_PREP_MSG_IDX]);
-        debug_buf!(log_head, "C: RUN {} ", query);
+        debug_buf!(log_head, "C: RUN {:?} ", query);
         let mut buff = Vec::new();
         let mut serializer = PackStreamSerializerImpl::new(&mut buff);
         serializer.write_struct_header(0x10, 3)?;
@@ -613,10 +710,16 @@ impl RunPreparation {
         parameters: &HashMap<K, S>,
     ) -> Result<()> {
         let translator = Bolt5x0StructTranslator {};
+        let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
 
         let mut log = self.log_msg.as_mut().map(|m| &mut m[RUN_PREP_PARAMS_IDX]);
         log.as_mut().map(|s| s.clear());
-        debug_buf!(log, "{:?} ", parameters);
+        debug_buf!(log, "{:?} ", {
+            parameters
+                .serialize(&mut dbg_serializer, &translator)
+                .unwrap();
+            dbg_serializer.flush()
+        });
 
         let buff = &mut self.buffers[RUN_PREP_PARAMS_IDX];
         buff.clear();
@@ -631,6 +734,7 @@ impl RunPreparation {
         tx_meta: &HashMap<K, S>,
     ) -> Result<()> {
         let translator = Bolt5x0StructTranslator {};
+        let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
 
         let first_time = self.buffers[RUN_PREP_EXTRA_META_IDX].is_empty();
         if first_time {
@@ -645,7 +749,10 @@ impl RunPreparation {
             .as_mut()
             .map(|m| &mut m[RUN_PREP_EXTRA_META_IDX]);
         log.as_mut().map(|s| s.clear());
-        debug_buf!(log, "{:?}: {:?}", "tx_meta", tx_meta);
+        debug_buf!(log, "{:?}: {:?}", "tx_meta", {
+            tx_meta.serialize(&mut dbg_serializer, &translator).unwrap();
+            dbg_serializer.flush()
+        });
 
         let buff = &mut self.buffers[RUN_PREP_EXTRA_META_IDX];
         buff.clear();
@@ -682,7 +789,7 @@ impl RunPreparation {
         Ok(())
     }
 
-    fn into_message_buff(self) -> Vec<Vec<u8>> {
+    fn into_message_buff<R: Read, W: Write>(self, bolt: &Bolt<R, W>) -> Vec<Vec<u8>> {
         if log_enabled!(Level::Debug) {
             let log_msg = self.borrow().log_msg.as_ref().unwrap();
             let mut log_buff =
@@ -707,7 +814,7 @@ impl RunPreparation {
                 sep = ", ";
             }
             log_buff.push('}');
-            debug!("{}", log_buff);
+            bolt_debug!(bolt, "{}", log_buff);
         }
         self.buffers
     }

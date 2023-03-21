@@ -21,4 +21,7 @@ mod value;
 
 pub use deserialize::{PackStreamDeserialize, PackStreamDeserializer, PackStreamDeserializerImpl};
 pub use error::PackStreamDeserializeError;
-pub use serialize::{PackStreamSerialize, PackStreamSerializer, PackStreamSerializerImpl};
+pub use serialize::{
+    PackStreamSerialize, PackStreamSerializer, PackStreamSerializerDebugImpl,
+    PackStreamSerializerImpl,
+};
