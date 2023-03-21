@@ -37,6 +37,365 @@ pub enum Value {
     BrokenValue { reason: String },
 }
 
+impl Value {
+    #[inline]
+    pub fn is_null(&self) -> bool {
+        matches!(self, Value::Null)
+    }
+}
+
+impl TryFrom<Value> for bool {
+    type Error = Value;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Boolean(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl Value {
+    #[inline]
+    pub fn is_bool(&self) -> bool {
+        matches!(self, Value::Boolean(_))
+    }
+
+    #[inline]
+    pub fn as_bool(&self) -> Option<&bool> {
+        match self {
+            Value::Boolean(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_bool(self) -> Result<bool, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<Value> for i64 {
+    type Error = Value;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Integer(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl Value {
+    #[inline]
+    pub fn is_int(&self) -> bool {
+        matches!(self, Value::Integer(_))
+    }
+
+    #[inline]
+    pub fn as_int(&self) -> Option<&i64> {
+        match self {
+            Value::Integer(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_int(self) -> Result<i64, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<Value> for f64 {
+    type Error = Value;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Float(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl Value {
+    #[inline]
+    pub fn is_float(&self) -> bool {
+        matches!(self, Value::Float(_))
+    }
+
+    #[inline]
+    pub fn as_float(&self) -> Option<&f64> {
+        match self {
+            Value::Float(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_float(self) -> Result<f64, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<Value> for Vec<u8> {
+    type Error = Value;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Bytes(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl Value {
+    #[inline]
+    pub fn is_bytes(&self) -> bool {
+        matches!(self, Value::Bytes(_))
+    }
+
+    #[inline]
+    pub fn as_bytes(&self) -> Option<&Vec<u8>> {
+        match self {
+            Value::Bytes(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_bytes(self) -> Result<Vec<u8>, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<Value> for String {
+    type Error = Value;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::String(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl Value {
+    #[inline]
+    pub fn is_string(&self) -> bool {
+        matches!(self, Value::String(_))
+    }
+
+    #[inline]
+    pub fn as_string(&self) -> Option<&String> {
+        match self {
+            Value::String(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_string(self) -> Result<String, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<Value> for Vec<Value> {
+    type Error = Value;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::List(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl Value {
+    #[inline]
+    pub fn is_list(&self) -> bool {
+        matches!(self, Value::List(_))
+    }
+
+    #[inline]
+    pub fn as_list(&self) -> Option<&[Value]> {
+        match self {
+            Value::List(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_list(self) -> Result<Vec<Value>, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<Value> for HashMap<String, Value> {
+    type Error = Value;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Map(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl Value {
+    #[inline]
+    pub fn is_map(&self) -> bool {
+        matches!(self, Value::Map(_))
+    }
+
+    #[inline]
+    pub fn as_map(&self) -> Option<&HashMap<String, Value>> {
+        match self {
+            Value::Map(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_map(self) -> Result<HashMap<String, Value>, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<Value> for spatial::Cartesian2D {
+    type Error = Value;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Cartesian2D(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl Value {
+    #[inline]
+    pub fn is_cartesian_2d(&self) -> bool {
+        matches!(self, Value::Cartesian2D(_))
+    }
+
+    #[inline]
+    pub fn as_cartesian_2d(&self) -> Option<&spatial::Cartesian2D> {
+        match self {
+            Value::Cartesian2D(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_cartesian_2d(self) -> Result<spatial::Cartesian2D, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<Value> for spatial::Cartesian3D {
+    type Error = Value;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Cartesian3D(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl Value {
+    #[inline]
+    pub fn is_cartesian_3d(&self) -> bool {
+        matches!(self, Value::Cartesian3D(_))
+    }
+
+    #[inline]
+    pub fn as_cartesian_3d(&self) -> Option<&spatial::Cartesian3D> {
+        match self {
+            Value::Cartesian3D(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_cartesian_3d(self) -> Result<spatial::Cartesian3D, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<Value> for spatial::WGS84_2D {
+    type Error = Value;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::WGS84_2D(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl Value {
+    #[inline]
+    pub fn is_wgs84_2d(&self) -> bool {
+        matches!(self, Value::WGS84_2D(_))
+    }
+
+    #[inline]
+    pub fn as_wgs84_2d(&self) -> Option<&spatial::WGS84_2D> {
+        match self {
+            Value::WGS84_2D(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_wgs84_2d(self) -> Result<spatial::WGS84_2D, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<Value> for spatial::WGS84_3D {
+    type Error = Value;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::WGS84_3D(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl Value {
+    #[inline]
+    pub fn is_wgs84_3d(&self) -> bool {
+        matches!(self, Value::WGS84_3D(_))
+    }
+
+    #[inline]
+    pub fn as_wgs84_3d(&self) -> Option<&spatial::WGS84_3D> {
+        match self {
+            Value::WGS84_3D(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_wgs84_3d(self) -> Result<spatial::WGS84_3D, Self> {
+        self.try_into()
+    }
+}
+
 // #[derive(Debug)]
 // #[non_exhaustive]
 // pub enum RefValue<'a> {

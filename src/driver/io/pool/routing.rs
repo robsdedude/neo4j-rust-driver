@@ -62,19 +62,15 @@ impl RoutingTable {
         let rt = data.remove("rt").ok_or(RoutingTableParseError {
             reason: "top-level key \"rt\" missing",
         })?;
-        let Value::Map(mut rt) = rt else {
-            return Err(RoutingTableParseError {
-                reason: "value \"rt\" did not contain a map"
-            });
-        };
+        let mut rt = rt.try_into_map().map_err(|_| RoutingTableParseError {
+            reason: "value \"rt\" did not contain a map",
+        })?;
         let ttl = rt.remove("ttl").ok_or(RoutingTableParseError {
             reason: "missing \"ttl\"",
         })?;
-        let Value::Integer(ttl) = ttl else {
-            return Err(RoutingTableParseError {
-                reason: "\"ttl\" was not integer"
-            });
-        };
+        let ttl: i64 = ttl.try_into().map_err(|_| RoutingTableParseError {
+            reason: "\"ttl\" was not integer",
+        })?;
         if ttl < 0 {
             return Err(RoutingTableParseError {
                 reason: "negative \"ttl\"",
@@ -95,11 +91,11 @@ impl RoutingTable {
         let mut readers = Vec::new();
         let mut writers = Vec::new();
 
-        let Value::List(servers) = servers else {
-            return Err(RoutingTableParseError {
-                reason: "\"servers\" was not list"
-            });
-        };
+        let servers = servers
+            .try_into_list()
+            .map_err(|_| RoutingTableParseError {
+                reason: "\"servers\" was not list",
+            })?;
         for server in servers.into_iter() {
             match Self::parse_server(server)? {
                 (ServerRole::Router, addresses) => routers = addresses,
@@ -110,7 +106,6 @@ impl RoutingTable {
         }
 
         let initialized_without_writers = writers.is_empty();
-
         Ok(Self {
             routers,
             readers,
@@ -125,19 +120,15 @@ impl RoutingTable {
     fn parse_server(
         server: Value,
     ) -> Result<(ServerRole, Vec<Arc<Address>>), RoutingTableParseError> {
-        let Value::Map(mut server) = server else {
-            return Err(RoutingTableParseError {
-                reason: "\"servers\" entry was not map"
-            });
-        };
+        let mut server = server.try_into_map().map_err(|_| RoutingTableParseError {
+            reason: "\"servers\" entry was not map",
+        })?;
         let role = server.remove("role").ok_or(RoutingTableParseError {
             reason: "\"servers\" entry missing \"role\"",
         })?;
-        let Value::String(role) = role else {
-            return Err(RoutingTableParseError {
-                reason: "\"servers\" entry missing \"role\" was not string"
-            });
-        };
+        let role: String = role.try_into().map_err(|_| RoutingTableParseError {
+            reason: "\"servers\" entry missing \"role\" was not string",
+        })?;
         let role = match role.as_str().into() {
             ServerRole::Unknown => {
                 warn!("ignoring unknown server role {}", role);
@@ -148,19 +139,15 @@ impl RoutingTable {
         let addresses = server.remove("addresses").ok_or(RoutingTableParseError {
             reason: "\"servers\" entry missing \"addresses\"",
         })?;
-        let Value::List(addresses) = addresses else {
-            return Err(RoutingTableParseError {
-                reason: "\"servers\" entry missing \"addresses\" was not list"
-            });
-        };
+        let addresses: Vec<Value> = addresses.try_into().map_err(|_| RoutingTableParseError {
+            reason: "\"servers\" entry missing \"addresses\" was not list",
+        })?;
         let addresses = addresses
             .into_iter()
             .map(|address| {
-                let Value::String(address) = address else {
-                return Err(RoutingTableParseError {
-                    reason: "\"servers\" entry missing \"addresses\" contained non-string"
-                });
-            };
+                let address: String = address.try_into().map_err(|_| RoutingTableParseError {
+                    reason: "\"servers\" entry missing \"addresses\" contained non-string",
+                })?;
                 let address = Address::from(&*address);
                 Ok(Arc::new(address))
             })
