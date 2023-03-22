@@ -13,14 +13,13 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::mem::take;
-use std::ops::Deref;
+use std::mem;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use log::{debug, warn};
 
-use crate::{add, RoutingControl};
+use crate::RoutingControl;
 use crate::{Address, Value};
 
 use thiserror::Error;
@@ -185,15 +184,15 @@ impl RoutingTable {
     }
 
     pub(crate) fn deactivate(&mut self, addr: &Address) {
-        self.routers = take(&mut self.routers)
+        self.routers = mem::take(&mut self.routers)
             .into_iter()
             .filter(|a| **a != *addr)
             .collect();
-        self.readers = take(&mut self.readers)
+        self.readers = mem::take(&mut self.readers)
             .into_iter()
             .filter(|a| **a != *addr)
             .collect();
-        self.writers = take(&mut self.writers)
+        self.writers = mem::take(&mut self.writers)
             .into_iter()
             .filter(|a| **a != *addr)
             .collect();

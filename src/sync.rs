@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::cell::RefCell;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -43,14 +44,19 @@ impl<T: Debug> MostlyRLock<T> {
         &'a self,
         mut updater: UPDATE,
     ) -> Result<RwLockReadGuard<'a, T>> {
-        let mut done = false;
+        let done = RefCell::new(false);
         self.maybe_write(
-            |_| {
-                let res = !done;
-                done = !done;
-                res
+            {
+                let done = &done;
+                |_| !*done.borrow()
             },
-            |lock| updater(lock),
+            {
+                let done = &done;
+                |lock| {
+                    *done.borrow_mut() = true;
+                    updater(lock)
+                }
+            },
         )
     }
 
@@ -70,8 +76,8 @@ impl<T: Debug> MostlyRLock<T> {
                     return Ok(r_lock);
                 }
             }
-            let updating = self.updating.swap(true, Ordering::SeqCst);
-            if updating {
+            let already_updating = self.updating.swap(true, Ordering::SeqCst);
+            if !already_updating {
                 let w_lock = self.inner.write().unwrap();
                 updater(w_lock)?;
                 self.updating.store(false, Ordering::SeqCst);
@@ -82,18 +88,4 @@ impl<T: Debug> MostlyRLock<T> {
             }
         }
     }
-
-    /*    pub(crate) fn maybe_update<
-            'a,
-            CHECK: FnMut(&RwLockReadGuard<'a, T>) -> bool,
-            UPDATE: FnMut(RwLockWriteGuard<'a, T>) -> Result<()>,
-        >(
-            &'a self,
-            needs_update: CHECK,
-            updater: UPDATE,
-        ) -> Result<()> {
-            drop(self.maybe_write(needs_update, updater)?);
-            Ok(())
-        }
-    */
 }

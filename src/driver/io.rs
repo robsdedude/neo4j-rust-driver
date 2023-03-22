@@ -15,4 +15,4 @@
 pub(crate) mod bolt;
 mod pool;
 
-pub(crate) use pool::{AcquireConfig, Pool, PoolConfig, PooledBolt};
+pub(crate) use pool::{AcquireConfig, Pool, PoolConfig, UpdateRtArgs};

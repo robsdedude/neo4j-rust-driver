@@ -304,10 +304,11 @@ impl From<ErrorStack> for Neo4jError {
 
 #[cfg(test)]
 mod tests {
-    use crate::util::map;
     use mockall::predicate::*;
     use mockall::*;
     use rstest::*;
+
+    use crate::macros::map;
 
     use super::*;
 
@@ -558,7 +559,6 @@ mod tests {
     #[case("?foo=bar", map!("foo".into() => "bar".into()))]
     #[case("?n=1", map!("n".into() => "1".into()))]
     #[case("?foo=bar&baz=foobar", map!("foo".into() => "bar".into(), "baz".into() => "foobar".into()))]
-
     fn test_parsing_routing_context(
         #[values(
             "neo4j://localhost:7687",
@@ -572,9 +572,9 @@ mod tests {
         )]
         uri_base: &str,
         #[case] uri_query: &str,
-        #[case] routing_context: HashMap<String, String>,
+        #[case] routing_context: HashMap<String, Value>,
     ) {
-        let uri: String = String::from(uri_base) + uri_query;
+        let uri: String = format!("{}{}", uri_base, uri_query);
         dbg!(&uri, &routing_context);
         let connection_config = ConnectionConfig::try_from(uri.as_str());
         let connection_config = connection_config.unwrap();

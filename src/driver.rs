@@ -26,7 +26,7 @@ use std::sync::Arc;
 use io::{Pool, PoolConfig};
 pub use record::Record;
 pub use record_stream::RecordStream;
-pub use session::{Session, SessionConfig, SessionRunConfig};
+pub use session::{AutoCommitExtra, Session, SessionConfig};
 pub use summary::Summary;
 
 #[derive(Debug)]

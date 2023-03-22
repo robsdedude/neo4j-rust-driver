@@ -12,30 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use atomic_refcell::AtomicRefCell;
-use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Condvar, Mutex};
 
-use itertools::Itertools;
-
 use super::super::bolt::{self, TcpBolt};
 use super::PoolConfig;
-use crate::{Address, Result, Value};
+use crate::{Result, Value};
 
 type PoolElement = TcpBolt;
 
 #[derive(Debug)]
 pub(crate) struct InnerPool {
     config: Arc<PoolConfig>,
-    synced: Mutex<InnerPoolInMutex>,
-    condition: Condvar,
+    synced: Mutex<InnerPoolSyncedData>,
+    made_room_condition: Condvar,
 }
 
 #[derive(Debug)]
-struct InnerPoolInMutex {
+struct InnerPoolSyncedData {
     raw_pool: VecDeque<PoolElement>,
     reservations: usize,
     borrowed: usize,
@@ -44,7 +40,7 @@ struct InnerPoolInMutex {
 impl InnerPool {
     fn new(config: Arc<PoolConfig>) -> Self {
         let raw_pool = VecDeque::with_capacity(config.max_connection_pool_size);
-        let synced = Mutex::new(InnerPoolInMutex {
+        let synced = Mutex::new(InnerPoolSyncedData {
             raw_pool,
             reservations: 0,
             borrowed: 0,
@@ -52,7 +48,7 @@ impl InnerPool {
         Self {
             config,
             synced,
-            condition: Condvar::new(),
+            made_room_condition: Condvar::new(),
         }
     }
 }
@@ -65,23 +61,23 @@ impl SinglePool {
         Self(Arc::new(InnerPool::new(config)))
     }
 
-    pub(crate) fn acquire(&self) -> Result<PooledBolt> {
+    pub(crate) fn acquire(&self) -> Result<SinglePooledBolt> {
         {
             let mut synced = self.synced.lock().unwrap();
             loop {
                 if let Some(connection) = self.acquire_existing(&mut synced) {
-                    return Ok(PooledBolt::new(connection, Arc::clone(&self.0)));
+                    return Ok(SinglePooledBolt::new(connection, Arc::clone(&self.0)));
                 }
                 if self.has_room(&synced) {
                     synced.reservations += 1;
                     break;
                 } else {
-                    synced = self.condition.wait(synced).unwrap();
+                    synced = self.made_room_condition.wait(synced).unwrap();
                 }
             }
         }
         let connection = self.acquire_new()?;
-        Ok(PooledBolt::new(connection, Arc::clone(&self.0)))
+        Ok(SinglePooledBolt::new(connection, Arc::clone(&self.0)))
     }
 
     pub(crate) fn in_use(&self) -> usize {
@@ -89,12 +85,12 @@ impl SinglePool {
         synced.borrowed + synced.reservations
     }
 
-    fn has_room(&self, synced: &InnerPoolInMutex) -> bool {
+    fn has_room(&self, synced: &InnerPoolSyncedData) -> bool {
         synced.raw_pool.len() + synced.borrowed + synced.reservations
             < self.config.max_connection_pool_size
     }
 
-    fn acquire_existing(&self, synced: &mut InnerPoolInMutex) -> Option<PoolElement> {
+    fn acquire_existing(&self, synced: &mut InnerPoolSyncedData) -> Option<PoolElement> {
         let connection = synced.raw_pool.pop_front();
         if connection.is_some() {
             synced.borrowed += 1;
@@ -112,7 +108,7 @@ impl SinglePool {
     }
 
     fn open_new(&self) -> Result<PoolElement> {
-        let mut connection = bolt::open(&self.config.address)?;
+        let mut connection = bolt::open(Arc::clone(&self.config.address))?;
         connection.hello(
             self.config.user_agent.as_str(),
             &self.config.auth,
@@ -141,7 +137,7 @@ impl SinglePool {
         if !connection.closed() {
             lock.raw_pool.push_back(connection);
         }
-        inner_pool.condition.notify_one();
+        inner_pool.made_room_condition.notify_one();
     }
 }
 
@@ -159,12 +155,12 @@ impl Deref for SinglePool {
 // unsafe impl Sync for Pool {}
 
 #[derive(Debug)]
-pub(crate) struct PooledBolt {
+pub(crate) struct SinglePooledBolt {
     pool: Arc<InnerPool>,
     bolt: ManuallyDrop<PoolElement>,
 }
 
-impl PooledBolt {
+impl SinglePooledBolt {
     fn new(bolt: PoolElement, pool: Arc<InnerPool>) -> Self {
         Self {
             pool,
@@ -173,7 +169,7 @@ impl PooledBolt {
     }
 }
 
-impl Drop for PooledBolt {
+impl Drop for SinglePooledBolt {
     fn drop(&mut self) {
         // safety: we're not using ManuallyDrop after this call
         let bolt;
@@ -184,7 +180,7 @@ impl Drop for PooledBolt {
     }
 }
 
-impl Deref for PooledBolt {
+impl Deref for SinglePooledBolt {
     type Target = TcpBolt;
 
     fn deref(&self) -> &Self::Target {
@@ -192,7 +188,7 @@ impl Deref for PooledBolt {
     }
 }
 
-impl DerefMut for PooledBolt {
+impl DerefMut for SinglePooledBolt {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.bolt
     }

@@ -16,26 +16,70 @@ mod routing;
 mod single_pool;
 
 use atomic_refcell::AtomicRefCell;
-use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::mem;
-use std::mem::{swap, ManuallyDrop};
 use std::ops::{Deref, DerefMut};
-use std::rc::Rc;
-use std::result;
-use std::sync::{Arc, Condvar, Mutex, RwLock, RwLockReadGuard};
+use std::sync::{Arc, RwLockReadGuard};
 
-use itertools::Itertools;
 use log::{debug, info, warn};
 
-use super::bolt::{self, ResponseCallbacks, TcpBolt};
+use super::bolt::{ResponseCallbacks, TcpBolt};
+use crate::error::ServerError;
 use crate::sync::MostlyRLock;
 use crate::{Address, Neo4jError, Result, RoutingControl, Value};
 use routing::RoutingTable;
-use single_pool::SinglePool;
+use single_pool::{SinglePool, SinglePooledBolt};
 
-pub(crate) use single_pool::PooledBolt;
+pub(crate) struct PooledBolt<'pool> {
+    bolt: SinglePooledBolt,
+    pool: &'pool Pool,
+}
+
+impl<'pool> PooledBolt<'pool> {
+    fn wrap_io(&mut self, io_op: fn(&mut TcpBolt) -> Result<()>) -> Result<()> {
+        let was_broken = self.bolt.unexpectedly_closed();
+        let res = io_op(&mut self.bolt);
+        if !was_broken && self.bolt.unexpectedly_closed() {
+            self.pool.deactivate_server(self.bolt.address())
+        }
+        res
+    }
+
+    #[inline]
+    pub(crate) fn read_one(&mut self) -> Result<()> {
+        self.wrap_io(TcpBolt::read_one)
+    }
+
+    #[inline]
+    pub(crate) fn read_all(&mut self) -> Result<()> {
+        self.wrap_io(TcpBolt::read_all)
+    }
+
+    #[inline]
+    pub(crate) fn write_one(&mut self) -> Result<()> {
+        self.wrap_io(TcpBolt::write_one)
+    }
+
+    #[inline]
+    pub(crate) fn write_all(&mut self) -> Result<()> {
+        self.wrap_io(TcpBolt::write_all)
+    }
+}
+
+impl<'pool> Deref for PooledBolt<'pool> {
+    type Target = SinglePooledBolt;
+
+    fn deref(&self) -> &Self::Target {
+        &self.bolt
+    }
+}
+
+impl<'pool> DerefMut for PooledBolt<'pool> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.bolt
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct PoolConfig {
@@ -67,17 +111,20 @@ impl Pool {
         self.config.routing_context.is_some()
     }
 
-    pub(crate) fn resolve_home_db(&self) -> Result<Option<String>> {
+    pub(crate) fn resolve_home_db(&self, args: UpdateRtArgs) -> Result<Option<String>> {
         let Pools::Routing(pools) = &self.pools else {
             panic!("don't call resolve_home_db on a direct pool")
         };
+        if args.db.is_some() {
+            panic!("don't call resolve_home_db with a database")
+        }
         let mut resolved_db = None;
         {
             let resolved_db = &mut resolved_db;
             drop(pools.routing_tables.update(move |mut rts| {
-                *resolved_db = pools.update_rts(&None, &mut rts)?.clone();
+                *resolved_db = pools.update_rts(args, &mut rts)?.clone();
                 Ok(())
-            }));
+            })?);
         }
         Ok(resolved_db)
     }
@@ -86,6 +133,16 @@ impl Pool {
         match &self.pools {
             Pools::Direct(single_pool) => single_pool.acquire(),
             Pools::Routing(routing_pool) => routing_pool.acquire(args),
+        }
+        .map(|connection| PooledBolt {
+            bolt: connection,
+            pool: self,
+        })
+    }
+
+    fn deactivate_server(&self, addr: &Address) {
+        if let Pools::Routing(routing_pool) = &self.pools {
+            routing_pool.deactivate_server(addr)
         }
     }
 }
@@ -136,18 +193,18 @@ impl RoutingPool {
         }
     }
 
-    fn acquire(&self, args: AcquireConfig) -> Result<PooledBolt> {
+    fn acquire(&self, args: AcquireConfig) -> Result<SinglePooledBolt> {
         let target = self.choose_address(args)?;
         self.acquire_routing_address(&target)
     }
 
-    fn choose_address(&self, mut args: AcquireConfig) -> Result<Arc<Address>> {
+    fn choose_address(&self, args: AcquireConfig) -> Result<Arc<Address>> {
         let (lock, db) = self.get_fresh_rt(args)?;
         let rt = lock.get(&*db).expect("created above");
         self.least_used_server(rt.servers_for_mode(args.mode))
     }
 
-    fn acquire_routing_address(&self, target: &Address) -> Result<PooledBolt> {
+    fn acquire_routing_address(&self, target: &Address) -> Result<SinglePooledBolt> {
         let pools = self.pools.maybe_write(
             |rt| rt.get(target).is_none(),
             |mut rt| {
@@ -162,7 +219,8 @@ impl RoutingPool {
         &'lock self,
         args: AcquireConfig<'db>,
     ) -> Result<(RwLockReadGuard<'lock, RoutingTables>, DbName<'db>)> {
-        let db_name = RefCell::new(DbName::Ref(args.db));
+        let rt_args = args.update_rt_args;
+        let db_name = RefCell::new(DbName::Ref(rt_args.db));
         let db_name_ref = &db_name;
         let lock = self.routing_tables.maybe_write(
             |rts| {
@@ -171,15 +229,15 @@ impl RoutingPool {
                     .unwrap_or(true)
             },
             |mut rts| {
-                if rts.get(args.db).is_none() {
-                    rts.insert(args.db.clone(), self.empty_rt());
+                if rts.get(rt_args.db).is_none() {
+                    rts.insert(rt_args.db.clone(), self.empty_rt());
                 }
-                let rt = rts.get(args.db).unwrap();
+                let rt = rts.get(rt_args.db).unwrap();
                 if !rt.is_fresh(args.mode) {
-                    let new_db = self.update_rts(args.db, &mut rts)?;
+                    let new_db = self.update_rts(rt_args, &mut rts)?;
                     if db_name_ref.borrow().is_none() && new_db.is_some() {
                         let mut new_db = DbName::Owned(new_db.clone());
-                        swap(&mut *db_name_ref.borrow_mut(), &mut new_db);
+                        mem::swap(&mut *db_name_ref.borrow_mut(), &mut new_db);
                     }
                 }
                 Ok(())
@@ -206,18 +264,18 @@ impl RoutingPool {
 
     fn update_rts<'a>(
         &self,
-        db: &Option<String>,
+        args: UpdateRtArgs,
         rts: &'a mut RoutingTables,
     ) -> Result<&'a Option<String>> {
-        let rt = match rts.get(db) {
+        let rt = match rts.get(args.db) {
             None => {
-                rts.insert(db.clone(), self.empty_rt());
-                rts.get(db).expect("inserted above")
+                rts.insert(args.db.clone(), self.empty_rt());
+                rts.get(args.db).expect("inserted above")
             }
             Some(rt) => rt,
         };
         let pref_init_router = rt.initialized_without_writers;
-        let mut new_rt: Option<RoutingTable>;
+        let mut new_rt: Result<RoutingTable>;
         let routers = rt
             .routers
             .iter()
@@ -225,25 +283,26 @@ impl RoutingPool {
             .map(Arc::clone)
             .collect::<Vec<_>>();
         if pref_init_router {
-            new_rt = self.fetch_rt_from_routers(&[&self.config.address], db, rts)?;
-            if new_rt.is_none() {
-                new_rt = self.fetch_rt_from_routers(&routers, db, rts)?;
+            new_rt = self.fetch_rt_from_routers(&[&self.config.address], args, rts)?;
+            if new_rt.is_err() && !routers.is_empty() {
+                new_rt = self.fetch_rt_from_routers(&routers, args, rts)?;
             }
         } else {
-            new_rt = self.fetch_rt_from_routers(&routers, db, rts)?;
-            if new_rt.is_none() {
-                new_rt = self.fetch_rt_from_routers(&[&self.config.address], db, rts)?;
+            new_rt = self.fetch_rt_from_routers(&routers, args, rts)?;
+            if new_rt.is_err() {
+                new_rt = self.fetch_rt_from_routers(&[&self.config.address], args, rts)?;
             }
         }
         match new_rt {
-            None => Err(Neo4jError::disconnect(
-                "unable to retrieve routing information",
-            )),
-            Some(mut new_rt) => {
-                if db.is_some() {
-                    new_rt.database = db.clone();
+            Err(err) => Err(Neo4jError::disconnect(format!(
+                "unable to retrieve routing information; last error: {}",
+                err
+            ))),
+            Ok(mut new_rt) => {
+                if args.db.is_some() {
+                    new_rt.database = args.db.clone();
                     rts.insert(new_rt.database.clone(), new_rt);
-                    Ok(&rts.get(db).expect("inserted above").database)
+                    Ok(&rts.get(args.db).expect("inserted above").database)
                 } else {
                     // can get rid of the clone once
                     // https://doc.rust-lang.org/std/collections/hash_map/enum.Entry.html#method.insert_entry
@@ -259,16 +318,18 @@ impl RoutingPool {
     fn fetch_rt_from_routers<ADDR: AsRef<Address>>(
         &self,
         routers: &[ADDR],
-        db: &Option<String>,
+        args: UpdateRtArgs,
         rts: &mut RoutingTables,
-    ) -> Result<Option<RoutingTable>> {
+    ) -> Result<Result<RoutingTable>> {
+        let mut last_err = None;
         for router in routers.iter().map(AsRef::as_ref) {
             if router.is_resolved {
-                if let Some(rt) = Self::wrap_discovery_error(
+                match Self::wrap_discovery_error(
                     self.acquire_routing_address(router)
-                        .and_then(|mut con| self.fetch_rt_from_router(&mut con, db)),
+                        .and_then(|mut con| self.fetch_rt_from_router(&mut con, args)),
                 )? {
-                    return Ok(Some(rt));
+                    Ok(rt) => return Ok(Ok(rt)),
+                    Err(err) => last_err = Some(err),
                 };
                 self.deactivate_server_locked_rts(&router, rts);
             } else {
@@ -277,48 +338,54 @@ impl RoutingPool {
                 continue;
             };
                 for resolved_address in resolved_addresses {
-                    if let Some(rt) = Self::wrap_discovery_error(
+                    match Self::wrap_discovery_error(
                         self.acquire_routing_address(&resolved_address)
-                            .and_then(|mut con| self.fetch_rt_from_router(&mut con, db)),
+                            .and_then(|mut con| self.fetch_rt_from_router(&mut con, args)),
                     )? {
-                        return Ok(Some(rt));
+                        Ok(rt) => return Ok(Ok(rt)),
+                        Err(err) => last_err = Some(err),
                     };
                     self.deactivate_server_locked_rts(&resolved_address, rts);
                 }
             }
         }
-        Ok(None)
+        Ok(Err(match last_err {
+            None => Neo4jError::disconnect("no known routers left"),
+            Some(err) => err,
+        }))
     }
 
     fn fetch_rt_from_router(
         &self,
-        con: &mut PooledBolt,
-        db: &Option<String>,
+        con: &mut SinglePooledBolt,
+        args: UpdateRtArgs,
     ) -> Result<RoutingTable> {
         let rt = Arc::new(AtomicRefCell::new(None));
         con.route(
             self.config.routing_context.as_ref().unwrap(),
-            None, // TODO: bookmarks
-            db.as_deref(),
-            None, // TODO: impersonation
-            ResponseCallbacks::new().with_on_success({
-                let rt = Arc::clone(&rt);
-                move |meta| {
-                    let new_rt = RoutingTable::try_parse(meta);
-                    let mut res;
-                    match new_rt {
-                        Ok(new_rt) => res = Some(Ok(new_rt)),
-                        Err(e) => {
-                            warn!("failed to parse routing table: {}", e);
-                            res = Some(Err(Neo4jError::ProtocolError {
-                                message: format!("{}", e),
-                            }));
+            args.bookmarks.as_deref(),
+            args.db.as_deref(),
+            args.imp_user.as_deref(),
+            ResponseCallbacks::new()
+                .with_on_success({
+                    let rt = Arc::clone(&rt);
+                    move |meta| {
+                        let new_rt = RoutingTable::try_parse(meta);
+                        let mut res;
+                        match new_rt {
+                            Ok(new_rt) => res = Some(Ok(new_rt)),
+                            Err(e) => {
+                                warn!("failed to parse routing table: {}", e);
+                                res = Some(Err(Neo4jError::ProtocolError {
+                                    message: format!("{}", e),
+                                }));
+                            }
                         }
+                        mem::swap(rt.deref().borrow_mut().deref_mut(), &mut res);
+                        Ok(())
                     }
-                    swap(rt.deref().borrow_mut().deref_mut(), &mut res);
-                    Ok(())
-                }
-            }),
+                })
+                .with_on_failure(|meta| Err(ServerError::from_meta(meta).into())),
         )?;
         con.write_all()?;
         con.read_all()?;
@@ -355,15 +422,15 @@ impl RoutingPool {
         pools.remove(addr);
     }
 
-    fn wrap_discovery_error<T>(res: Result<T>) -> Result<Option<T>> {
+    fn wrap_discovery_error<T>(res: Result<T>) -> Result<Result<T>> {
         match res {
-            Ok(t) => Ok(Some(t)),
+            Ok(t) => Ok(Ok(t)),
             Err(e) => {
                 if e.fatal_during_discovery() {
                     Err(e)
                 } else {
                     info!("ignored error during discovery: {:?}", e);
-                    Ok(None)
+                    Ok(Err(e))
                 }
             }
         }
@@ -373,7 +440,14 @@ impl RoutingPool {
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct AcquireConfig<'a> {
     pub(crate) mode: RoutingControl,
+    pub(crate) update_rt_args: UpdateRtArgs<'a>,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct UpdateRtArgs<'a> {
     pub(crate) db: &'a Option<String>,
+    pub(crate) bookmarks: &'a Option<Vec<String>>,
+    pub(crate) imp_user: &'a Option<String>,
 }
 
 enum DbName<'a> {

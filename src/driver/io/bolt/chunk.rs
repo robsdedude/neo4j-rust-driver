@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use std::cmp;
-use std::io::Read;
+use std::fmt::Debug;
+use std::io::{self, Read};
 use std::ops::Deref;
 
 use log::{log_enabled, trace, Level};
@@ -107,7 +108,7 @@ impl<'a> Deref for Chunk<'a> {
     }
 }
 
-pub(crate) struct Dechunker<R: Read, F: FnMut()> {
+pub(crate) struct Dechunker<R: Read, F: FnMut(&io::Error)> {
     reader: R,
     chunk_size: usize,
     on_error: F,
@@ -116,7 +117,7 @@ pub(crate) struct Dechunker<R: Read, F: FnMut()> {
     chunk_log: Option<String>,
 }
 
-impl<R: Read, F: FnMut()> Dechunker<R, F> {
+impl<R: Read, F: FnMut(&io::Error)> Dechunker<R, F> {
     pub(crate) fn new(reader: R, on_error: F) -> Self {
         let (chunk_log_raw, chunk_log) = if log_enabled!(Level::Trace) {
             (Some(String::new()), Some(String::new()))
@@ -133,16 +134,16 @@ impl<R: Read, F: FnMut()> Dechunker<R, F> {
         }
     }
 
-    fn error_wrap<T, E>(&mut self, res: Result<T, E>) -> Result<T, E> {
+    fn error_wrap<T: Debug>(&mut self, res: io::Result<T>) -> io::Result<T> {
         if res.is_err() {
             self.broken = true;
-            (self.on_error)();
+            (self.on_error)(res.as_ref().unwrap_err());
         }
         res
     }
 }
 
-impl<R: Read, F: FnMut()> Read for Dechunker<R, F> {
+impl<R: Read, F: FnMut(&io::Error)> Read for Dechunker<R, F> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if self.broken {
             panic!("attempted to read from a broken dechunker");
@@ -186,7 +187,7 @@ impl<R: Read, F: FnMut()> Read for Dechunker<R, F> {
     }
 }
 
-impl<R: Read, F: FnMut()> Drop for Dechunker<R, F> {
+impl<R: Read, F: FnMut(&io::Error)> Drop for Dechunker<R, F> {
     fn drop(&mut self) {
         if log_enabled!(Level::Trace) {
             let log = self.chunk_log.as_mut().unwrap();

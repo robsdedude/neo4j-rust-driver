@@ -14,7 +14,7 @@
 
 use std::io::Read;
 
-use super::packstream::{PackStreamDeserialize, PackStreamDeserializerImpl};
+use super::packstream::PackStreamDeserialize;
 use crate::{Neo4jError, Result};
 
 #[derive(Debug)]

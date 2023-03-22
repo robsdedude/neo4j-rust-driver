@@ -18,20 +18,23 @@
 mod address;
 mod driver;
 mod error;
+mod macros;
 mod sync;
 mod util;
 mod value;
 
 pub use address::Address;
+pub use driver::session::bookmarks;
 pub use driver::{
-    ConnectionConfig, Driver, DriverConfig, PackStreamDeserialize, PackStreamSerialize, Record,
-    RecordStream, Session, SessionConfig, SessionRunConfig, Summary,
+    AutoCommitExtra, ConnectionConfig, Driver, DriverConfig, PackStreamDeserialize,
+    PackStreamSerialize, Record, RecordStream, Session, SessionConfig, Summary,
 };
 pub use error::{Neo4jError, Result};
+pub use value::spatial;
 pub use value::Value;
 
 #[derive(Debug, Copy, Clone)]
-enum RoutingControl {
+pub enum RoutingControl {
     Read,
     Write,
 }
@@ -42,19 +45,4 @@ enum Database<'a> {
     Named(&'a str),
     UnresolvedHome,
     ResolvedHome,
-}
-
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
 }

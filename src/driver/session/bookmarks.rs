@@ -15,15 +15,15 @@
 use crate::Result;
 use std::collections::HashSet;
 use std::ops::{Add, AddAssign};
-use std::option::IntoIter;
 
 #[derive(Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct Bookmarks {
     bookmarks: HashSet<String>,
 }
 
 impl Bookmarks {
+    // FIXME: this really doesn't need to be a generic neo4j::Result
     pub fn from_raw(raw: Vec<String>) -> Result<Self> {
         for bm in raw.iter() {
             // TODO: do sanity check

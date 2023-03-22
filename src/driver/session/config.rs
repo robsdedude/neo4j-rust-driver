@@ -13,11 +13,25 @@
 // limitations under the License.
 
 use crate::driver::session::Bookmarks;
+use crate::RoutingControl;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SessionConfig {
     pub(crate) database: Option<String>,
     pub(crate) bookmarks: Option<Vec<String>>,
+    pub(crate) impersonated_user: Option<String>,
+    pub(crate) run_routing: RoutingControl,
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self {
+            database: None,
+            bookmarks: None,
+            impersonated_user: None,
+            run_routing: RoutingControl::Write,
+        }
+    }
 }
 
 impl SessionConfig {
@@ -44,9 +58,25 @@ impl SessionConfig {
         self.bookmarks = None;
         self
     }
+
+    pub fn with_impersonated_user(mut self, user: String) -> Self {
+        self.impersonated_user = Some(user);
+        self
+    }
+
+    pub fn without_impersonated_user(mut self) -> Self {
+        self.impersonated_user = None;
+        self
+    }
+
+    pub fn run_routing(mut self, mode: RoutingControl) -> Self {
+        self.run_routing = mode;
+        self
+    }
 }
 
 impl AsRef<SessionConfig> for SessionConfig {
+    #[inline]
     fn as_ref(&self) -> &SessionConfig {
         self
     }

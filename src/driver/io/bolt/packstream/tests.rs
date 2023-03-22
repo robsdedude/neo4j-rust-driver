@@ -1,10 +1,31 @@
+// Copyright Rouven Bauer
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::collections::{HashMap, HashSet};
+use std::io::Read;
+
+use crate::driver::io::bolt::BoltStructTranslator;
+use rstest::rstest;
+
 use super::deserialize::{PackStreamDeserializer, PackStreamDeserializerImpl};
 use super::serialize::{PackStreamSerializer, PackStreamSerializerImpl};
 use super::*;
-use crate::util;
-use rstest::rstest;
-use std::collections::{HashMap, HashSet};
-use std::io::Read;
+use crate::macros::map;
+
+const TAG_2D: u8 = 0;
+const TAG_3D: u8 = 1;
+const TAG_UNKNOWN: u8 = 255;
 
 #[derive(Debug, PartialEq)]
 pub enum PackStreamTestValue {
@@ -17,6 +38,7 @@ pub enum PackStreamTestValue {
     List(Vec<PackStreamTestValue>),
     Dictionary(HashMap<String, PackStreamTestValue>),
     Structure(PackStreamTestStructure),
+    Broken(String),
 }
 
 macro_rules! impl_into_test_value {
@@ -46,10 +68,57 @@ pub struct PackStreamTestStructure {
     pub fields: Vec<PackStreamTestValue>,
 }
 
-/* =============
- * Test Decoding
- * =============
- */
+pub struct BoltStructTestTranslator {}
+
+fn unknown_tag_message(tag: u8) -> String {
+    format!("unknown tag {:02X?}", tag)
+}
+
+impl BoltStructTranslator for BoltStructTestTranslator {
+    fn serialize_point_2d<S: PackStreamSerializer>(
+        &self,
+        serializer: &mut S,
+        srid: i64,
+        x: f64,
+        y: f64,
+    ) -> Result<(), S::Error> {
+        serializer.write_struct_header(TAG_2D, 3)?;
+        serializer.write_int(srid)?;
+        serializer.write_float(x)?;
+        serializer.write_float(y)
+    }
+
+    fn serialize_point_3d<S: PackStreamSerializer>(
+        &self,
+        serializer: &mut S,
+        srid: i64,
+        x: f64,
+        y: f64,
+        z: f64,
+    ) -> Result<(), S::Error> {
+        serializer.write_struct_header(TAG_3D, 4)?;
+        serializer.write_int(srid)?;
+        serializer.write_float(x)?;
+        serializer.write_float(y)?;
+        serializer.write_float(z)
+    }
+
+    fn deserialize_struct<V: PackStreamDeserialize>(
+        &self,
+        tag: u8,
+        fields: Vec<V::Value>,
+    ) -> V::Value {
+        match tag {
+            TAG_2D => V::load_point_2d(fields),
+            TAG_3D => V::load_point_3d(fields),
+            _ => V::load_broken(unknown_tag_message(tag)),
+        }
+    }
+}
+
+// =============
+// Test Decoding
+// =============
 
 impl PackStreamDeserialize for PackStreamTestValue {
     type Value = Self;
@@ -86,15 +155,32 @@ impl PackStreamDeserialize for PackStreamTestValue {
         PackStreamTestValue::Dictionary(d)
     }
 
-    fn load_struct(tag: u8, fields: Vec<Self::Value>) -> Self::Value {
-        PackStreamTestValue::Structure(PackStreamTestStructure { tag, fields })
+    fn load_point_2d(fields: Vec<Self::Value>) -> Self::Value {
+        PackStreamTestValue::Structure(PackStreamTestStructure {
+            tag: TAG_2D,
+            fields,
+        })
+    }
+
+    fn load_point_3d(fields: Vec<Self::Value>) -> Self::Value {
+        PackStreamTestValue::Structure(PackStreamTestStructure {
+            tag: TAG_3D,
+            fields,
+        })
+    }
+
+    fn load_broken(reason: String) -> Self::Value {
+        PackStreamTestValue::Broken(reason)
     }
 }
 
 fn decode(input: Vec<u8>) -> (PackStreamTestValue, Vec<u8>) {
+    let translator = BoltStructTestTranslator {};
     let mut reader = input.as_slice();
     let mut deserializer = PackStreamDeserializerImpl::new(&mut reader);
-    let result = deserializer.load::<PackStreamTestValue>().unwrap();
+    let result = deserializer
+        .load::<PackStreamTestValue, _>(&translator)
+        .unwrap();
     let rest = reader.iter().cloned().collect();
     (result, rest)
 }
@@ -295,16 +381,16 @@ fn test_decode_list(#[case] input: Vec<u8>, #[case] output: Vec<PackStreamTestVa
 }
 
 #[rstest]
-#[case(vec![0xA0], util::map!())]
-#[case(vec![0xA1, 0x81, 0x41, 0x01], util::map!("A".into() => 1.into()))]
+#[case(vec![0xA0], map!())]
+#[case(vec![0xA1, 0x81, 0x41, 0x01], map!("A".into() => 1.into()))]
 #[case(vec![0xA1, 0x83, 0x6F, 0x6E, 0x65, 0x84, 0x65, 0x69, 0x6E, 0x73],
-       util::map!(String::from("one").into() => String::from("eins").into()))]
+       map!("one".into() => String::from("eins").into()))]
 #[case(vec![0xD8, 0x03, 0x81, 0x41, 0x01, 0x81, 0x42, 0x02, 0x81, 0x41, 0x03],
-       util::map!("A".into() => 3.into(), "B".into() => 2.into()))]
+       map!("A".into() => 3.into(), "B".into() => 2.into()))]
 #[case(vec![0xD9, 0x00, 0x03, 0x81, 0x41, 0x01, 0x81, 0x42, 0x02, 0x81, 0x41, 0x03],
-       util::map!("A".into() => 3.into(), "B".into() => 2.into()))]
+       map!("A".into() => 3.into(), "B".into() => 2.into()))]
 #[case(vec![0xDA, 0x00, 0x00, 0x00, 0x03, 0x81, 0x41, 0x01, 0x81, 0x42, 0x02, 0x81, 0x41, 0x03],
-       util::map!("A".into() => 3.into(), "B".into() => 2.into()))]
+       map!("A".into() => 3.into(), "B".into() => 2.into()))]
 fn test_decode_dict(#[case] input: Vec<u8>, #[case] output: HashMap<String, PackStreamTestValue>) {
     dbg!(&input);
     let (result, rest) = decode(input);
@@ -314,10 +400,14 @@ fn test_decode_dict(#[case] input: Vec<u8>, #[case] output: HashMap<String, Pack
 }
 
 #[rstest]
-#[case(vec![0xB0, 0xFF],
-       PackStreamTestStructure { tag: 0xFF, fields: vec![] })]
-#[case(vec![0xB1, 0xAA, 0x01],
-       PackStreamTestStructure { tag: 0xAA, fields: vec![1.into()] })]
+#[case(vec![0xB0, TAG_2D],
+       PackStreamTestStructure { tag: TAG_2D, fields: vec![] })]
+#[case(vec![0xB1, TAG_2D, 0x01],
+       PackStreamTestStructure { tag: TAG_2D, fields: vec![1.into()] })]
+#[case(vec![0xB0, TAG_3D],
+       PackStreamTestStructure { tag: TAG_3D, fields: vec![] })]
+#[case(vec![0xB1, TAG_3D, 0x01],
+       PackStreamTestStructure { tag: TAG_3D, fields: vec![1.into()] })]
 fn test_decode_struct(#[case] input: Vec<u8>, #[case] output: PackStreamTestStructure) {
     dbg!(&input);
     let (result, rest) = decode(input);
@@ -327,13 +417,28 @@ fn test_decode_struct(#[case] input: Vec<u8>, #[case] output: PackStreamTestStru
 }
 
 #[rstest]
+#[case(vec![0xB0, TAG_UNKNOWN])]
+#[case(vec![0xB1, TAG_UNKNOWN, 0x01])]
+fn test_decode_unknown_struct(#[case] input: Vec<u8>) {
+    dbg!(&input);
+    let (result, rest) = decode(input);
+
+    assert_eq!(
+        result,
+        PackStreamTestValue::Broken(unknown_tag_message(TAG_UNKNOWN))
+    );
+    assert_eq!(rest, vec![]);
+}
+
+#[rstest]
 #[case(vec![], "no marker found")]
 // TODO: cover all error cases
 fn test_decode_error(#[case] input: Vec<u8>, #[case] error: &'static str) {
     dbg!(&input);
+    let translator = BoltStructTestTranslator {};
     let mut input: Box<dyn Read> = Box::new(input.as_slice());
     let mut deserializer = PackStreamDeserializerImpl::new(&mut input);
-    let result = deserializer.load::<PackStreamTestValue>();
+    let result = deserializer.load::<PackStreamTestValue, _>(&translator);
     let rest: Vec<u8> = input.bytes().map(|b| b.unwrap()).collect();
     result.expect_err("expected to fail");
 
@@ -343,13 +448,16 @@ fn test_decode_error(#[case] input: Vec<u8>, #[case] error: &'static str) {
     assert_eq!(rest, vec![]);
 }
 
-/* =============
- * Test Encoding
- * =============
- */
+// =============
+// Test Encoding
+// =============
 
 impl PackStreamSerialize for PackStreamTestValue {
-    fn serialize<S: PackStreamSerializer>(&self, serializer: &mut S) -> Result<(), S::Error> {
+    fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
+        &self,
+        serializer: &mut S,
+        bolt: &B,
+    ) -> Result<(), S::Error> {
         match self {
             PackStreamTestValue::Null => serializer.write_null(),
             PackStreamTestValue::Boolean(b) => serializer.write_bool(*b),
@@ -357,17 +465,19 @@ impl PackStreamSerialize for PackStreamTestValue {
             PackStreamTestValue::Float(f) => serializer.write_float(*f),
             PackStreamTestValue::Bytes(b) => serializer.write_bytes(b),
             PackStreamTestValue::String(s) => serializer.write_string(s),
-            PackStreamTestValue::List(l) => serializer.write_list(l),
-            PackStreamTestValue::Dictionary(d) => serializer.write_dict(d),
-            PackStreamTestValue::Structure(s) => serializer.write_struct(s.tag, &s.fields),
+            PackStreamTestValue::List(l) => serializer.write_list(bolt, l),
+            PackStreamTestValue::Dictionary(d) => serializer.write_dict(bolt, d),
+            PackStreamTestValue::Structure(s) => serializer.write_struct(bolt, s.tag, &s.fields),
+            PackStreamTestValue::Broken(reason) => serializer.error(reason.clone()),
         }
     }
 }
 
 fn encode(input: &PackStreamTestValue) -> Vec<u8> {
+    let translator = BoltStructTestTranslator {};
     let mut output = Vec::new();
     let mut serializer = PackStreamSerializerImpl::new(&mut output);
-    input.serialize(&mut serializer).unwrap();
+    input.serialize(&mut serializer, &translator).unwrap();
     output
 }
 
@@ -538,9 +648,9 @@ fn test_encode_long_list(#[case] size: usize, #[case] mut header: Vec<u8>) {
 }
 
 #[rstest]
-#[case(util::map!(), vec![0xA0])]
-#[case(util::map!("A".into() => 1.into()), vec![0xA1, 0x81, 0x41, 0x01])]
-#[case(util::map!(String::from("one") => String::from("eins").into()),
+#[case(map!(), vec![0xA0])]
+#[case(map!("A".into() => 1.into()), vec![0xA1, 0x81, 0x41, 0x01])]
+#[case(map!(String::from("one") => String::from("eins").into()),
        vec![0xA1, 0x83, 0x6F, 0x6E, 0x65, 0x84, 0x65, 0x69, 0x6E, 0x73])]
 fn test_encode_dict(#[case] input: HashMap<String, PackStreamTestValue>, #[case] output: Vec<u8>) {
     dbg!(&input);

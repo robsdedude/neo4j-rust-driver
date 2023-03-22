@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::mem;
@@ -21,11 +20,9 @@ use std::sync::Arc;
 use atomic_refcell::AtomicRefCell;
 use duplicate::duplicate_item;
 
-use super::io::bolt::{
-    BoltMeta, BoltRecordFields, BoltResponse, ResponseCallbacks, RunPreparation, TcpBolt,
-};
+use super::io::bolt::{BoltMeta, BoltRecordFields, ResponseCallbacks, RunPreparation, TcpBolt};
 use crate::error::ServerError;
-use crate::{Neo4jError, PackStreamSerialize, Record, Result, Summary, Value};
+use crate::{Neo4jError, Record, Result, Summary, Value};
 
 #[derive(Debug)]
 pub struct RecordStream<'a> {
@@ -81,6 +78,11 @@ impl<'a> RecordStream<'a> {
         Ok(())
     }
 
+    /// Fully consumes the result and returns the [`Summary`].
+    ///
+    /// Return `None` if
+    ///  * [`consume()`] has been called before or
+    ///  * there was an error (earlier) while processing the Result.
     pub fn consume(&mut self) -> Result<Option<Summary>> {
         if self.listener.borrow().state.is_streaming() {
             let mut listener = self.listener.borrow_mut();
@@ -93,11 +95,11 @@ impl<'a> RecordStream<'a> {
         Ok(self.listener.borrow_mut().summary.take())
     }
 
-    pub(crate) fn into_bookmarks(self) -> Vec<String> {
+    pub(crate) fn into_bookmark(self) -> Option<String> {
         Arc::try_unwrap(self.listener)
             .unwrap()
             .into_inner()
-            .bookmarks
+            .bookmark
     }
 
     fn pull(&mut self, flush: bool) -> Result<()> {
@@ -211,7 +213,7 @@ struct RecordListener {
     keys: Option<Vec<String>>,
     state: RecordListenerState,
     summary: Option<Summary>,
-    bookmarks: Vec<String>,
+    bookmark: Option<String>,
 }
 
 impl RecordListener {
@@ -221,7 +223,7 @@ impl RecordListener {
             keys: None,
             state: RecordListenerState::Streaming,
             summary: Some(Summary::default()),
-            bookmarks: Vec::new(),
+            bookmark: None,
         }
     }
 }
@@ -272,6 +274,9 @@ impl RecordListener {
     fn pull_success_cb(&mut self, mut meta: BoltMeta) -> Result<()> {
         let Some(Value::Boolean(true)) = meta.remove("has_more") else {
             self.state = RecordListenerState::Done;
+            if let Some(Value::String(bms)) = meta.remove("bookmark") {
+                self.bookmark = Some(bms);
+            };
             if let Some(summary) = self.summary.as_mut() {
                 summary.load_pull_meta(&mut meta)?
             }

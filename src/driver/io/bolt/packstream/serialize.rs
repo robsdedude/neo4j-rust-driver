@@ -12,17 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::super::{Bolt, BoltStructTranslator};
-use super::error::PackStreamSerializeError;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::io;
 use std::io::Write;
 
-use std::ops::Deref;
-
 use usize_cast::FromUsize;
+
+use super::super::BoltStructTranslator;
+use super::error::PackStreamSerializeError;
 
 pub trait PackStreamSerialize: Debug {
     fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
@@ -333,7 +332,8 @@ impl PackStreamSerializer for PackStreamSerializerDebugImpl {
             self.buff.push('[');
             self.stack.push((", ", "]", size));
         } else {
-            self.buff += "[]"
+            self.buff += "[]";
+            self.handle_stack();
         }
         Ok(())
     }
@@ -355,7 +355,8 @@ impl PackStreamSerializer for PackStreamSerializerDebugImpl {
             self.buff.push('{');
             self.stack.push((": ", "}", size));
         } else {
-            self.buff += "{}"
+            self.buff += "{}";
+            self.handle_stack();
         }
         Ok(())
     }
@@ -379,6 +380,7 @@ impl PackStreamSerializer for PackStreamSerializerDebugImpl {
             self.stack.push((", ", ")", size.into()));
         } else {
             self.buff += &format!("Structure[{:#02X?}; 0]()", tag);
+            self.handle_stack();
         }
         Ok(())
     }
@@ -389,8 +391,10 @@ impl PackStreamSerializer for PackStreamSerializerDebugImpl {
         tag: u8,
         fields: &[S],
     ) -> Result<(), Self::Error> {
+        self.write_struct_header(tag, fields.len().try_into().unwrap_or(u8::MAX))
+            .unwrap();
         for field in fields.iter() {
-            field.serialize(self, bolt)?;
+            field.serialize(self, bolt).unwrap();
         }
         Ok(())
     }

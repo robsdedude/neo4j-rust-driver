@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub(crate) mod bookmarks;
+pub mod bookmarks;
 pub(crate) mod config;
 
-use std::borrow::{Borrow, BorrowMut};
+use log::debug;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::io::{Read, Write};
-use std::ops::{Deref, DerefMut};
 
-use super::io::{bolt::RunPreparation, AcquireConfig, Pool, PooledBolt};
+use super::io::{bolt::RunPreparation, AcquireConfig, Pool, UpdateRtArgs};
 use crate::{PackStreamSerialize, RecordStream, Result, RoutingControl};
-pub use bookmarks::Bookmarks;
+use bookmarks::Bookmarks;
 pub use config::SessionConfig;
 
 #[derive(Debug)]
@@ -31,6 +30,7 @@ pub struct Session<'a, C> {
     config: C,
     pool: &'a Pool,
     resolved_db: Option<String>,
+    latest_bookmarks: Option<Vec<String>>,
 }
 
 impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
@@ -39,38 +39,44 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
             config,
             pool,
             resolved_db: None,
+            latest_bookmarks: None,
         }
     }
 
-    pub fn run_with_config<
-        FConf: FnOnce(&mut SessionRunConfig) -> Result<()>,
+    pub fn auto_commit_with_extra<
+        FConf: FnOnce(&mut AutoCommitExtra) -> Result<()>,
         FRes: FnOnce(&mut RecordStream) -> Result<R>,
         R,
     >(
         &mut self,
         query: impl AsRef<str>,
-        config_cb: FConf,
+        extra_cb: FConf,
         receiver: FRes,
     ) -> Result<R> {
+        self.resolve_db()?;
         let mut cx = self.pool.acquire(AcquireConfig {
-            db: self.resolved_db()?,
-            mode: RoutingControl::Write,
+            mode: self.config.as_ref().run_routing,
+            update_rt_args: UpdateRtArgs {
+                db: &self.resolved_db,
+                bookmarks: self.latest_raw_bookmarks(),
+                imp_user: &self.config.as_ref().impersonated_user,
+            },
         })?;
         let run_prep = cx.run_prepare(
             query.as_ref(),
-            self.config.as_ref().bookmarks.as_deref(),
+            self.latest_raw_bookmarks().as_deref(),
             None,
             self.config.as_ref().database.as_deref(),
             None,
         )?;
-        let mut conf = SessionRunConfig::new(run_prep);
-        config_cb(&mut conf)?;
+        let mut conf = AutoCommitExtra::new(run_prep);
+        extra_cb(&mut conf)?;
         let run_prep = conf.into_run_prep();
         let mut record_stream = RecordStream::new(&mut cx);
         let res = record_stream
             .run(run_prep)
             .and_then(|_| receiver(&mut record_stream));
-        match res {
+        let res = match res {
             Ok(r) => {
                 record_stream.consume()?;
                 Ok(r)
@@ -79,36 +85,68 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
                 let _ = record_stream.consume();
                 Err(e)
             }
-        }
+        };
+        let bookmarks = record_stream.into_bookmark();
+        self.latest_bookmarks = bookmarks.map(|bm| vec![bm]);
+        res
     }
 
-    pub fn run<FRes: FnOnce(&mut RecordStream) -> Result<R>, R>(
+    pub fn auto_commit<FRes: FnOnce(&mut RecordStream) -> Result<R>, R>(
         &mut self,
         query: impl AsRef<str>,
         receiver: FRes,
     ) -> Result<R> {
-        self.run_with_config(query, |_| Ok(()), receiver)
+        self.auto_commit_with_extra(query, |_| Ok(()), receiver)
     }
 
-    fn resolved_db(&mut self) -> Result<&Option<String>> {
-        if self.resolved_db.is_none()
-            && self.config.as_ref().database.is_none()
-            && self.pool.is_routing()
-        {
-            self.resolved_db = self.pool.resolve_home_db()?;
+    fn resolve_db(&mut self) -> Result<()> {
+        if self.resolved_db().is_none() && self.pool.is_routing() {
+            debug!("Resolving home db");
+            self.resolved_db = self.pool.resolve_home_db(UpdateRtArgs {
+                db: &None,
+                bookmarks: self.latest_raw_bookmarks(),
+                imp_user: &self.config.as_ref().impersonated_user,
+            })?;
+            debug!("Resolved home db to {:?}", &self.resolved_db);
         }
-        Ok(&self.resolved_db)
+        Ok(())
+    }
+
+    #[inline]
+    fn resolved_db(&self) -> &Option<String> {
+        match self.resolved_db {
+            None => &self.config.as_ref().database,
+            Some(_) => &self.resolved_db,
+        }
+    }
+
+    #[inline]
+    fn latest_raw_bookmarks(&self) -> &Option<Vec<String>> {
+        if self.latest_bookmarks.is_some() {
+            &self.latest_bookmarks
+        } else {
+            &self.config.as_ref().bookmarks
+        }
+    }
+
+    #[inline]
+    pub fn latest_bookmarks(&self) -> Bookmarks {
+        Bookmarks::from_raw_unchecked(self.latest_raw_bookmarks().clone().unwrap_or_default())
     }
 }
 
 #[derive(Debug)]
-pub struct SessionRunConfig {
+pub struct AutoCommitExtra {
     run_prep: RunPreparation,
+    mode: RoutingControl,
 }
 
-impl SessionRunConfig {
+impl AutoCommitExtra {
     fn new(run_prep: RunPreparation) -> Self {
-        Self { run_prep }
+        Self {
+            run_prep,
+            mode: RoutingControl::Write,
+        }
     }
 
     pub fn with_parameters<
@@ -138,6 +176,10 @@ impl SessionRunConfig {
     pub fn with_transaction_timeout(&mut self, timeout: i64) -> Result<()> {
         self.run_prep.with_tx_timeout(timeout)?;
         Ok(())
+    }
+
+    pub fn with_mode(&mut self, mode: RoutingControl) {
+        self.mode = mode;
     }
 
     fn into_run_prep(self) -> RunPreparation {

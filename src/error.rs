@@ -15,7 +15,6 @@
 // use std::backtrace::Backtrace;
 use std::fmt::{Display, Formatter};
 use std::io;
-use std::io::Error;
 use thiserror::Error;
 
 use crate::driver::io::bolt::BoltMeta;
@@ -30,9 +29,9 @@ pub enum Neo4jError {
     ///    not able to fetch routing information
     #[error("connection failed: {message}")]
     Disconnect {
+        message: String,
         // #[backtrace]
         // #[from]
-        message: String,
         // #[source]
         source: Option<io::Error>,
     },
@@ -121,8 +120,11 @@ impl Neo4jError {
     }
 
     pub(crate) fn fatal_during_discovery(&self) -> bool {
-        // TODO: implement real logic
-        false
+        match self {
+            Neo4jError::InvalidConfig { .. } => true,
+            Neo4jError::ServerError(e) => e.fatal_during_discovery(),
+            _ => false,
+        }
     }
 }
 
@@ -171,6 +173,14 @@ impl ServerError {
 
     fn is_retryable(&self) -> bool {
         todo!()
+    }
+
+    fn fatal_during_discovery(&self) -> bool {
+        // TODO: add the other exceptions
+        match self.code() {
+            "Neo.ClientError.Transaction.InvalidBookmark" => true,
+            _ => false,
+        }
     }
 }
 
