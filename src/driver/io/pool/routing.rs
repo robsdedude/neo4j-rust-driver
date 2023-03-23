@@ -19,8 +19,8 @@ use std::time::{Duration, Instant};
 
 use log::{debug, warn};
 
-use crate::RoutingControl;
-use crate::{Address, Value};
+use crate::driver::RoutingControl;
+use crate::{Address, ValueReceive};
 
 use thiserror::Error;
 
@@ -56,7 +56,7 @@ impl RoutingTable {
     }
 
     pub(crate) fn try_parse(
-        mut data: HashMap<String, Value>,
+        mut data: HashMap<String, ValueReceive>,
     ) -> Result<Self, RoutingTableParseError> {
         let rt = data.remove("rt").ok_or(RoutingTableParseError {
             reason: "top-level key \"rt\" missing",
@@ -78,7 +78,7 @@ impl RoutingTable {
         let ttl = Duration::from_secs(ttl as u64);
         let db = match rt.remove("db") {
             None => Ok(None),
-            Some(Value::String(db)) => Ok(Some(db)),
+            Some(ValueReceive::String(db)) => Ok(Some(db)),
             Some(_) => Err(RoutingTableParseError {
                 reason: "\"db\" was not string",
             }),
@@ -117,7 +117,7 @@ impl RoutingTable {
     }
 
     fn parse_server(
-        server: Value,
+        server: ValueReceive,
     ) -> Result<(ServerRole, Vec<Arc<Address>>), RoutingTableParseError> {
         let mut server = server.try_into_map().map_err(|_| RoutingTableParseError {
             reason: "\"servers\" entry was not map",
@@ -138,9 +138,10 @@ impl RoutingTable {
         let addresses = server.remove("addresses").ok_or(RoutingTableParseError {
             reason: "\"servers\" entry missing \"addresses\"",
         })?;
-        let addresses: Vec<Value> = addresses.try_into().map_err(|_| RoutingTableParseError {
-            reason: "\"servers\" entry missing \"addresses\" was not list",
-        })?;
+        let addresses: Vec<ValueReceive> =
+            addresses.try_into().map_err(|_| RoutingTableParseError {
+                reason: "\"servers\" entry missing \"addresses\" was not list",
+            })?;
         let addresses = addresses
             .into_iter()
             .map(|address| {

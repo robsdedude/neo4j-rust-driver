@@ -21,8 +21,10 @@ use atomic_refcell::AtomicRefCell;
 use duplicate::duplicate_item;
 
 use super::io::bolt::{BoltMeta, BoltRecordFields, ResponseCallbacks, RunPreparation, TcpBolt};
+use super::summary::Summary;
+use super::Record;
 use crate::error::ServerError;
-use crate::{Neo4jError, Record, Result, Summary, Value};
+use crate::{Neo4jError, Result, ValueReceive};
 
 #[derive(Debug)]
 pub struct RecordStream<'a> {
@@ -81,7 +83,7 @@ impl<'a> RecordStream<'a> {
     /// Fully consumes the result and returns the [`Summary`].
     ///
     /// Return `None` if
-    ///  * [`consume()`] has been called before or
+    ///  * [`RecordStream::consume()`] has been called before or
     ///  * there was an error (earlier) while processing the Result.
     pub fn consume(&mut self) -> Result<Option<Summary>> {
         if self.listener.borrow().state.is_streaming() {
@@ -239,14 +241,14 @@ impl RecordListener {
                 message: "SUCCESS after RUN did not contain 'fields'".into()
             });
         };
-        let Value::List(fields) = fields else {
+        let ValueReceive::List(fields) = fields else {
             return Err(Neo4jError::ProtocolError {
                 message: "SUCCESS after RUN 'fields' was not a list".into()});
         };
         let fields = fields
             .into_iter()
             .map(|field| match field {
-                Value::String(field) => Ok(field),
+                ValueReceive::String(field) => Ok(field),
                 _ => Err(Neo4jError::ProtocolError {
                     message: "SUCCESS after RUN 'fields' was not a list".into(),
                 }),
@@ -272,9 +274,9 @@ impl RecordListener {
     }
 
     fn pull_success_cb(&mut self, mut meta: BoltMeta) -> Result<()> {
-        let Some(Value::Boolean(true)) = meta.remove("has_more") else {
+        let Some(ValueReceive::Boolean(true)) = meta.remove("has_more") else {
             self.state = RecordListenerState::Done;
-            if let Some(Value::String(bms)) = meta.remove("bookmark") {
+            if let Some(ValueReceive::String(bms)) = meta.remove("bookmark") {
                 self.bookmark = Some(bms);
             };
             if let Some(summary) = self.summary.as_mut() {

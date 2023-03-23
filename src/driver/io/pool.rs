@@ -25,9 +25,10 @@ use std::sync::{Arc, RwLockReadGuard};
 use log::{debug, info, warn};
 
 use super::bolt::{ResponseCallbacks, TcpBolt};
+use crate::driver::RoutingControl;
 use crate::error::ServerError;
 use crate::sync::MostlyRLock;
-use crate::{Address, Neo4jError, Result, RoutingControl, Value};
+use crate::{Address, Neo4jError, Result, ValueSend};
 use routing::RoutingTable;
 use single_pool::{SinglePool, SinglePooledBolt};
 
@@ -85,10 +86,10 @@ impl<'pool> DerefMut for PooledBolt<'pool> {
 pub(crate) struct PoolConfig {
     pub(crate) address: Arc<Address>,
     // pub(crate) routing: bool,
-    pub(crate) routing_context: Option<HashMap<String, Value>>,
+    pub(crate) routing_context: Option<HashMap<String, ValueSend>>,
     // pub(crate) ssl_context: Option<SslContext>,
     pub(crate) user_agent: String,
-    pub(crate) auth: HashMap<String, Value>,
+    pub(crate) auth: HashMap<String, ValueSend>,
     pub(crate) max_connection_pool_size: usize,
 }
 

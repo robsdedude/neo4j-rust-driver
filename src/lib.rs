@@ -16,27 +16,24 @@
 #![allow(dead_code)]
 
 mod address;
-mod driver;
+pub mod driver;
 mod error;
 mod macros;
 mod sync;
 mod util;
-mod value;
+pub mod value;
 
 pub use address::Address;
 pub use driver::session::bookmarks;
-pub use driver::{
-    AutoCommitExtra, ConnectionConfig, Driver, DriverConfig, PackStreamDeserialize,
-    PackStreamSerialize, Record, RecordStream, Session, SessionConfig, Summary,
-};
 pub use error::{Neo4jError, Result};
-pub use value::spatial;
-pub use value::Value;
+pub use value::ValueReceive;
+pub use value::ValueSend;
 
-#[derive(Debug, Copy, Clone)]
-pub enum RoutingControl {
-    Read,
-    Write,
+pub mod spatial {
+    pub use super::value::spatial::*;
+}
+pub mod session {
+    pub use super::driver::session::*;
 }
 
 // TODO: decide if this concept should remain

@@ -19,7 +19,7 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use super::super::bolt::{self, TcpBolt};
 use super::PoolConfig;
-use crate::{Result, Value};
+use crate::Result;
 
 type PoolElement = TcpBolt;
 

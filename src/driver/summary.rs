@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::io::bolt::BoltMeta;
-use crate::{Neo4jError, Result, Value};
+use crate::{Neo4jError, Result, ValueReceive};
 
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
@@ -45,7 +45,7 @@ pub enum SummaryQueryType {
 impl Summary {
     pub(crate) fn load_run_meta(&mut self, meta: &mut BoltMeta) -> Result<()> {
         if let Some(t_first) = meta.remove("t_first") {
-            let Value::Integer(t_first) = t_first else {
+            let ValueReceive::Integer(t_first) = t_first else {
                 return Err(Neo4jError::ProtocolError {
                     message: format!("t_first in summary was not integer but {:?}",
                                      t_first),
@@ -57,7 +57,7 @@ impl Summary {
     }
     pub(crate) fn load_pull_meta(&mut self, meta: &mut BoltMeta) -> Result<()> {
         if let Some(t_last) = meta.remove("t_last") {
-            let Value::Integer(t_last) = t_last else {
+            let ValueReceive::Integer(t_last) = t_last else {
                 return Err(Neo4jError::ProtocolError {
                     message: format!("t_last in summary was not integer but {:?}", t_last),
                 })
@@ -65,7 +65,7 @@ impl Summary {
             self.result_consumed_after = t_last;
         }
         if let Some(db) = meta.remove("db") {
-            let Value::String(db) = db else {
+            let ValueReceive::String(db) = db else {
                 return Err(Neo4jError::ProtocolError {
                     message: format!("db in summary was not string but {:?}", db),
                 })
@@ -73,7 +73,7 @@ impl Summary {
             self.database = Some(db);
         }
         if let Some(query_type) = meta.remove("type") {
-            let Value::String(query_type) = query_type else {
+            let ValueReceive::String(query_type) = query_type else {
                 return Err(Neo4jError::ProtocolError {
                     message: format!("type in summary was not string but {:?}", query_type),
                 })

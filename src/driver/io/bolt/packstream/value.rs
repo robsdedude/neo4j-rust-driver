@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::super::BoltStructTranslator;
-use super::{PackStreamDeserialize, PackStreamSerialize, PackStreamSerializer};
-use crate::value::spatial;
-use crate::Value;
 use std::collections::HashMap;
 
-impl PackStreamSerialize for Value {
+use super::super::BoltStructTranslator;
+use super::{PackStreamDeserialize, PackStreamSerialize, PackStreamSerializer};
+use crate::spatial;
+use crate::{ValueReceive, ValueSend};
+
+impl PackStreamSerialize for ValueSend {
     fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
         &self,
         serializer: &mut S,
@@ -28,130 +29,79 @@ impl PackStreamSerialize for Value {
     }
 }
 
-impl PackStreamSerialize for &Value {
+impl PackStreamSerialize for &ValueSend {
     fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
         &self,
         serializer: &mut S,
         bolt: &B,
     ) -> Result<(), S::Error> {
         match self {
-            Value::Null => serializer.write_null(),
-            Value::Boolean(v) => serializer.write_bool(*v),
-            Value::Integer(v) => serializer.write_int(*v),
-            Value::Float(v) => serializer.write_float(*v),
-            Value::Bytes(v) => serializer.write_bytes(v),
-            Value::String(v) => serializer.write_string(v),
-            Value::List(v) => serializer.write_list(bolt, v),
-            Value::Map(v) => serializer.write_dict(bolt, v),
-            Value::Cartesian2D(v) => bolt.serialize_point_2d(serializer, 7203, v.x(), v.y()),
-            Value::Cartesian3D(v) => bolt.serialize_point_3d(serializer, 9157, v.x(), v.y(), v.z()),
-            Value::WGS84_2D(v) => {
+            ValueSend::Null => serializer.write_null(),
+            ValueSend::Boolean(v) => serializer.write_bool(*v),
+            ValueSend::Integer(v) => serializer.write_int(*v),
+            ValueSend::Float(v) => serializer.write_float(*v),
+            ValueSend::Bytes(v) => serializer.write_bytes(v),
+            ValueSend::String(v) => serializer.write_string(v),
+            ValueSend::List(v) => serializer.write_list(bolt, v),
+            ValueSend::Map(v) => serializer.write_dict(bolt, v),
+            ValueSend::Cartesian2D(v) => bolt.serialize_point_2d(serializer, 7203, v.x(), v.y()),
+            ValueSend::Cartesian3D(v) => {
+                bolt.serialize_point_3d(serializer, 9157, v.x(), v.y(), v.z())
+            }
+            ValueSend::WGS84_2D(v) => {
                 bolt.serialize_point_2d(serializer, 4326, v.longitude(), v.latitude())
             }
-            Value::WGS84_3D(v) => {
+            ValueSend::WGS84_3D(v) => {
                 bolt.serialize_point_3d(serializer, 4979, v.longitude(), v.latitude(), v.height())
             }
-            v @ Value::BrokenValue { .. } => serializer.error(format!("cannot send `{:?}`", v)),
         }
     }
 }
 
-// impl PackStreamSerialize for &HashMap<&str, &Value> {
-//     fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
-//         &self,
-//         serializer: &mut S,
-//         bolt: &B,
-//     ) -> Result<(), S::Error> {
-//         serializer.write_dict(bolt, self)
-//     }
-// }
-//
-// impl PackStreamSerialize for &[&Value] {
-//     fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
-//         &self,
-//         serializer: &mut S,
-//         bolt: &B,
-//     ) -> Result<(), S::Error> {
-//         serializer.write_list(bolt, self)
-//     }
-// }
-
-// impl PackStreamSerialize for RefValue<'_> {
-//     fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
-//         &self,
-//         serializer: &mut S,
-//         bolt: &B,
-//     ) -> Result<(), S::Error> {
-//         match self {
-//             RefValue::Null => serializer.write_null(),
-//             RefValue::Boolean(v) => serializer.write_bool(*v),
-//             RefValue::Integer(v) => serializer.write_int(*v),
-//             RefValue::Float(v) => serializer.write_float(*v),
-//             RefValue::Bytes(v) => serializer.write_bytes(v),
-//             RefValue::String(v) => serializer.write_string(v),
-//             RefValue::RefList(v) => serializer.write_list(bolt, v),
-//             RefValue::List(v) => serializer.write_list(bolt, v),
-//             RefValue::RefMap(v) => serializer.write_dict(bolt, v),
-//             RefValue::Map(v) => serializer.write_dict(bolt, v),
-//             RefValue::Cartesian2D(v) => bolt.serialize_point_2d(serializer, v.srid(), v.x(), v.y()),
-//             RefValue::Cartesian3D(v) => {
-//                 bolt.serialize_point_3d(serializer, v.srid(), v.x(), v.y(), v.z())
-//             }
-//             RefValue::WGS84_2D(v) => {
-//                 bolt.serialize_point_2d(serializer, v.srid(), v.longitude(), v.latitude())
-//             }
-//             RefValue::WGS84_3D(v) => bolt.serialize_point_3d(
-//                 serializer,
-//                 v.srid(),
-//                 v.longitude(),
-//                 v.latitude(),
-//                 v.height(),
-//             ),
-//             v @ RefValue::BrokenValue { .. } => serializer.error(format!("cannot send `{:?}`", v)),
-//         }
-//     }
-// }
-
-impl PackStreamDeserialize for Value {
-    type Value = Value;
+impl PackStreamDeserialize for ValueReceive {
+    type Value = ValueReceive;
 
     fn load_null() -> Self::Value {
-        Value::Null
+        ValueReceive::Null
     }
 
     fn load_bool(b: bool) -> Self::Value {
-        Value::Boolean(b)
+        ValueReceive::Boolean(b)
     }
 
     fn load_int(i: i64) -> Self::Value {
-        Value::Integer(i)
+        ValueReceive::Integer(i)
     }
 
     fn load_float(f: f64) -> Self::Value {
-        Value::Float(f)
+        ValueReceive::Float(f)
     }
 
     fn load_bytes(b: Vec<u8>) -> Self::Value {
-        Value::Bytes(b)
+        ValueReceive::Bytes(b)
     }
 
     fn load_string(s: String) -> Self::Value {
-        Value::String(s)
+        ValueReceive::String(s)
     }
 
     fn load_list(l: Vec<Self::Value>) -> Self::Value {
-        Value::List(l)
+        ValueReceive::List(l)
     }
 
     fn load_dict(d: HashMap<String, Self::Value>) -> Self::Value {
-        Value::Map(d)
+        ValueReceive::Map(d)
     }
 
     fn load_point_2d(fields: Vec<Self::Value>) -> Self::Value {
-        if let [Value::Integer(srid), Value::Float(x), Value::Float(y)] = fields[..] {
+        if let [ValueReceive::Integer(srid), ValueReceive::Float(x), ValueReceive::Float(y)] =
+            fields[..]
+        {
             return match srid {
-                spatial::SRID_CARTESIAN_2D => Value::Cartesian2D(spatial::Cartesian2D::new(x, y)),
-                spatial::SRID_WGS84_2D => Value::WGS84_2D(spatial::WGS84_2D::new(x, y)),
+                spatial::SRID_CARTESIAN_2D => {
+                    ValueReceive::Cartesian2D(spatial::Cartesian2D::new(x, y))
+                }
+                spatial::SRID_WGS84_2D => ValueReceive::WGS84_2D(spatial::WGS84_2D::new(x, y)),
                 _ => Self::load_broken(format!("Unknown 2D SRID {}", srid)),
             };
         }
@@ -163,14 +113,14 @@ impl PackStreamDeserialize for Value {
     }
 
     fn load_point_3d(fields: Vec<Self::Value>) -> Self::Value {
-        if let [Value::Integer(srid), Value::Float(x), Value::Float(y), Value::Float(z)] =
+        if let [ValueReceive::Integer(srid), ValueReceive::Float(x), ValueReceive::Float(y), ValueReceive::Float(z)] =
             fields[..]
         {
             return match srid {
                 spatial::SRID_CARTESIAN_3D => {
-                    Value::Cartesian3D(spatial::Cartesian3D::new(x, y, z))
+                    ValueReceive::Cartesian3D(spatial::Cartesian3D::new(x, y, z))
                 }
-                spatial::SRID_WGS84_3D => Value::WGS84_3D(spatial::WGS84_3D::new(x, y, z)),
+                spatial::SRID_WGS84_3D => ValueReceive::WGS84_3D(spatial::WGS84_3D::new(x, y, z)),
                 _ => Self::load_broken(format!("Unknown 3D SRID {}", srid)),
             };
         }
@@ -182,6 +132,6 @@ impl PackStreamDeserialize for Value {
     }
 
     fn load_broken(reason: String) -> Self::Value {
-        Value::BrokenValue { reason }
+        ValueReceive::BrokenValue { reason }
     }
 }

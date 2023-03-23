@@ -32,7 +32,7 @@ use std::sync::Arc;
 use log::{debug, log_enabled, Level};
 use usize_cast::FromUsize;
 
-use crate::{Address, Neo4jError, Result, Value};
+use crate::{Address, Neo4jError, Result, ValueReceive, ValueSend};
 use bolt5x0::Bolt5x0StructTranslator;
 use bolt_state::{BoltState, BoltStateTracker};
 use chunk::{Chunker, Dechunker};
@@ -69,7 +69,7 @@ macro_rules! bolt_debug_extra {
             let meta = $bolt.meta.try_borrow();
             // ugly format because rust-fmt is broken
             let Ok(meta) = meta else { break 'a dbg_extra($bolt.socket.as_ref(), Some("!!!!")); };
-            let Some(Value::String(id)) = meta.get("connection_id") else { break 'a dbg_extra($bolt.socket.as_ref(), None); };
+            let Some(ValueReceive::String(id)) = meta.get("connection_id") else { break 'a dbg_extra($bolt.socket.as_ref(), None); };
             dbg_extra($bolt.socket.as_ref(), Some(id))
         }
     };
@@ -130,7 +130,7 @@ pub struct Bolt<R: Read, W: Write> {
     version: (u8, u8),
     connection_state: ConnectionState,
     bolt_state: BoltStateTracker,
-    meta: Arc<AtomicRefCell<HashMap<String, Value>>>,
+    meta: Arc<AtomicRefCell<HashMap<String, ValueReceive>>>,
     address: Arc<Address>,
 }
 
@@ -167,7 +167,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
         let Ok(meta) = meta else {
              return dbg_extra(self.socket.as_ref(), Some("!!!!"));
         };
-        let Some(Value::String(id)) = meta.get("connection_id") else {
+        let Some(ValueReceive::String(id)) = meta.get("connection_id") else {
             return dbg_extra(self.socket.as_ref(), None);
         };
         dbg_extra(self.socket.as_ref(), Some(id))
@@ -189,8 +189,8 @@ impl<R: Read, W: Write> Bolt<R, W> {
     pub(crate) fn hello(
         &mut self,
         user_agent: &str,
-        auth: &HashMap<String, Value>,
-        routing_context: Option<&HashMap<String, Value>>,
+        auth: &HashMap<String, ValueSend>,
+        routing_context: Option<&HashMap<String, ValueSend>>,
     ) -> Result<()> {
         debug_buf_start!(log_buf);
         debug_buf!(log_buf, "C: HELLO ");
@@ -345,7 +345,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
 
     pub(crate) fn route(
         &mut self,
-        routing_context: &HashMap<String, Value>,
+        routing_context: &HashMap<String, ValueSend>,
         bookmarks: Option<&[String]>,
         db: Option<&str>,
         imp_user: Option<&str>,
@@ -415,9 +415,9 @@ impl<R: Read, W: Write> Bolt<R, W> {
         });
         let translator = Bolt5x0StructTranslator {};
         let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
-        let message: BoltMessage<Value> = BoltMessage::load(&mut dechunker, |r| {
+        let message: BoltMessage<ValueReceive> = BoltMessage::load(&mut dechunker, |r| {
             let mut deserializer = PackStreamDeserializerImpl::new(r);
-            Ok(deserializer.load::<Value, _>(&translator)?)
+            Ok(deserializer.load::<ValueReceive, _>(&translator)?)
         })?;
         drop(dechunker);
         match message {
@@ -429,7 +429,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 Self::assert_response_field_count("SUCCESS", &fields, 1)?;
                 let meta = fields.pop().unwrap();
                 bolt_debug!(self, "S: SUCCESS {}", {
-                    meta.serialize(&mut dbg_serializer, &translator).unwrap();
+                    meta.dbg_print();
                     dbg_serializer.flush()
                 });
                 self.bolt_state.success(response.message, &meta);
@@ -449,7 +449,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 Self::assert_response_field_count("FAILURE", &fields, 1)?;
                 let meta = fields.pop().unwrap();
                 bolt_debug!(self, "S: FAILURE {}", {
-                    meta.serialize(&mut dbg_serializer, &translator).unwrap();
+                    meta.dbg_print();
                     dbg_serializer.flush()
                 });
                 self.bolt_state.failure();

@@ -12,27 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::address::DEFAULT_PORT;
-use crate::Address;
-use crate::Value;
-use crate::{Neo4jError, Result};
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::path::Path;
+
 use openssl::error::ErrorStack;
 #[cfg(not(test))]
 use openssl::ssl::{SslContext, SslContextBuilder};
 use openssl::ssl::{SslMethod, SslVerifyMode, SslVersion};
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::path::Path;
 #[cfg(test)]
 use tests::{MockSslContext as SslContext, MockSslContextBuilder as SslContextBuilder};
+use thiserror::Error;
 use uriparse::{Query, URIError, URI};
+
+use crate::address::DEFAULT_PORT;
+use crate::{Address, Neo4jError, Result, ValueSend};
 
 const DEFAULT_USER_AGENT: &str = env!("NEO4J_DEFAULT_USER_AGENT");
 
 #[derive(Debug)]
 pub struct DriverConfig {
     pub(crate) user_agent: String,
-    pub(crate) auth: HashMap<String, Value>, // max_connection_lifetime
+    pub(crate) auth: HashMap<String, ValueSend>, // max_connection_lifetime
     pub(crate) max_connection_pool_size: usize,
     // connection_timeout
     // trust
@@ -46,7 +47,7 @@ pub struct DriverConfig {
 #[derive(Debug)]
 pub struct ConnectionConfig {
     pub(crate) address: Address,
-    pub(crate) routing_context: Option<HashMap<String, Value>>,
+    pub(crate) routing_context: Option<HashMap<String, ValueSend>>,
     pub(crate) ssl_context: Option<SslContext>,
 }
 
@@ -232,7 +233,7 @@ impl ConnectionConfig {
         })
     }
 
-    fn parse_query(query: &Query) -> Result<HashMap<String, Value>> {
+    fn parse_query(query: &Query) -> Result<HashMap<String, ValueSend>> {
         let mut result = HashMap::new();
         let mut query = query.to_owned();
         query.normalize();
@@ -285,6 +286,12 @@ impl TryFrom<&str> for ConnectionConfig {
         Self::parse_uri(value)
     }
 }
+
+#[derive(Debug, Error)]
+#[error("{0}")]
+pub struct ConnectionConfigParseError(String);
+
+impl ConnectionConfigParseError {}
 
 impl From<URIError> for Neo4jError {
     fn from(err: URIError) -> Self {
@@ -519,7 +526,7 @@ mod tests {
     fn test_parsing_address(#[case] uri: &str, #[case] host: &str) {
         let connection_config = ConnectionConfig::try_from(uri);
         let connection_config = connection_config.unwrap();
-        assert_eq!(connection_config.address.host, host);
+        assert_eq!(connection_config.address.host(), host);
     }
 
     #[rstest]
@@ -550,7 +557,7 @@ mod tests {
     fn test_parsing_port(#[case] uri: &str, #[case] port: u16) {
         let connection_config = ConnectionConfig::try_from(uri);
         let connection_config = connection_config.unwrap();
-        assert_eq!(connection_config.address.port, port);
+        assert_eq!(connection_config.address.port(), port);
     }
 
     #[rstest]
@@ -572,7 +579,7 @@ mod tests {
         )]
         uri_base: &str,
         #[case] uri_query: &str,
-        #[case] routing_context: HashMap<String, Value>,
+        #[case] routing_context: HashMap<String, ValueSend>,
     ) {
         let uri: String = format!("{}{}", uri_base, uri_query);
         dbg!(&uri, &routing_context);

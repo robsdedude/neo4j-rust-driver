@@ -18,7 +18,7 @@ use std::io;
 use thiserror::Error;
 
 use crate::driver::io::bolt::BoltMeta;
-use crate::Value;
+use crate::ValueReceive;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -141,11 +141,11 @@ impl ServerError {
 
     pub fn from_meta(mut meta: BoltMeta) -> Self {
         let code = match meta.remove("code") {
-            Some(Value::String(code)) => code,
+            Some(ValueReceive::String(code)) => code,
             _ => "Neo.DatabaseError.General.UnknownError".into(),
         };
         let message = match meta.remove("message") {
-            Some(Value::String(message)) => message,
+            Some(ValueReceive::String(message)) => message,
             _ => "An unknown error occurred.".into(),
         };
         Self { code, message }

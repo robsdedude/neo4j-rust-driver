@@ -23,8 +23,8 @@ const COLON_BYTES: usize = ':'.len_utf8();
 
 #[derive(Debug, Clone)]
 pub struct Address {
-    pub host: String,
-    pub port: u16,
+    host: String,
+    port: u16,
     key: String,
     pub(crate) is_resolved: bool,
 }
@@ -57,6 +57,14 @@ impl Address {
         IpAddr::from_str(host)
             .map(|addr| (true, format!("{}", addr)))
             .unwrap_or_else(|_| (false, String::from(host)))
+    }
+
+    pub fn host(&self) -> &str {
+        self.host.as_str()
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
     }
 }
 

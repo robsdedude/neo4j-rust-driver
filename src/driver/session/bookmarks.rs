@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Result;
 use std::collections::HashSet;
 use std::ops::{Add, AddAssign};
 
@@ -23,15 +22,7 @@ pub struct Bookmarks {
 }
 
 impl Bookmarks {
-    // FIXME: this really doesn't need to be a generic neo4j::Result
-    pub fn from_raw(raw: Vec<String>) -> Result<Self> {
-        for bm in raw.iter() {
-            // TODO: do sanity check
-        }
-        Ok(Self::from_raw_unchecked(raw))
-    }
-
-    pub(crate) fn from_raw_unchecked(raw: Vec<String>) -> Self {
+    pub fn from_raw(raw: Vec<String>) -> Self {
         Bookmarks {
             bookmarks: raw.into_iter().collect(),
         }
@@ -118,7 +109,7 @@ mod tests {
     use rstest::*;
 
     fn bms(bookmarks: Vec<&str>) -> Bookmarks {
-        Bookmarks::from_raw_unchecked(bookmarks.into_iter().map(String::from).collect())
+        Bookmarks::from_raw(bookmarks.into_iter().map(String::from).collect())
     }
 
     #[rstest]

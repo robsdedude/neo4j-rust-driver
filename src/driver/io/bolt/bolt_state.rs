@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::response::ResponseMessage;
-use crate::Value;
+use crate::ValueReceive;
 use log::{debug, log_enabled, Level};
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -49,9 +49,9 @@ impl BoltStateTracker {
         self.state
     }
 
-    pub(crate) fn success(&mut self, message: ResponseMessage, meta: &Value) {
-        if let Value::Map(meta) = meta {
-            if let Some(Value::Boolean(true)) = meta.get("has_more") {
+    pub(crate) fn success(&mut self, message: ResponseMessage, meta: &ValueReceive) {
+        if let ValueReceive::Map(meta) = meta {
+            if let Some(ValueReceive::Boolean(true)) = meta.get("has_more") {
                 // nothing to do
                 return;
             }

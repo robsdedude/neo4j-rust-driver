@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Neo4jError, Result, Value};
+use crate::{Neo4jError, Result, ValueReceive};
 use core::fmt::{Debug, Formatter};
 use std::collections::HashMap;
 
@@ -46,8 +46,8 @@ impl BoltResponse {
 }
 
 type OptBox<T> = Option<Box<T>>;
-pub(crate) type BoltMeta = HashMap<String, Value>;
-pub(crate) type BoltRecordFields = Vec<Value>;
+pub(crate) type BoltMeta = HashMap<String, ValueReceive>;
+pub(crate) type BoltRecordFields = Vec<ValueReceive>;
 
 pub(crate) struct ResponseCallbacks {
     on_success_cb: OptBox<dyn FnMut(BoltMeta) -> Result<()> + Send + Sync>,
@@ -107,9 +107,9 @@ impl ResponseCallbacks {
         self
     }
 
-    pub(crate) fn on_success(&mut self, meta: Value) -> Result<()> {
+    pub(crate) fn on_success(&mut self, meta: ValueReceive) -> Result<()> {
         let res = match meta {
-            Value::Map(meta) => match self.on_success_cb.as_mut() {
+            ValueReceive::Map(meta) => match self.on_success_cb.as_mut() {
                 None => Ok(()),
                 Some(cb) => cb(meta),
             },
@@ -121,9 +121,9 @@ impl ResponseCallbacks {
         res
     }
 
-    pub(crate) fn on_failure(&mut self, meta: Value) -> Result<()> {
+    pub(crate) fn on_failure(&mut self, meta: ValueReceive) -> Result<()> {
         let res = match meta {
-            Value::Map(meta) => match self.on_failure_cb.as_mut() {
+            ValueReceive::Map(meta) => match self.on_failure_cb.as_mut() {
                 None => Ok(()),
                 Some(cb) => cb(meta),
             },
@@ -141,9 +141,9 @@ impl ResponseCallbacks {
         res
     }
 
-    pub(crate) fn on_record(&mut self, data: Value) -> Result<()> {
+    pub(crate) fn on_record(&mut self, data: ValueReceive) -> Result<()> {
         match data {
-            Value::List(values) => match self.on_record_cb.as_mut() {
+            ValueReceive::List(values) => match self.on_record_cb.as_mut() {
                 None => Ok(()),
                 Some(cb) => cb(values),
             },

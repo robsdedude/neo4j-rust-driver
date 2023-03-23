@@ -20,8 +20,11 @@ use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
+use super::io::bolt::PackStreamSerialize;
 use super::io::{bolt::RunPreparation, AcquireConfig, Pool, UpdateRtArgs};
-use crate::{PackStreamSerialize, RecordStream, Result, RoutingControl};
+use super::record_stream::RecordStream;
+use crate::driver::RoutingControl;
+use crate::Result;
 use bookmarks::Bookmarks;
 pub use config::SessionConfig;
 
@@ -131,7 +134,7 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
 
     #[inline]
     pub fn latest_bookmarks(&self) -> Bookmarks {
-        Bookmarks::from_raw_unchecked(self.latest_raw_bookmarks().clone().unwrap_or_default())
+        Bookmarks::from_raw(self.latest_raw_bookmarks().clone().unwrap_or_default())
     }
 }
 

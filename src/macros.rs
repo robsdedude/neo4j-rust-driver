@@ -16,8 +16,9 @@
 // [serde_json]: https://github.com/serde-rs/json
 
 #[cfg(doc)]
-use crate::Value;
+use crate::ValueSend;
 
+#[cfg(test)]
 macro_rules! map {
     () => {std::collections::HashMap::new()};
     ( $($key:expr => $value:expr),* $(,)? ) => {
@@ -34,81 +35,82 @@ macro_rules! map {
     ( _capacity($x:tt, $($xs:tt),*) ) => (1usize + map!(_capacity($($xs),*)));
 }
 
+#[cfg(test)]
 pub(crate) use map;
 
-/// Short notation for creating a [`Value`].
+/// Short notation for creating a [`ValueSend`].
 ///
 /// # Examples
 ///
 /// Special values:
 /// ```
-/// use neo4j::{value, Value};
+/// use neo4j::{value, ValueSend};
 ///
 /// // null
-/// assert_eq!(Value::Null, value!(null));
+/// assert_eq!(ValueSend::Null, value!(null));
 ///
 /// // true, false
-/// assert_eq!(Value::Boolean(true), value!(true));
-/// assert_eq!(Value::Boolean(false), value!(false));
+/// assert_eq!(ValueSend::Boolean(true), value!(true));
+/// assert_eq!(ValueSend::Boolean(false), value!(false));
 /// ```
 ///
 /// Any value that implements `Into<Value>`:
 /// ```
-/// use neo4j::{value, Value};
+/// use neo4j::{value, ValueSend};
 ///
 /// // integers
-/// assert_eq!(Value::Integer(1), value!(1));
+/// assert_eq!(ValueSend::Integer(1), value!(1));
 ///
 /// // floats
-/// assert_eq!(Value::Float(1.234), value!(1.234));
+/// assert_eq!(ValueSend::Float(1.234), value!(1.234));
 ///
 /// // strings
-/// assert_eq!(Value::String(String::from("foo")), value!("foo"));
+/// assert_eq!(ValueSend::String(String::from("foo")), value!("foo"));
 /// let foo = String::from("foo");
-/// assert_eq!(Value::String(foo.clone()), value!(foo));
+/// assert_eq!(ValueSend::String(foo.clone()), value!(foo));
 ///
 /// // spatial types
 /// use neo4j::spatial::Cartesian2D;
 ///
 /// assert_eq!(
-///     Value::Cartesian2D(Cartesian2D::new(1., 2.)),
+///     ValueSend::Cartesian2D(Cartesian2D::new(1., 2.)),
 ///     value!(Cartesian2D::new(1., 2.))
 /// )
 /// ```
 ///
-/// Create [`Value::Bytes`]:
+/// Create [`ValueSend::Bytes`]:
 /// ```
-/// use neo4j::{value, Value};
+/// use neo4j::{value, ValueSend};
 ///
-/// assert_eq!(Value::Bytes(vec![1, 2, 3]), value!(bytes(1, 2, 3)));
+/// assert_eq!(ValueSend::Bytes(vec![1, 2, 3]), value!(bytes(1, 2, 3)));
 /// ```
 ///
-/// Create a [`Value::List`]:
+/// Create a [`ValueSend::List`]:
 /// ```
-/// use neo4j::{value, Value};
+/// use neo4j::{value, ValueSend};
 ///
 /// assert_eq!(
-///     Value::List(vec![
-///         Value::Integer(1),
-///         Value::Float(2.),
-///         Value::Null
+///     ValueSend::List(vec![
+///         ValueSend::Integer(1),
+///         ValueSend::Float(2.),
+///         ValueSend::Null
 ///     ]),
 ///     value!([1, 2., null])
 /// );
 /// ```
 ///
-/// Create a [`Value::Map`]:
+/// Create a [`ValueSend::Map`]:
 /// ```
 /// use std::collections::HashMap;
-/// use neo4j::{value, Value};
+/// use neo4j::{value, ValueSend};
 ///
 /// let mut map = HashMap::new();
-/// map.insert(String::from("foo"), Value::Integer(1));
-/// map.insert(String::from("bar"), Value::Null);
-/// map.insert(String::from("baz"), Value::List(vec![Value::Integer(1)]));
+/// map.insert(String::from("foo"), ValueSend::Integer(1));
+/// map.insert(String::from("bar"), ValueSend::Null);
+/// map.insert(String::from("baz"), ValueSend::List(vec![ValueSend::Integer(1)]));
 ///
 /// assert_eq!(
-///     Value::Map(map),
+///     ValueSend::Map(map),
 ///     value!({"foo": 1, "bar": null, "baz": [1]})
 /// );
 /// ```
@@ -125,7 +127,7 @@ macro_rules! value {
 macro_rules! __value_internal {
     //////////////////////////////////////////////////////////////////////////
     // TT muncher for parsing the inside of a list [...].
-    // Produces a Value::List(vec![...]) of the elements.
+    // Produces a ValueSend::List(vec![...]) of the elements.
     //
     // Must be invoked as: __value_internal!(@list [] $($tt)*)
     //////////////////////////////////////////////////////////////////////////
@@ -287,23 +289,23 @@ macro_rules! __value_internal {
     //////////////////////////////////////////////////////////////////////////
 
     (null) => {
-        $crate::Value::Null
+        $crate::ValueSend::Null
     };
 
     ([]) => {
-        $crate::Value::List(vec![])
+        $crate::ValueSend::List(vec![])
     };
 
     ([ $($tt:tt)+ ]) => {
-        $crate::Value::List($crate::__value_internal!(@list [] $($tt)+))
+        $crate::ValueSend::List($crate::__value_internal!(@list [] $($tt)+))
     };
 
     ({$(,)?}) => {
-        $crate::Value::Map(std::collections::HashMap::new())
+        $crate::ValueSend::Map(std::collections::HashMap::new())
     };
 
     ({ $($tt:tt)+ }) => {
-        $crate::Value::Map({
+        $crate::ValueSend::Map({
             let mut map = std::collections::HashMap::new();
             $crate::__value_internal!(@map map () ($($tt)+) ($($tt)+));
             map
@@ -311,11 +313,11 @@ macro_rules! __value_internal {
     };
 
     (bytes()) => {
-        $crate::Value::Bytes(vec![])
+        $crate::ValueSend::Bytes(vec![])
     };
 
     (bytes( $($tt:tt),+ $(,)?)) => {
-        $crate::Value::Bytes(vec![$($tt),+])
+        $crate::ValueSend::Bytes(vec![$($tt),+])
     };
 
     // Any Serialize type: numbers, strings, struct literals, variables etc.
@@ -336,150 +338,157 @@ mod tests {
     use rstest::rstest;
 
     use crate::spatial::*;
-    use crate::Value;
+    use crate::ValueSend;
 
     #[test]
     fn test_null() {
-        assert_eq!(value!(null), Value::Null)
+        assert_eq!(value!(null), ValueSend::Null)
     }
 
     #[rstest]
-    #[case(value!(true), Value::Boolean(true))]
-    #[case(value!(false), Value::Boolean(false))]
-    fn test_boolean(#[case] input: Value, #[case] output: Value) {
+    #[case(value!(true), ValueSend::Boolean(true))]
+    #[case(value!(false), ValueSend::Boolean(false))]
+    fn test_boolean(#[case] input: ValueSend, #[case] output: ValueSend) {
         dbg!(&input, &output);
         assert_eq!(input, output);
     }
 
     #[rstest]
-    #[case(value!(1), Value::Integer(1))]
-    #[case(value!(-1), Value::Integer(-1))]
-    #[case(value!(1u8), Value::Integer(1))]
-    #[case(value!(1i8), Value::Integer(1))]
-    #[case(value!(-1i8), Value::Integer(-1))]
-    #[case(value!(1u16), Value::Integer(1))]
-    #[case(value!(1i16), Value::Integer(1))]
-    #[case(value!(-1i16), Value::Integer(-1))]
-    #[case(value!(1u32), Value::Integer(1))]
-    #[case(value!(1i32), Value::Integer(1))]
-    #[case(value!(-1i32), Value::Integer(-1))]
-    #[case(value!(1i64), Value::Integer(1))]
-    #[case(value!(-1i64), Value::Integer(-1))]
-    #[case(value!(i64::MAX), Value::Integer(i64::MAX))]
-    #[case(value!(i64::MIN), Value::Integer(i64::MIN))]
-    fn test_int(#[case] input: Value, #[case] output: Value) {
+    #[case(value!(1), ValueSend::Integer(1))]
+    #[case(value!(-1), ValueSend::Integer(-1))]
+    #[case(value!(1u8), ValueSend::Integer(1))]
+    #[case(value!(1i8), ValueSend::Integer(1))]
+    #[case(value!(-1i8), ValueSend::Integer(-1))]
+    #[case(value!(1u16), ValueSend::Integer(1))]
+    #[case(value!(1i16), ValueSend::Integer(1))]
+    #[case(value!(-1i16), ValueSend::Integer(-1))]
+    #[case(value!(1u32), ValueSend::Integer(1))]
+    #[case(value!(1i32), ValueSend::Integer(1))]
+    #[case(value!(-1i32), ValueSend::Integer(-1))]
+    #[case(value!(1i64), ValueSend::Integer(1))]
+    #[case(value!(-1i64), ValueSend::Integer(-1))]
+    #[case(value!(i64::MAX), ValueSend::Integer(i64::MAX))]
+    #[case(value!(i64::MIN), ValueSend::Integer(i64::MIN))]
+    fn test_int(#[case] input: ValueSend, #[case] output: ValueSend) {
         dbg!(&input, &output);
         assert_eq!(input, output);
     }
 
     #[rstest]
-    #[case(value!(1.0f32), Value::Float(1.))]
-    #[case(value!(-1.0f32), Value::Float(-1.))]
-    #[case(value!(1.0f64), Value::Float(1.))]
-    #[case(value!(-1.0f64), Value::Float(-1.))]
-    #[case(value!(f32::NAN), Value::Float(f32::NAN.into()))]
-    #[case(value!(f32::MIN), Value::Float(f32::MIN.into()))]
-    #[case(value!(f32::MAX), Value::Float(f32::MAX.into()))]
-    #[case(value!(f64::NAN), Value::Float(f64::NAN))]
-    #[case(value!(f64::MIN), Value::Float(f64::MIN))]
-    #[case(value!(f64::MAX), Value::Float(f64::MAX))]
-    fn test_float(#[case] input: Value, #[case] output: Value) {
+    #[case(value!(1.0f32), ValueSend::Float(1.))]
+    #[case(value!(-1.0f32), ValueSend::Float(-1.))]
+    #[case(value!(1.0f64), ValueSend::Float(1.))]
+    #[case(value!(-1.0f64), ValueSend::Float(-1.))]
+    #[case(value!(f32::NAN), ValueSend::Float(f32::NAN.into()))]
+    #[case(value!(f32::MIN), ValueSend::Float(f32::MIN.into()))]
+    #[case(value!(f32::MAX), ValueSend::Float(f32::MAX.into()))]
+    #[case(value!(f64::NAN), ValueSend::Float(f64::NAN))]
+    #[case(value!(f64::MIN), ValueSend::Float(f64::MIN))]
+    #[case(value!(f64::MAX), ValueSend::Float(f64::MAX))]
+    fn test_float(#[case] input: ValueSend, #[case] output: ValueSend) {
         dbg!(&input, &output);
-        if input.as_float().unwrap().is_nan() {
-            assert!(output.as_float().unwrap().is_nan())
+        let ValueSend::Float(input) = input else {
+            panic!("input is not float but {:?}", input);
+        };
+        let ValueSend::Float(output) = output else {
+            panic!("output is not float but {:?}", output);
+        };
+
+        if input.is_nan() {
+            assert!(output.is_nan())
         } else {
             assert_eq!(input, output);
         }
     }
 
     #[rstest]
-    #[case(value!(bytes()), Value::Bytes(vec![]))]
-    #[case(value!(bytes(1)), Value::Bytes(vec![1]))]
-    #[case(value!(bytes(1,)), Value::Bytes(vec![1]))]
-    fn test_bytes(#[case] input: Value, #[case] output: Value) {
+    #[case(value!(bytes()), ValueSend::Bytes(vec![]))]
+    #[case(value!(bytes(1)), ValueSend::Bytes(vec![1]))]
+    #[case(value!(bytes(1,)), ValueSend::Bytes(vec![1]))]
+    fn test_bytes(#[case] input: ValueSend, #[case] output: ValueSend) {
         dbg!(&input, &output);
         assert_eq!(input, output);
     }
 
     #[rstest]
-    #[case(value!(""), Value::String("".into()))]
-    #[case(value!("foo"), Value::String("foo".into()))]
-    #[case(value!("foo bar"), Value::String("foo bar".into()))]
-    #[case(value!(String::from("")), Value::String("".into()))]
-    #[case(value!(String::from("foo")), Value::String("foo".into()))]
-    #[case(value!(String::from("foo bar")), Value::String("foo bar".into()))]
-    fn test_string(#[case] input: Value, #[case] output: Value) {
+    #[case(value!(""), ValueSend::String("".into()))]
+    #[case(value!("foo"), ValueSend::String("foo".into()))]
+    #[case(value!("foo bar"), ValueSend::String("foo bar".into()))]
+    #[case(value!(String::from("")), ValueSend::String("".into()))]
+    #[case(value!(String::from("foo")), ValueSend::String("foo".into()))]
+    #[case(value!(String::from("foo bar")), ValueSend::String("foo bar".into()))]
+    fn test_string(#[case] input: ValueSend, #[case] output: ValueSend) {
         dbg!(&input, &output);
         assert_eq!(input, output);
     }
 
     #[rstest]
-    #[case(value!([]), Value::List(vec![]))]
-    #[case(value!([,]), Value::List(vec![]))]
-    #[case(value!([null]), Value::List(vec![Value::Null]))]
-    #[case(value!([null,]), Value::List(vec![Value::Null]))]
-    #[case(value!([true]), Value::List(vec![Value::Boolean(true)]))]
-    #[case(value!([true,]), Value::List(vec![Value::Boolean(true)]))]
-    #[case(value!([false]), Value::List(vec![Value::Boolean(false)]))]
-    #[case(value!([false,]), Value::List(vec![Value::Boolean(false)]))]
-    #[case(value!([1]), Value::List(vec![Value::Integer(1)]))]
-    #[case(value!([1,]), Value::List(vec![Value::Integer(1)]))]
-    #[case(value!([1.]), Value::List(vec![Value::Float(1.)]))]
-    #[case(value!([1.,]), Value::List(vec![Value::Float(1.)]))]
-    #[case(value!([bytes()]), Value::List(vec![Value::Bytes(vec![])]))]
-    #[case(value!([bytes(1, 2, 3)]), Value::List(vec![Value::Bytes(vec![1, 2, 3])]))]
-    #[case(value!([bytes(1, 2, 3,)]), Value::List(vec![Value::Bytes(vec![1, 2, 3])]))]
+    #[case(value!([]), ValueSend::List(vec![]))]
+    #[case(value!([,]), ValueSend::List(vec![]))]
+    #[case(value!([null]), ValueSend::List(vec![ValueSend::Null]))]
+    #[case(value!([null,]), ValueSend::List(vec![ValueSend::Null]))]
+    #[case(value!([true]), ValueSend::List(vec![ValueSend::Boolean(true)]))]
+    #[case(value!([true,]), ValueSend::List(vec![ValueSend::Boolean(true)]))]
+    #[case(value!([false]), ValueSend::List(vec![ValueSend::Boolean(false)]))]
+    #[case(value!([false,]), ValueSend::List(vec![ValueSend::Boolean(false)]))]
+    #[case(value!([1]), ValueSend::List(vec![ValueSend::Integer(1)]))]
+    #[case(value!([1,]), ValueSend::List(vec![ValueSend::Integer(1)]))]
+    #[case(value!([1.]), ValueSend::List(vec![ValueSend::Float(1.)]))]
+    #[case(value!([1.,]), ValueSend::List(vec![ValueSend::Float(1.)]))]
+    #[case(value!([bytes()]), ValueSend::List(vec![ValueSend::Bytes(vec![])]))]
+    #[case(value!([bytes(1, 2, 3)]), ValueSend::List(vec![ValueSend::Bytes(vec![1, 2, 3])]))]
+    #[case(value!([bytes(1, 2, 3,)]), ValueSend::List(vec![ValueSend::Bytes(vec![1, 2, 3])]))]
     #[case(
         value!([1, [2], 3]),
-        Value::List(vec![
-            Value::Integer(1),
-            Value::List(vec![Value::Integer(2)]),
-            Value::Integer(3),
+        ValueSend::List(vec![
+            ValueSend::Integer(1),
+            ValueSend::List(vec![ValueSend::Integer(2)]),
+            ValueSend::Integer(3),
         ])
     )]
     #[case(
         value!([null, 1, 2., {"foo": "bar"}, bytes(1)]),
-        Value::List(vec![
-            Value::Null,
-            Value::Integer(1),
-            Value::Float(2.0),
-            Value::Map(map!("foo".into() => Value::String("bar".into()))),
-            Value::Bytes(vec![1]),
+        ValueSend::List(vec![
+            ValueSend::Null,
+            ValueSend::Integer(1),
+            ValueSend::Float(2.0),
+            ValueSend::Map(map!("foo".into() => ValueSend::String("bar".into()))),
+            ValueSend::Bytes(vec![1]),
         ])
     )]
-    fn test_list(#[case] input: Value, #[case] output: Value) {
+    fn test_list(#[case] input: ValueSend, #[case] output: ValueSend) {
         dbg!(&input, &output);
         assert_eq!(input, output);
     }
 
     #[rstest]
-    #[case(value!({}), Value::Map(map!()))]
-    #[case(value!({,}), Value::Map(map!()))]
-    #[case(value!({"a": null}), Value::Map(map!("a".into() => Value::Null)))]
-    #[case(value!({"a": null,}), Value::Map(map!("a".into() => Value::Null)))]
-    #[case(value!({"a": true}), Value::Map(map!("a".into() => Value::Boolean(true))))]
-    #[case(value!({"a": false}), Value::Map(map!("a".into() => Value::Boolean(false))))]
-    #[case(value!({"a": 1}), Value::Map(map!("a".into() => Value::Integer(1))))]
-    #[case(value!({"a": 1,}), Value::Map(map!("a".into() => Value::Integer(1))))]
+    #[case(value!({}), ValueSend::Map(map!()))]
+    #[case(value!({,}), ValueSend::Map(map!()))]
+    #[case(value!({"a": null}), ValueSend::Map(map!("a".into() => ValueSend::Null)))]
+    #[case(value!({"a": null,}), ValueSend::Map(map!("a".into() => ValueSend::Null)))]
+    #[case(value!({"a": true}), ValueSend::Map(map!("a".into() => ValueSend::Boolean(true))))]
+    #[case(value!({"a": false}), ValueSend::Map(map!("a".into() => ValueSend::Boolean(false))))]
+    #[case(value!({"a": 1}), ValueSend::Map(map!("a".into() => ValueSend::Integer(1))))]
+    #[case(value!({"a": 1,}), ValueSend::Map(map!("a".into() => ValueSend::Integer(1))))]
     #[case(
         value!({"a": 1, "b": 1.}), 
-        Value::Map(map!(
-            "a".into() => Value::Integer(1),
-            "b".into() => Value::Float(1.),
+        ValueSend::Map(map!(
+            "a".into() => ValueSend::Integer(1),
+            "b".into() => ValueSend::Float(1.),
         ))
     )]
     #[case(
         value!({"a": 1, "b": 1., "c": [1, "foo", null], "d": {"bar": false}}), 
-        Value::Map(map!(
-            "a".into() => Value::Integer(1),
-            "b".into() => Value::Float(1.),
-            "c".into() => Value::List(vec![
-                Value::Integer(1), Value::String("foo".into()), Value::Null,
+        ValueSend::Map(map!(
+            "a".into() => ValueSend::Integer(1),
+            "b".into() => ValueSend::Float(1.),
+            "c".into() => ValueSend::List(vec![
+                ValueSend::Integer(1), ValueSend::String("foo".into()), ValueSend::Null,
             ]),
-            "d".into() => Value::Map(map!("bar".into() => Value::Boolean(false))),
+            "d".into() => ValueSend::Map(map!("bar".into() => ValueSend::Boolean(false))),
         ))
     )]
-    fn test_map(#[case] input: Value, #[case] output: Value) {
+    fn test_map(#[case] input: ValueSend, #[case] output: ValueSend) {
         dbg!(&input, &output);
         assert_eq!(input, output);
     }
@@ -487,21 +496,21 @@ mod tests {
     #[rstest]
     #[case(value!(
         Cartesian2D::new(1., 2.)),
-        Value::Cartesian2D(Cartesian2D::new(1., 2.))
+        ValueSend::Cartesian2D(Cartesian2D::new(1., 2.))
     )]
     #[case(value!(
         Cartesian3D::new(1., 2., 3.)),
-        Value::Cartesian3D(Cartesian3D::new(1., 2., 3.))
+        ValueSend::Cartesian3D(Cartesian3D::new(1., 2., 3.))
     )]
     #[case(value!(
         WGS84_2D::new(1., 2.)),
-        Value::WGS84_2D(WGS84_2D::new(1., 2.))
+        ValueSend::WGS84_2D(WGS84_2D::new(1., 2.))
     )]
     #[case(value!(
         WGS84_3D::new(1., 2., 3.)),
-        Value::WGS84_3D(WGS84_3D::new(1., 2., 3.))
+        ValueSend::WGS84_3D(WGS84_3D::new(1., 2., 3.))
     )]
-    fn test_structs(#[case] input: Value, #[case] output: Value) {
+    fn test_structs(#[case] input: ValueSend, #[case] output: ValueSend) {
         dbg!(&input, &output);
         assert_eq!(input, output);
     }

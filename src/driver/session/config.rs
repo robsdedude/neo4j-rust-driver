@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::driver::session::Bookmarks;
-use crate::RoutingControl;
+use crate::driver::RoutingControl;
 
 #[derive(Debug, Clone)]
 pub struct SessionConfig {

@@ -26,7 +26,7 @@ use std::sync::Arc;
 use io::{Pool, PoolConfig};
 pub use record::Record;
 pub use record_stream::RecordStream;
-pub use session::{AutoCommitExtra, Session, SessionConfig};
+use session::{Session, SessionConfig};
 pub use summary::Summary;
 
 #[derive(Debug)]
@@ -53,6 +53,12 @@ impl Driver {
     pub fn session<C: AsRef<SessionConfig>>(&self, config: C) -> Session<C> {
         Session::new(config, &self.pool)
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum RoutingControl {
+    Read,
+    Write,
 }
 
 #[cfg(test)]

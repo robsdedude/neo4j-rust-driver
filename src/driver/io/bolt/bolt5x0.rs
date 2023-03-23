@@ -20,11 +20,13 @@ use std::ops::Deref;
 
 use usize_cast::FromUsize;
 
-use super::packstream::{PackStreamSerialize, PackStreamSerializer, PackStreamSerializerImpl};
+use super::packstream::{
+    PackStreamDeserialize, PackStreamSerialize, PackStreamSerializer, PackStreamSerializerImpl,
+};
 use super::{
     Bolt, BoltResponse, BoltStructTranslator, Chunker, ResponseCallbacks, ResponseMessage,
 };
-use crate::{PackStreamDeserialize, Result, Value};
+use crate::{Result, ValueSend};
 
 // pub struct Bolt5x0<R: Read, W: Write> {
 //     message_buff: VecDeque<Vec<u8>>,
@@ -222,7 +224,11 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
         serializer.write_struct(
             self,
             b'X',
-            &[Value::Integer(srid), Value::Float(x), Value::Float(y)],
+            &[
+                ValueSend::Integer(srid),
+                ValueSend::Float(x),
+                ValueSend::Float(y),
+            ],
         )
     }
 
@@ -238,10 +244,10 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
             self,
             b'Y',
             &[
-                Value::Integer(srid),
-                Value::Float(x),
-                Value::Float(y),
-                Value::Float(z),
+                ValueSend::Integer(srid),
+                ValueSend::Float(x),
+                ValueSend::Float(y),
+                ValueSend::Float(z),
             ],
         )
     }
