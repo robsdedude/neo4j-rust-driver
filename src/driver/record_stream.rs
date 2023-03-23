@@ -82,9 +82,9 @@ impl<'a> RecordStream<'a> {
 
     /// Fully consumes the result and returns the [`Summary`].
     ///
-    /// Return `None` if
+    /// Returns [`None`] if
     ///  * [`RecordStream::consume()`] has been called before or
-    ///  * there was an error (earlier) while processing the Result.
+    ///  * there was an error (earlier) while processing the [`RecordStream`].
     pub fn consume(&mut self) -> Result<Option<Summary>> {
         if self.listener.borrow().state.is_streaming() {
             let mut listener = self.listener.borrow_mut();

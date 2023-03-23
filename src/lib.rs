@@ -35,6 +35,10 @@ pub mod spatial {
 pub mod session {
     pub use super::driver::session::*;
 }
+/// Query summary structs (metadata) received via [`driver::RecordStream::consume()`].
+pub mod summary {
+    pub use super::driver::summary::*;
+}
 
 // TODO: decide if this concept should remain
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]

@@ -27,7 +27,6 @@ use io::{Pool, PoolConfig};
 pub use record::Record;
 pub use record_stream::RecordStream;
 use session::{Session, SessionConfig};
-pub use summary::Summary;
 
 #[derive(Debug)]
 pub struct Driver {

@@ -21,13 +21,14 @@ use crate::driver::io::bolt::BoltMeta;
 use crate::ValueReceive;
 
 #[derive(Error, Debug)]
-#[non_exhaustive]
+// #[non_exhaustive]
 pub enum Neo4jError {
     /// used when
     ///  * Experiencing a connectivity error.  
     ///    E.g., not able to connect, a broken socket,
     ///    not able to fetch routing information
     #[error("connection failed: {message}")]
+    // #[non_exhaustive]
     Disconnect {
         message: String,
         // #[backtrace]
@@ -43,18 +44,21 @@ pub enum Neo4jError {
     ///  * Non-IO error occurs during serialization (e.g., trying to serialize
     ///    `Value::BrokenValue`)
     #[error("invalid configuration: {message}")]
+    // #[non_exhaustive]
     InvalidConfig {
         message: String,
         // backtrace: Backtrace,
     },
     /// used when
     ///  * the server returns an error
-    #[error("{0}")]
-    ServerError(ServerError),
+    #[error("{error}")]
+    // #[non_exhaustive]
+    ServerError { error: ServerError },
     #[error(
         "the driver encountered a protocol violation, \
         this is likely a bug in the driver or the server: {message}"
     )]
+    // #[non_exhaustive]
     ProtocolError {
         message: String,
         // backtrace: Backtrace
@@ -64,7 +68,7 @@ pub enum Neo4jError {
 impl Neo4jError {
     pub fn is_retryable(&self) -> bool {
         match self {
-            Neo4jError::ServerError(err) => err.is_retryable(),
+            Neo4jError::ServerError { error } => error.is_retryable(),
             Neo4jError::Disconnect { .. } => true,
             _ => false,
         }
@@ -122,7 +126,7 @@ impl Neo4jError {
     pub(crate) fn fatal_during_discovery(&self) -> bool {
         match self {
             Neo4jError::InvalidConfig { .. } => true,
-            Neo4jError::ServerError(e) => e.fatal_during_discovery(),
+            Neo4jError::ServerError { error } => error.fatal_during_discovery(),
             _ => false,
         }
     }
@@ -194,6 +198,6 @@ pub type Result<T> = std::result::Result<T, Neo4jError>;
 
 impl From<ServerError> for Neo4jError {
     fn from(err: ServerError) -> Self {
-        Neo4jError::ServerError(err)
+        Neo4jError::ServerError { error: err }
     }
 }

@@ -108,6 +108,7 @@ pub(crate) use map;
 /// map.insert(String::from("foo"), ValueSend::Integer(1));
 /// map.insert(String::from("bar"), ValueSend::Null);
 /// map.insert(String::from("baz"), ValueSend::List(vec![ValueSend::Integer(1)]));
+/// let map = map;
 ///
 /// assert_eq!(
 ///     ValueSend::Map(map),
