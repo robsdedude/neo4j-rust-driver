@@ -414,7 +414,6 @@ impl<R: Read, W: Write> Bolt<R, W> {
             self.socket.as_ref().map(|s| s.shutdown(Shutdown::Both));
         });
         let translator = Bolt5x0StructTranslator {};
-        let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
         let message: BoltMessage<ValueReceive> = BoltMessage::load(&mut dechunker, |r| {
             let mut deserializer = PackStreamDeserializerImpl::new(r);
             Ok(deserializer.load::<ValueReceive, _>(&translator)?)
@@ -428,10 +427,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 // SUCCESS
                 Self::assert_response_field_count("SUCCESS", &fields, 1)?;
                 let meta = fields.pop().unwrap();
-                bolt_debug!(self, "S: SUCCESS {}", {
-                    meta.dbg_print();
-                    dbg_serializer.flush()
-                });
+                bolt_debug!(self, "S: SUCCESS {}", meta.dbg_print());
                 self.bolt_state.success(response.message, &meta);
                 response.callbacks.on_success(meta)
             }
@@ -448,10 +444,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 // FAILURE
                 Self::assert_response_field_count("FAILURE", &fields, 1)?;
                 let meta = fields.pop().unwrap();
-                bolt_debug!(self, "S: FAILURE {}", {
-                    meta.dbg_print();
-                    dbg_serializer.flush()
-                });
+                bolt_debug!(self, "S: FAILURE {}", meta.dbg_print());
                 self.bolt_state.failure();
                 response.callbacks.on_failure(meta)
             }
