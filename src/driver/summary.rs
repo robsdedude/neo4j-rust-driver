@@ -56,14 +56,6 @@ impl Summary {
         self.notifications = Notification::load_meta(meta)?;
         self.profile = Profile::load_meta(meta)?;
         self.plan = Plan::load_meta(meta)?;
-        if let Some(db) = meta.remove("db") {
-            let ValueReceive::String(db) = db else {
-                return Err(Neo4jError::ProtocolError {
-                    message: format!("db in summary was not string but {:?}", db),
-                })
-            };
-            self.database = Some(db);
-        }
         if let Some(query_type) = meta.remove("type") {
             let ValueReceive::String(query_type) = query_type else {
                 return Err(Neo4jError::ProtocolError {
@@ -86,7 +78,14 @@ impl Summary {
                 message: "type in summary missing".into(),
             });
         }
-        todo!("load all fields!");
+        if let Some(db) = meta.remove("db") {
+            let ValueReceive::String(db) = db else {
+                return Err(Neo4jError::ProtocolError {
+                    message: format!("db in summary was not string but {:?}", db),
+                })
+            };
+            self.database = Some(db);
+        }
         Ok(())
     }
 }
@@ -132,56 +131,56 @@ impl Counters {
         };
         let mut meta = try_into_map(meta, "stats")?;
         let nodes_created = meta
-            .remove("nodes_created")
-            .map(|c| try_into_int(c, "nodes_created in stats"))
+            .remove("nodes-created")
+            .map(|c| try_into_int(c, "nodes-created in stats"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let nodes_deleted = meta
-            .remove("nodes_deleted")
-            .map(|c| try_into_int(c, "nodes_deleted in stats"))
+            .remove("nodes-deleted")
+            .map(|c| try_into_int(c, "nodes-deleted in stats"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let relationships_created = meta
-            .remove("relationships_created")
-            .map(|c| try_into_int(c, "relationships_created in stats"))
+            .remove("relationships-created")
+            .map(|c| try_into_int(c, "relationships-created in stats"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let relationships_deleted = meta
-            .remove("relationships_deleted")
-            .map(|c| try_into_int(c, "relationships_deleted in stats"))
+            .remove("relationships-deleted")
+            .map(|c| try_into_int(c, "relationships-deleted in stats"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let properties_set = meta
-            .remove("properties_set")
-            .map(|c| try_into_int(c, "properties_set in stats"))
+            .remove("properties-set")
+            .map(|c| try_into_int(c, "properties-set in stats"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let labels_added = meta
-            .remove("labels_added")
-            .map(|c| try_into_int(c, "labels_added in stats"))
+            .remove("labels-added")
+            .map(|c| try_into_int(c, "labels-added in stats"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let labels_removed = meta
-            .remove("labels_removed")
-            .map(|c| try_into_int(c, "labels_removed in stats"))
+            .remove("labels-removed")
+            .map(|c| try_into_int(c, "labels-removed in stats"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let indexes_added = meta
-            .remove("indexes_added")
-            .map(|c| try_into_int(c, "indexes_added in stats"))
+            .remove("indexes-added")
+            .map(|c| try_into_int(c, "indexes-added in stats"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let indexes_removed = meta
-            .remove("indexes_removed")
-            .map(|c| try_into_int(c, "indexes_removed in stats"))
+            .remove("indexes-removed")
+            .map(|c| try_into_int(c, "indexes-removed in stats"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let constraints_added = meta
-            .remove("constraints_added")
-            .map(|c| try_into_int(c, "constraints_added in stats"))
+            .remove("constraints-added")
+            .map(|c| try_into_int(c, "constraints-added in stats"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let constraints_removed = meta
-            .remove("constraints_removed")
-            .map(|c| try_into_int(c, "constraints_removed in stats"))
+            .remove("constraints-removed")
+            .map(|c| try_into_int(c, "constraints-removed in stats"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let system_updates = meta
-            .remove("system_updates")
-            .map(|c| try_into_int(c, "system_updates in stats"))
+            .remove("system-updates")
+            .map(|c| try_into_int(c, "system-updates in stats"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let contains_updates = meta
-            .remove("contains_updates")
-            .map(|c| try_into_bool(c, "contains_updates in stats"))
+            .remove("contains-updates")
+            .map(|c| try_into_bool(c, "contains-updates in stats"))
             .unwrap_or_else(|| {
                 Ok(nodes_created > 0
                     || nodes_deleted > 0
@@ -196,8 +195,8 @@ impl Counters {
                     || constraints_removed > 0)
             })?;
         let contains_system_updates = meta
-            .remove("contains_system_updates")
-            .map(|c| try_into_bool(c, "contains_system_updates in stats"))
+            .remove("contains-system-updates")
+            .map(|c| try_into_bool(c, "contains-system-updates in stats"))
             .unwrap_or_else(|| Ok(system_updates > 0))?;
         Ok(Self {
             nodes_created,
