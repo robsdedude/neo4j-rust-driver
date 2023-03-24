@@ -29,13 +29,15 @@ use crate::{Neo4jError, Result, ValueReceive};
 #[derive(Debug)]
 pub struct RecordStream<'a> {
     connection: &'a mut TcpBolt,
+    auto_commit: bool,
     listener: Arc<AtomicRefCell<RecordListener>>,
 }
 
 impl<'a> RecordStream<'a> {
-    pub fn new(connection: &'a mut TcpBolt) -> Self {
+    pub fn new(connection: &'a mut TcpBolt, auto_commit: bool) -> Self {
         Self {
             connection,
+            auto_commit,
             listener: Arc::new(AtomicRefCell::new(RecordListener::new())),
         }
     }
@@ -60,18 +62,23 @@ impl<'a> RecordStream<'a> {
         assert!(!self.connection.expects_reply());
 
         self.connection.run_submit(run_prep, callbacks);
+        if let Err(e) = self.connection.write_one().and_then(|_| self.pull(false)) {
+            let mut listener = self.listener.borrow_mut();
+            listener.state = RecordListenerState::Done;
+            return Err(e);
+        }
 
         if let Err(e) = self
-            .pull(false)
-            .and_then(|_| self.connection.write_all())
+            .connection
+            .write_all()
             .and_then(|_| self.connection.read_one())
         {
             let mut listener = self.listener.borrow_mut();
             listener.state = RecordListenerState::Done;
-            return Err(e);
+            return Err(self.failed_commit(e));
         };
         if let Err(err) = self.connection.read_all() {
-            self.listener.borrow_mut().state = RecordListenerState::Error(err);
+            self.listener.borrow_mut().state = RecordListenerState::Error(self.failed_commit(err));
         }
 
         assert!(!self.connection.has_buffered_message());
@@ -92,7 +99,8 @@ impl<'a> RecordStream<'a> {
             listener.state = RecordListenerState::Discarding;
         }
 
-        self.try_for_each(|e| e.map(drop))?;
+        let res = self.try_for_each(|e| e.map(drop));
+        self.wrap_commit(res)?;
 
         Ok(self.listener.borrow_mut().summary.take())
     }
@@ -122,7 +130,8 @@ impl<'a> RecordStream<'a> {
         self.connection.pull(1000, -1, callbacks)?;
         if flush {
             self.connection.write_all()?;
-            self.connection.read_all()?;
+            let res = self.connection.read_all();
+            self.wrap_commit(res)?;
         }
         Ok(())
     }
@@ -138,9 +147,24 @@ impl<'a> RecordStream<'a> {
         self.connection.discard(-1, -1, callbacks)?;
         if flush {
             self.connection.write_all()?;
-            self.connection.read_all()?;
+            let res = self.connection.read_all();
+            self.wrap_commit(res)?;
         }
         Ok(())
+    }
+
+    fn failed_commit(&self, err: Neo4jError) -> Neo4jError {
+        match self.auto_commit {
+            true => Neo4jError::failed_commit(err),
+            false => err,
+        }
+    }
+
+    fn wrap_commit<T>(&self, res: Result<T>) -> Result<T> {
+        match self.auto_commit {
+            true => Neo4jError::wrap_commit(res),
+            false => res,
+        }
     }
 }
 

@@ -27,7 +27,7 @@ pub enum Neo4jError {
     ///  * Experiencing a connectivity error.  
     ///    E.g., not able to connect, a broken socket,
     ///    not able to fetch routing information
-    #[error("connection failed: {message}")]
+    #[error("connection failed: {message} {during_commit}")]
     // #[non_exhaustive]
     Disconnect {
         message: String,
@@ -35,6 +35,11 @@ pub enum Neo4jError {
         // #[from]
         // #[source]
         source: Option<io::Error>,
+        /// Will be true when connection was lost while the driver cannot be
+        /// sure whether the ongoing transaction has been committed or not.
+        /// To recover from this situation, business logic is required to check
+        /// whether the transaction should or should't be retried.
+        during_commit: bool,
     },
     /// used when
     ///  * Trying to send an unsupported parameter.  
@@ -69,7 +74,7 @@ impl Neo4jError {
     pub fn is_retryable(&self) -> bool {
         match self {
             Neo4jError::ServerError { error } => error.is_retryable(),
-            Neo4jError::Disconnect { .. } => true,
+            Neo4jError::Disconnect { during_commit, .. } => !during_commit,
             _ => false,
         }
     }
@@ -78,6 +83,7 @@ impl Neo4jError {
         Self::Disconnect {
             message: format!("failed to read: {}", err),
             source: Some(err),
+            during_commit: false,
         }
     }
 
@@ -92,6 +98,7 @@ impl Neo4jError {
         Self::Disconnect {
             message: format!("failed to write: {}", err),
             source: Some(err),
+            during_commit: false,
         }
     }
 
@@ -106,6 +113,7 @@ impl Neo4jError {
         Self::Disconnect {
             message: format!("failed to open connection: {}", err),
             source: Some(err),
+            during_commit: false,
         }
     }
 
@@ -120,6 +128,21 @@ impl Neo4jError {
         Self::Disconnect {
             message: message.into(),
             source: None,
+            during_commit: false,
+        }
+    }
+
+    pub(crate) fn failed_commit(mut self) -> Self {
+        if let Self::Disconnect { during_commit, .. } = &mut self {
+            *during_commit = true;
+        }
+        self
+    }
+
+    pub(crate) fn wrap_commit<T>(res: Result<T>) -> Result<T> {
+        match res {
+            Ok(t) => Ok(t),
+            Err(err) => Err(err.failed_commit()),
         }
     }
 
@@ -164,7 +187,16 @@ impl ServerError {
     }
 
     pub fn classification(&self) -> &str {
-        self.code.split('.').nth(1).unwrap_or("")
+        match self.code() {
+            "Neo.TransientError.Transaction.Terminated"
+            | "Neo.TransientError.Transaction.LockClientStopped" => {
+                // In 5.0, these errors have been re-classified as ClientError.
+                // For backwards compatibility with Neo4j 4.4 and earlier, we re-map
+                // them in the driver, too.
+                "ClientError"
+            }
+            _ => self.code.split('.').nth(1).unwrap_or(""),
+        }
     }
 
     pub fn category(&self) -> &str {
@@ -176,14 +208,23 @@ impl ServerError {
     }
 
     fn is_retryable(&self) -> bool {
-        todo!()
+        self.code() == "Neo.ClientError.Security.AuthorizationExpired"
+            || self.classification() == "TransientError"
     }
 
     fn fatal_during_discovery(&self) -> bool {
         // TODO: add the other exceptions
         match self.code() {
-            "Neo.ClientError.Transaction.InvalidBookmark" => true,
-            _ => false,
+            "Neo.ClientError.Database.DatabaseNotFound"
+            | "Neo.ClientError.Transaction.InvalidBookmark"
+            | "Neo.ClientError.Transaction.InvalidBookmarkMixture"
+            | "Neo.ClientError.Statement.TypeError"
+            | "Neo.ClientError.Statement.ArgumentError"
+            | "Neo.ClientError.Request.Invalid" => true,
+            code => {
+                code.starts_with("Neo.ClientError.Security.")
+                    && code != "Neo.ClientError.Security.AuthorizationExpired"
+            }
         }
     }
 }

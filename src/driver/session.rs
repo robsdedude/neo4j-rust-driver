@@ -75,7 +75,7 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
         let mut conf = AutoCommitExtra::new(run_prep);
         extra_cb(&mut conf)?;
         let run_prep = conf.into_run_prep();
-        let mut record_stream = RecordStream::new(&mut cx);
+        let mut record_stream = RecordStream::new(&mut cx, true);
         let res = record_stream
             .run(run_prep)
             .and_then(|_| receiver(&mut record_stream));
