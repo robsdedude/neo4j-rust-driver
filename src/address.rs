@@ -107,12 +107,12 @@ fn parse(host: &str) -> (String, u16) {
         if let Some(pos_bracket) = host.rfind(']') {
             if pos_bracket < pos_colon {
                 // [IPv6]:port (colon after bracket)
-                let port = if let Ok(port) = host[pos_colon..].parse() {
+                let port = if let Ok(port) = host[pos_colon + COLON_BYTES..].parse() {
                     port
                 } else {
                     DEFAULT_PORT
                 };
-                (String::from(&host[..pos_colon - COLON_BYTES]), port)
+                (String::from(&host[..pos_colon]), port)
             } else {
                 // [IPv6] (bracket after colon)
                 (String::from(host), DEFAULT_PORT)
@@ -122,12 +122,12 @@ fn parse(host: &str) -> (String, u16) {
             (String::from(host), DEFAULT_PORT)
         } else {
             // IPv4:port (single colon)
-            let port = if let Ok(port) = host[pos_colon..].parse() {
+            let port = if let Ok(port) = host[pos_colon + COLON_BYTES..].parse() {
                 port
             } else {
                 DEFAULT_PORT
             };
-            (String::from(&host[..pos_colon - COLON_BYTES]), port)
+            (String::from(&host[..pos_colon]), port)
         }
     } else {
         // no colon => use default port
