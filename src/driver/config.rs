@@ -561,11 +561,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case("", map!())]
-    #[case("?", map!())]
-    #[case("?foo=bar", map!("foo".into() => "bar".into()))]
-    #[case("?n=1", map!("n".into() => "1".into()))]
-    #[case("?foo=bar&baz=foobar", map!("foo".into() => "bar".into(), "baz".into() => "foobar".into()))]
+    #[case("", hash_map!())]
+    #[case("?", hash_map!())]
+    #[case("?foo=bar", hash_map!("foo".into() => "bar".into()))]
+    #[case("?n=1", hash_map!("n".into() => "1".into()))]
+    #[case("?foo=bar&baz=foobar", hash_map!("foo".into() => "bar".into(), "baz".into() => "foobar".into()))]
     fn test_parsing_routing_context(
         #[values(
             "neo4j://localhost:7687",

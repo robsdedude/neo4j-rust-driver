@@ -779,6 +779,7 @@ impl RunPreparation {
         if first_time {
             self.extra_size += 1;
             let buff = &mut self.buffers[RUN_PREP_EXTRA_HEADER_IDX];
+            buff.clear();
             let mut serializer = PackStreamSerializerImpl::new(buff);
             serializer.write_dict_header(self.extra_size)?;
         }
@@ -788,7 +789,7 @@ impl RunPreparation {
             .as_mut()
             .map(|m| &mut m[RUN_PREP_EXTRA_META_IDX]);
         log.as_mut().map(|s| s.clear());
-        debug_buf!(log, "{:?}: {:?}", "tx_meta", {
+        debug_buf!(log, "{:?}: {}", "tx_metadata", {
             tx_meta.serialize(&mut dbg_serializer, &translator).unwrap();
             dbg_serializer.flush()
         });
@@ -796,7 +797,7 @@ impl RunPreparation {
         let buff = &mut self.buffers[RUN_PREP_EXTRA_META_IDX];
         buff.clear();
         let mut serializer = PackStreamSerializerImpl::new(buff);
-        serializer.write_string("tx_meta")?;
+        serializer.write_string("tx_metadata")?;
         tx_meta.serialize(&mut serializer, &translator)?;
 
         Ok(())
@@ -809,6 +810,7 @@ impl RunPreparation {
         if first_time {
             self.extra_size += 1;
             let buff = &mut self.buffers[RUN_PREP_EXTRA_HEADER_IDX];
+            buff.clear();
             let mut serializer = PackStreamSerializerImpl::new(buff);
             serializer.write_dict_header(self.extra_size)?;
         }

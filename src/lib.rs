@@ -24,10 +24,13 @@ mod util;
 pub mod value;
 
 pub use address::Address;
-pub use driver::session::bookmarks;
 pub use error::{Neo4jError, Result};
 pub use value::ValueReceive;
 pub use value::ValueSend;
+
+pub mod bookmarks {
+    pub use super::driver::session::bookmarks::*;
+}
 
 pub mod spatial {
     pub use super::value::spatial::*;

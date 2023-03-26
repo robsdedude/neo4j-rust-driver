@@ -12,29 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::mem;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
 use duplicate::duplicate_item;
 
-use super::io::bolt::{BoltMeta, BoltRecordFields, ResponseCallbacks, RunPreparation, TcpBolt};
+use super::io::bolt::{BoltMeta, BoltRecordFields, ResponseCallbacks, RunPreparation};
 use super::summary::Summary;
 use super::Record;
+use crate::driver::io::PooledBolt;
 use crate::error::ServerError;
 use crate::{Neo4jError, Result, ValueReceive};
 
 #[derive(Debug)]
 pub struct RecordStream<'a> {
-    connection: &'a mut TcpBolt,
+    connection: Rc<RefCell<PooledBolt<'a>>>,
     auto_commit: bool,
     listener: Arc<AtomicRefCell<RecordListener>>,
 }
 
 impl<'a> RecordStream<'a> {
-    pub fn new(connection: &'a mut TcpBolt, auto_commit: bool) -> Self {
+    pub(crate) fn new(connection: Rc<RefCell<PooledBolt<'a>>>, auto_commit: bool) -> Self {
         Self {
             connection,
             auto_commit,
@@ -58,31 +61,29 @@ impl<'a> RecordStream<'a> {
             Ok(())
         });
 
-        assert!(!self.connection.has_buffered_message());
-        assert!(!self.connection.expects_reply());
+        assert!(!self.connection.borrow_mut().has_buffered_message());
+        assert!(!self.connection.borrow_mut().expects_reply());
 
-        self.connection.run_submit(run_prep, callbacks);
-        if let Err(e) = self.connection.write_one().and_then(|_| self.pull(false)) {
+        self.connection.borrow_mut().run_submit(run_prep, callbacks);
+        let res = self.connection.borrow_mut().write_one();
+        if let Err(e) = res.and_then(|_| self.pull(false)) {
             let mut listener = self.listener.borrow_mut();
             listener.state = RecordListenerState::Done;
             return Err(e);
         }
 
-        if let Err(e) = self
-            .connection
-            .write_all()
-            .and_then(|_| self.connection.read_one())
-        {
+        let res = self.connection.borrow_mut().write_all();
+        if let Err(e) = res.and_then(|_| self.connection.borrow_mut().read_one()) {
             let mut listener = self.listener.borrow_mut();
             listener.state = RecordListenerState::Done;
             return Err(self.failed_commit(e));
         };
-        if let Err(err) = self.connection.read_all() {
+        if let Err(err) = self.connection.borrow_mut().read_all() {
             self.listener.borrow_mut().state = RecordListenerState::Error(self.failed_commit(err));
         }
 
-        assert!(!self.connection.has_buffered_message());
-        assert!(!self.connection.expects_reply());
+        assert!(!self.connection.borrow_mut().has_buffered_message());
+        assert!(!self.connection.borrow_mut().expects_reply());
 
         Ok(())
     }
@@ -127,10 +128,10 @@ impl<'a> RecordStream<'a> {
             }
             Ok(())
         });
-        self.connection.pull(1000, -1, callbacks)?;
+        self.connection.borrow_mut().pull(1000, -1, callbacks)?;
         if flush {
-            self.connection.write_all()?;
-            let res = self.connection.read_all();
+            self.connection.borrow_mut().write_all()?;
+            let res = self.connection.borrow_mut().read_all();
             self.wrap_commit(res)?;
         }
         Ok(())
@@ -144,10 +145,10 @@ impl<'a> RecordStream<'a> {
             }
             Ok(())
         });
-        self.connection.discard(-1, -1, callbacks)?;
+        self.connection.borrow_mut().discard(-1, -1, callbacks)?;
         if flush {
-            self.connection.write_all()?;
-            let res = self.connection.read_all();
+            self.connection.borrow_mut().write_all()?;
+            let res = self.connection.borrow_mut().read_all();
             self.wrap_commit(res)?;
         }
         Ok(())

@@ -19,11 +19,11 @@
 use crate::ValueSend;
 
 #[cfg(test)]
-macro_rules! map {
+macro_rules! hash_map {
     () => {std::collections::HashMap::new()};
     ( $($key:expr => $value:expr),* $(,)? ) => {
         {
-            let mut m = std::collections::HashMap::with_capacity(map!(_capacity($($value),*)));
+            let mut m = std::collections::HashMap::with_capacity(hash_map!(_capacity($($value),*)));
             $(
                 m.insert($key, $value);
             )*
@@ -32,11 +32,11 @@ macro_rules! map {
     };
     ( _capacity() ) => (0usize);
     ( _capacity($x:tt) ) => (1usize);
-    ( _capacity($x:tt, $($xs:tt),*) ) => (1usize + map!(_capacity($($xs),*)));
+    ( _capacity($x:tt, $($xs:tt),*) ) => (1usize + hash_map!(_capacity($($xs),*)));
 }
 
 #[cfg(test)]
-pub(crate) use map;
+pub(crate) use hash_map;
 
 /// Short notation for creating a [`ValueSend`].
 ///
@@ -120,6 +120,22 @@ macro_rules! value {
     // Hide distracting implementation details from the generated rustdoc.
     ($($value:tt)+) => {
         __value_internal!($($value)+)
+    };
+}
+
+/// Short notation for creating a `[HashMap<String, neo4j::ValueSend>`].
+#[macro_export(local_inner_macros)]
+macro_rules! value_map {
+    ($(,)?) => {
+        std::collections::HashMap::new()
+    };
+
+    ({ $($tt:tt)+ }) => {
+        {
+            let mut map = std::collections::HashMap::<String, $crate::ValueSend>::new();
+            __value_internal!(@map map () ($($tt)+) ($($tt)+));
+            map
+        }
     };
 }
 
@@ -453,7 +469,7 @@ mod tests {
             ValueSend::Null,
             ValueSend::Integer(1),
             ValueSend::Float(2.0),
-            ValueSend::Map(map!("foo".into() => ValueSend::String("bar".into()))),
+            ValueSend::Map(hash_map!("foo".into() => ValueSend::String("bar".into()))),
             ValueSend::Bytes(vec![1]),
         ])
     )]
@@ -463,30 +479,30 @@ mod tests {
     }
 
     #[rstest]
-    #[case(value!({}), ValueSend::Map(map!()))]
-    #[case(value!({,}), ValueSend::Map(map!()))]
-    #[case(value!({"a": null}), ValueSend::Map(map!("a".into() => ValueSend::Null)))]
-    #[case(value!({"a": null,}), ValueSend::Map(map!("a".into() => ValueSend::Null)))]
-    #[case(value!({"a": true}), ValueSend::Map(map!("a".into() => ValueSend::Boolean(true))))]
-    #[case(value!({"a": false}), ValueSend::Map(map!("a".into() => ValueSend::Boolean(false))))]
-    #[case(value!({"a": 1}), ValueSend::Map(map!("a".into() => ValueSend::Integer(1))))]
-    #[case(value!({"a": 1,}), ValueSend::Map(map!("a".into() => ValueSend::Integer(1))))]
+    #[case(value!({}), ValueSend::Map(hash_map!()))]
+    #[case(value!({,}), ValueSend::Map(hash_map!()))]
+    #[case(value!({"a": null}), ValueSend::Map(hash_map!("a".into() => ValueSend::Null)))]
+    #[case(value!({"a": null,}), ValueSend::Map(hash_map!("a".into() => ValueSend::Null)))]
+    #[case(value!({"a": true}), ValueSend::Map(hash_map!("a".into() => ValueSend::Boolean(true))))]
+    #[case(value!({"a": false}), ValueSend::Map(hash_map!("a".into() => ValueSend::Boolean(false))))]
+    #[case(value!({"a": 1}), ValueSend::Map(hash_map!("a".into() => ValueSend::Integer(1))))]
+    #[case(value!({"a": 1,}), ValueSend::Map(hash_map!("a".into() => ValueSend::Integer(1))))]
     #[case(
         value!({"a": 1, "b": 1.}), 
-        ValueSend::Map(map!(
+        ValueSend::Map(hash_map!(
             "a".into() => ValueSend::Integer(1),
             "b".into() => ValueSend::Float(1.),
         ))
     )]
     #[case(
         value!({"a": 1, "b": 1., "c": [1, "foo", null], "d": {"bar": false}}), 
-        ValueSend::Map(map!(
+        ValueSend::Map(hash_map!(
             "a".into() => ValueSend::Integer(1),
             "b".into() => ValueSend::Float(1.),
             "c".into() => ValueSend::List(vec![
                 ValueSend::Integer(1), ValueSend::String("foo".into()), ValueSend::Null,
             ]),
-            "d".into() => ValueSend::Map(map!("bar".into() => ValueSend::Boolean(false))),
+            "d".into() => ValueSend::Map(hash_map!("bar".into() => ValueSend::Boolean(false))),
         ))
     )]
     fn test_map(#[case] input: ValueSend, #[case] output: ValueSend) {

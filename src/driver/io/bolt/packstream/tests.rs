@@ -381,16 +381,16 @@ fn test_decode_list(#[case] input: Vec<u8>, #[case] output: Vec<PackStreamTestVa
 }
 
 #[rstest]
-#[case(vec![0xA0], map!())]
-#[case(vec![0xA1, 0x81, 0x41, 0x01], map!("A".into() => 1.into()))]
+#[case(vec![0xA0], hash_map!())]
+#[case(vec![0xA1, 0x81, 0x41, 0x01], hash_map!("A".into() => 1.into()))]
 #[case(vec![0xA1, 0x83, 0x6F, 0x6E, 0x65, 0x84, 0x65, 0x69, 0x6E, 0x73],
-       map!("one".into() => String::from("eins").into()))]
+       hash_map!("one".into() => String::from("eins").into()))]
 #[case(vec![0xD8, 0x03, 0x81, 0x41, 0x01, 0x81, 0x42, 0x02, 0x81, 0x41, 0x03],
-       map!("A".into() => 3.into(), "B".into() => 2.into()))]
+       hash_map!("A".into() => 3.into(), "B".into() => 2.into()))]
 #[case(vec![0xD9, 0x00, 0x03, 0x81, 0x41, 0x01, 0x81, 0x42, 0x02, 0x81, 0x41, 0x03],
-       map!("A".into() => 3.into(), "B".into() => 2.into()))]
+       hash_map!("A".into() => 3.into(), "B".into() => 2.into()))]
 #[case(vec![0xDA, 0x00, 0x00, 0x00, 0x03, 0x81, 0x41, 0x01, 0x81, 0x42, 0x02, 0x81, 0x41, 0x03],
-       map!("A".into() => 3.into(), "B".into() => 2.into()))]
+       hash_map!("A".into() => 3.into(), "B".into() => 2.into()))]
 fn test_decode_dict(#[case] input: Vec<u8>, #[case] output: HashMap<String, PackStreamTestValue>) {
     dbg!(&input);
     let (result, rest) = decode(input);
@@ -648,9 +648,9 @@ fn test_encode_long_list(#[case] size: usize, #[case] mut header: Vec<u8>) {
 }
 
 #[rstest]
-#[case(map!(), vec![0xA0])]
-#[case(map!("A".into() => 1.into()), vec![0xA1, 0x81, 0x41, 0x01])]
-#[case(map!(String::from("one") => String::from("eins").into()),
+#[case(hash_map!(), vec![0xA0])]
+#[case(hash_map!("A".into() => 1.into()), vec![0xA1, 0x81, 0x41, 0x01])]
+#[case(hash_map!(String::from("one") => String::from("eins").into()),
        vec![0xA1, 0x83, 0x6F, 0x6E, 0x65, 0x84, 0x65, 0x69, 0x6E, 0x73])]
 fn test_encode_dict(#[case] input: HashMap<String, PackStreamTestValue>, #[case] output: Vec<u8>) {
     dbg!(&input);

@@ -32,6 +32,7 @@ use crate::{Address, Neo4jError, Result, ValueSend};
 use routing::RoutingTable;
 use single_pool::{SinglePool, SinglePooledBolt};
 
+#[derive(Debug)]
 pub(crate) struct PooledBolt<'pool> {
     bolt: SinglePooledBolt,
     pool: &'pool Pool,

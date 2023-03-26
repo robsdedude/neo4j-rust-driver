@@ -665,12 +665,12 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec![0xA0], util::map!())]
-    #[case(vec![0xA1, 0x81, 0x41, 0x01], util::map!("A".into() => 1.into()))]
+    #[case(vec![0xA0], util::hash_map!())]
+    #[case(vec![0xA1, 0x81, 0x41, 0x01], util::hash_map!("A".into() => 1.into()))]
     #[case(vec![0xA1, 0x83, 0x6F, 0x6E, 0x65, 0x84, 0x65, 0x69, 0x6E, 0x73],
-           util::map!(String::from("one").into() => String::from("eins").into()))]
+           util::hash_map!(String::from("one").into() => String::from("eins").into()))]
     #[case(vec![0xD8, 0x03, 0x81, 0x41, 0x01, 0x81, 0x42, 0x02, 0x81, 0x41, 0x03],
-           util::map!("A".into() => 3.into(), "B".into() => 2.into()))]
+           util::hash_map!("A".into() => 3.into(), "B".into() => 2.into()))]
     fn test_decode_dict(#[case] input: Vec<u8>, #[case] output: HashMap<String, PackStreamValue>) {
         dbg!(&input);
         let mut input = input.into_iter();

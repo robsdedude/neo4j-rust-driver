@@ -12,73 +12,95 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod bookmarks;
+pub(crate) mod bookmarks;
 pub(crate) mod config;
 
 use log::debug;
 use std::borrow::Borrow;
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
+use std::rc::Rc;
 
-use super::io::bolt::PackStreamSerialize;
-use super::io::{bolt::RunPreparation, AcquireConfig, Pool, UpdateRtArgs};
+use super::io::bolt::{PackStreamSerialize, RunPreparation};
+use super::io::{AcquireConfig, Pool, UpdateRtArgs};
 use super::record_stream::RecordStream;
 use crate::driver::RoutingControl;
-use crate::Result;
+use crate::summary::Summary;
+use crate::{Result, ValueSend};
 use bookmarks::Bookmarks;
 pub use config::SessionConfig;
 
 #[derive(Debug)]
-pub struct Session<'a, C> {
+pub struct Session<'driver, C> {
     config: C,
-    pool: &'a Pool,
+    pool: &'driver Pool,
     resolved_db: Option<String>,
-    latest_bookmarks: Option<Vec<String>>,
+    last_bookmarks: Option<Vec<String>>,
 }
 
-impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
-    pub(crate) fn new(config: C, pool: &'a Pool) -> Self {
+impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
+    pub(crate) fn new(config: C, pool: &'driver Pool) -> Self {
         Session {
             config,
             pool,
             resolved_db: None,
-            latest_bookmarks: None,
+            last_bookmarks: None,
         }
     }
 
-    pub fn auto_commit_with_extra<
-        FConf: FnOnce(&mut AutoCommitExtra) -> Result<()>,
-        FRes: FnOnce(&mut RecordStream) -> Result<R>,
+    pub fn auto_commit<'session, Q: AsRef<str>>(
+        &'session mut self,
+        query: Q,
+    ) -> AutoCommitTransaction<'driver, 'session, C, Q, DefaultReceiver> {
+        AutoCommitTransaction::new(self, query)
+    }
+
+    fn auto_commit_run<
+        'session,
+        Q: AsRef<str>,
+        K: AsRef<str> + Debug,
+        S: PackStreamSerialize,
+        P: Borrow<HashMap<K, S>>,
         R,
+        FRes: FnOnce(&mut RecordStream) -> Result<R>,
     >(
-        &mut self,
-        query: impl AsRef<str>,
-        extra_cb: FConf,
-        receiver: FRes,
+        &'session mut self,
+        builder: AutoCommitTransaction<'driver, 'session, C, Q, FRes>,
+        parameters: P,
     ) -> Result<R> {
         self.resolve_db()?;
-        let mut cx = self.pool.acquire(AcquireConfig {
-            mode: self.config.as_ref().run_routing,
+        let cx = self.pool.acquire(AcquireConfig {
+            mode: builder.mode,
             update_rt_args: UpdateRtArgs {
                 db: &self.resolved_db,
-                bookmarks: self.latest_raw_bookmarks(),
+                bookmarks: self.last_raw_bookmarks(),
                 imp_user: &self.config.as_ref().impersonated_user,
             },
         })?;
-        let run_prep = cx.run_prepare(
-            query.as_ref(),
-            self.latest_raw_bookmarks().as_deref(),
-            None,
+        let mut run_prep = cx.run_prepare(
+            builder.query.as_ref(),
+            self.last_raw_bookmarks().as_deref(),
+            match builder.mode {
+                RoutingControl::Read => Some("r"),
+                RoutingControl::Write => None,
+            },
             self.config.as_ref().database.as_deref(),
             None,
         )?;
-        let mut conf = AutoCommitExtra::new(run_prep);
-        extra_cb(&mut conf)?;
-        let run_prep = conf.into_run_prep();
-        let mut record_stream = RecordStream::new(&mut cx, true);
+        if !builder.meta.is_empty() {
+            run_prep.with_tx_meta(&builder.meta)?;
+        }
+        if !parameters.borrow().is_empty() {
+            run_prep.with_parameters(parameters.borrow())?;
+        }
+        if let Some(timeout) = builder.timeout {
+            run_prep.with_tx_timeout(timeout)?;
+        }
+        let mut record_stream = RecordStream::new(Rc::new(RefCell::new(cx)), true);
         let res = record_stream
             .run(run_prep)
-            .and_then(|_| receiver(&mut record_stream));
+            .and_then(|_| (builder.receiver)(&mut record_stream));
         let res = match res {
             Ok(r) => {
                 record_stream.consume()?;
@@ -90,16 +112,8 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
             }
         };
         let bookmarks = record_stream.into_bookmark();
-        self.latest_bookmarks = bookmarks.map(|bm| vec![bm]);
+        self.last_bookmarks = bookmarks.map(|bm| vec![bm]);
         res
-    }
-
-    pub fn auto_commit<FRes: FnOnce(&mut RecordStream) -> Result<R>, R>(
-        &mut self,
-        query: impl AsRef<str>,
-        receiver: FRes,
-    ) -> Result<R> {
-        self.auto_commit_with_extra(query, |_| Ok(()), receiver)
     }
 
     fn resolve_db(&mut self) -> Result<()> {
@@ -107,7 +121,7 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
             debug!("Resolving home db");
             self.resolved_db = self.pool.resolve_home_db(UpdateRtArgs {
                 db: &None,
-                bookmarks: self.latest_raw_bookmarks(),
+                bookmarks: self.last_raw_bookmarks(),
                 imp_user: &self.config.as_ref().impersonated_user,
             })?;
             debug!("Resolved home db to {:?}", &self.resolved_db);
@@ -124,17 +138,17 @@ impl<'a, C: AsRef<SessionConfig>> Session<'a, C> {
     }
 
     #[inline]
-    fn latest_raw_bookmarks(&self) -> &Option<Vec<String>> {
-        if self.latest_bookmarks.is_some() {
-            &self.latest_bookmarks
+    fn last_raw_bookmarks(&self) -> &Option<Vec<String>> {
+        if self.last_bookmarks.is_some() {
+            &self.last_bookmarks
         } else {
             &self.config.as_ref().bookmarks
         }
     }
 
     #[inline]
-    pub fn latest_bookmarks(&self) -> Bookmarks {
-        Bookmarks::from_raw(self.latest_raw_bookmarks().clone().unwrap_or_default())
+    pub fn last_bookmarks(&self) -> Bookmarks {
+        Bookmarks::from_raw(self.last_raw_bookmarks().clone().unwrap_or_default())
     }
 }
 
@@ -187,5 +201,126 @@ impl AutoCommitExtra {
 
     fn into_run_prep(self) -> RunPreparation {
         self.run_prep
+    }
+}
+
+pub struct AutoCommitTransaction<'driver, 'session, C, Q, FRes> {
+    session: Option<&'session mut Session<'driver, C>>,
+    query: Q,
+    meta: HashMap<String, ValueSend>,
+    timeout: Option<i64>,
+    mode: RoutingControl,
+    receiver: FRes,
+}
+
+fn default_receiver(res: &mut RecordStream) -> Result<Summary> {
+    res.consume().map(|summary| {
+        summary.expect("first call and only applied on successful consume => summary must be Some")
+    })
+}
+
+type DefaultReceiver = fn(&mut RecordStream) -> Result<Summary>;
+
+impl<'driver, 'session, C: AsRef<SessionConfig>, Q: AsRef<str>>
+    AutoCommitTransaction<'driver, 'session, C, Q, DefaultReceiver>
+{
+    fn new(session: &'session mut Session<'driver, C>, query: Q) -> Self {
+        Self {
+            session: Some(session),
+            query,
+            meta: Default::default(),
+            timeout: None,
+            mode: RoutingControl::Write,
+            receiver: default_receiver,
+        }
+    }
+}
+
+impl<
+        'driver,
+        'session,
+        C: AsRef<SessionConfig>,
+        Q: AsRef<str>,
+        R,
+        FRes: FnOnce(&mut RecordStream) -> Result<R>,
+    > AutoCommitTransaction<'driver, 'session, C, Q, FRes>
+{
+    pub fn with_tx_meta(mut self, meta: HashMap<String, ValueSend>) -> Self {
+        self.meta = meta;
+        self
+    }
+
+    pub fn with_tx_timeout(mut self, timeout: i64) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_default_tx_timeout(mut self) -> Self {
+        self.timeout = None;
+        self
+    }
+
+    pub fn with_routing_control(mut self, mode: RoutingControl) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    pub fn with_receiver<R_, FRes_: FnOnce(&mut RecordStream) -> Result<R_>>(
+        self,
+        receiver: FRes_,
+    ) -> AutoCommitTransaction<'driver, 'session, C, Q, FRes_> {
+        let Self {
+            session,
+            query,
+            meta,
+            timeout,
+            mode,
+            receiver: _,
+        } = self;
+        AutoCommitTransaction {
+            session,
+            query,
+            meta,
+            timeout,
+            mode,
+            receiver,
+        }
+    }
+
+    pub fn run(mut self) -> Result<R> {
+        let session = self.session.take().unwrap();
+        session.auto_commit_run(self, HashMap::<String, ValueSend>::new())
+    }
+
+    pub fn run_with_parameters<
+        K: AsRef<str> + Debug,
+        S: PackStreamSerialize,
+        P: Borrow<HashMap<K, S>>,
+    >(
+        mut self,
+        parameters: P,
+    ) -> Result<R> {
+        let session = self.session.take().unwrap();
+        session.auto_commit_run(self, parameters)
+    }
+}
+
+impl<'driver, 'session, C: AsRef<SessionConfig> + Debug, Q: AsRef<str>, FRes> Debug
+    for AutoCommitTransaction<'driver, 'session, C, Q, FRes>
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "AutoCommitBuilder {{\n  session: {:?}\n  query: {:?}\n  \
+            meta: {:?}\n  timeout: {:?}\n  mode: {:?}\n  receiver: ...\n}}",
+            match self.session {
+                None => "None",
+                Some(_) => "Some(...)",
+            },
+            self.query.as_ref(),
+            self.meta,
+            self.timeout,
+            self.mode
+        )
     }
 }
