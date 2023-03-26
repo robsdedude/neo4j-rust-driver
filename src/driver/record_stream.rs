@@ -30,14 +30,14 @@ use crate::error::ServerError;
 use crate::{Neo4jError, Result, ValueReceive};
 
 #[derive(Debug)]
-pub struct RecordStream<'a> {
-    connection: Rc<RefCell<PooledBolt<'a>>>,
+pub struct RecordStream<'driver> {
+    connection: Rc<RefCell<PooledBolt<'driver>>>,
     auto_commit: bool,
     listener: Arc<AtomicRefCell<RecordListener>>,
 }
 
-impl<'a> RecordStream<'a> {
-    pub(crate) fn new(connection: Rc<RefCell<PooledBolt<'a>>>, auto_commit: bool) -> Self {
+impl<'driver> RecordStream<'driver> {
+    pub(crate) fn new(connection: Rc<RefCell<PooledBolt<'driver>>>, auto_commit: bool) -> Self {
         Self {
             connection,
             auto_commit,
@@ -169,7 +169,7 @@ impl<'a> RecordStream<'a> {
     }
 }
 
-impl<'a> Iterator for RecordStream<'a> {
+impl<'driver> Iterator for RecordStream<'driver> {
     type Item = Result<Record>;
 
     fn next(&mut self) -> Option<Self::Item> {
