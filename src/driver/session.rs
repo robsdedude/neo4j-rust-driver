@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
 
-use super::io::bolt::{PackStreamSerialize, RunPreparation};
+use super::io::bolt::PackStreamSerialize;
 use super::io::{AcquireConfig, Pool, UpdateRtArgs};
 use super::record_stream::RecordStream;
 use crate::driver::RoutingControl;
@@ -52,13 +52,14 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
     pub fn auto_commit<'session, Q: AsRef<str>>(
         &'session mut self,
         query: Q,
-    ) -> AutoCommitTransaction<'driver, 'session, C, Q, DefaultReceiver> {
+    ) -> AutoCommitTransaction<'driver, 'session, C, Q, DefaultMeta, DefaultReceiver> {
         AutoCommitTransaction::new(self, query)
     }
 
     fn auto_commit_run<
         'session,
         Q: AsRef<str>,
+        M: Borrow<HashMap<String, ValueSend>>,
         K: AsRef<str> + Debug,
         S: PackStreamSerialize,
         P: Borrow<HashMap<K, S>>,
@@ -66,7 +67,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         FRes: FnOnce(&mut RecordStream) -> Result<R>,
     >(
         &'session mut self,
-        builder: AutoCommitTransaction<'driver, 'session, C, Q, FRes>,
+        builder: AutoCommitTransaction<'driver, 'session, C, Q, M, FRes>,
         parameters: P,
     ) -> Result<R> {
         self.resolve_db()?;
@@ -88,8 +89,8 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
             self.config.as_ref().database.as_deref(),
             None,
         )?;
-        if !builder.meta.is_empty() {
-            run_prep.with_tx_meta(&builder.meta)?;
+        if !builder.meta.borrow().is_empty() {
+            run_prep.with_tx_meta(builder.meta.borrow())?;
         }
         if !parameters.borrow().is_empty() {
             run_prep.with_parameters(parameters.borrow())?;
@@ -152,62 +153,10 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
     }
 }
 
-#[derive(Debug)]
-pub struct AutoCommitExtra {
-    run_prep: RunPreparation,
-    mode: RoutingControl,
-}
-
-impl AutoCommitExtra {
-    fn new(run_prep: RunPreparation) -> Self {
-        Self {
-            run_prep,
-            mode: RoutingControl::Write,
-        }
-    }
-
-    pub fn with_parameters<
-        K: AsRef<str> + Debug,
-        S: PackStreamSerialize,
-        P: Borrow<HashMap<K, S>>,
-    >(
-        &mut self,
-        parameters: P,
-    ) -> Result<()> {
-        self.run_prep.with_parameters(parameters.borrow())?;
-        Ok(())
-    }
-
-    pub fn with_transaction_meta<
-        K: AsRef<str> + Debug,
-        S: PackStreamSerialize,
-        P: Borrow<HashMap<K, S>>,
-    >(
-        &mut self,
-        tx_meta: P,
-    ) -> Result<()> {
-        self.run_prep.with_tx_meta(tx_meta.borrow())?;
-        Ok(())
-    }
-
-    pub fn with_transaction_timeout(&mut self, timeout: i64) -> Result<()> {
-        self.run_prep.with_tx_timeout(timeout)?;
-        Ok(())
-    }
-
-    pub fn with_mode(&mut self, mode: RoutingControl) {
-        self.mode = mode;
-    }
-
-    fn into_run_prep(self) -> RunPreparation {
-        self.run_prep
-    }
-}
-
-pub struct AutoCommitTransaction<'driver, 'session, C, Q, FRes> {
+pub struct AutoCommitTransaction<'driver, 'session, C, Q, M, FRes> {
     session: Option<&'session mut Session<'driver, C>>,
     query: Q,
-    meta: HashMap<String, ValueSend>,
+    meta: M,
     timeout: Option<i64>,
     mode: RoutingControl,
     receiver: FRes,
@@ -220,9 +169,10 @@ fn default_receiver(res: &mut RecordStream) -> Result<Summary> {
 }
 
 type DefaultReceiver = fn(&mut RecordStream) -> Result<Summary>;
+type DefaultMeta = HashMap<String, ValueSend>;
 
 impl<'driver, 'session, C: AsRef<SessionConfig>, Q: AsRef<str>>
-    AutoCommitTransaction<'driver, 'session, C, Q, DefaultReceiver>
+    AutoCommitTransaction<'driver, 'session, C, Q, DefaultMeta, DefaultReceiver>
 {
     fn new(session: &'session mut Session<'driver, C>, query: Q) -> Self {
         Self {
@@ -241,13 +191,31 @@ impl<
         'session,
         C: AsRef<SessionConfig>,
         Q: AsRef<str>,
+        M: Borrow<HashMap<String, ValueSend>>,
         R,
         FRes: FnOnce(&mut RecordStream) -> Result<R>,
-    > AutoCommitTransaction<'driver, 'session, C, Q, FRes>
+    > AutoCommitTransaction<'driver, 'session, C, Q, M, FRes>
 {
-    pub fn with_tx_meta(mut self, meta: HashMap<String, ValueSend>) -> Self {
-        self.meta = meta;
-        self
+    pub fn with_tx_meta<M_: Borrow<HashMap<String, ValueSend>>>(
+        self,
+        meta: M_,
+    ) -> AutoCommitTransaction<'driver, 'session, C, Q, M_, FRes> {
+        let Self {
+            session,
+            query,
+            meta: _,
+            timeout,
+            mode,
+            receiver,
+        } = self;
+        AutoCommitTransaction {
+            session,
+            query,
+            meta,
+            timeout,
+            mode,
+            receiver,
+        }
     }
 
     pub fn with_tx_timeout(mut self, timeout: i64) -> Self {
@@ -268,7 +236,7 @@ impl<
     pub fn with_receiver<R_, FRes_: FnOnce(&mut RecordStream) -> Result<R_>>(
         self,
         receiver: FRes_,
-    ) -> AutoCommitTransaction<'driver, 'session, C, Q, FRes_> {
+    ) -> AutoCommitTransaction<'driver, 'session, C, Q, M, FRes_> {
         let Self {
             session,
             query,
@@ -305,8 +273,14 @@ impl<
     }
 }
 
-impl<'driver, 'session, C: AsRef<SessionConfig> + Debug, Q: AsRef<str>, FRes> Debug
-    for AutoCommitTransaction<'driver, 'session, C, Q, FRes>
+impl<
+        'driver,
+        'session,
+        C: AsRef<SessionConfig> + Debug,
+        Q: AsRef<str>,
+        M: Borrow<HashMap<String, ValueSend>>,
+        FRes,
+    > Debug for AutoCommitTransaction<'driver, 'session, C, Q, M, FRes>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -318,7 +292,7 @@ impl<'driver, 'session, C: AsRef<SessionConfig> + Debug, Q: AsRef<str>, FRes> De
                 Some(_) => "Some(...)",
             },
             self.query.as_ref(),
-            self.meta,
+            self.meta.borrow(),
             self.timeout,
             self.mode
         )
