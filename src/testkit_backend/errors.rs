@@ -12,64 +12,100 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use serde::Serialize;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
-use super::responses::Response;
-use super::MaybeDynError;
+use crate::Neo4jError;
 
-#[derive(Debug, Clone)]
-pub(crate) struct TestKitProtocolError {
-    pub(crate) message: String,
+#[derive(Debug, Serialize)]
+#[allow(clippy::enum_variant_names)]
+#[serde(tag = "name", content = "data")]
+pub(crate) enum TestKitError {
+    #[serde(rename_all = "camelCase")]
+    DriverError {
+        error_type: String,
+        msg: String,
+        code: Option<String>,
+    },
+    FrontendError {
+        msg: String,
+    },
+    BackendError {
+        msg: String,
+    },
+    FatalError {
+        error: String,
+    },
 }
 
-impl TestKitProtocolError {
-    pub(crate) fn new<M: Into<String>>(message: M) -> Self {
-        Self {
-            message: message.into(),
+impl Display for TestKitError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl From<Neo4jError> for TestKitError {
+    fn from(err: Neo4jError) -> Self {
+        match err {
+            Neo4jError::Disconnect {
+                message,
+                source,
+                during_commit,
+            } => TestKitError::DriverError {
+                error_type: String::from(if during_commit {
+                    "IncompleteCommitError"
+                } else {
+                    "DriverError"
+                }),
+                msg: match source {
+                    None => message,
+                    Some(source) => format!("{}: {}", message, source),
+                },
+                code: None,
+            },
+            Neo4jError::InvalidConfig { message } => TestKitError::DriverError {
+                error_type: String::from("ConfigError"),
+                msg: message,
+                code: None,
+            },
+            Neo4jError::ServerError { error } => TestKitError::DriverError {
+                error_type: String::from("ServerError"),
+                msg: String::from(error.message()),
+                code: Some(String::from(error.code())),
+            },
+            Neo4jError::ProtocolError { message } => TestKitError::DriverError {
+                error_type: String::from("ProtocolError"),
+                msg: message,
+                code: None,
+            },
+        }
+    }
+}
+
+impl From<serde_json::Error> for TestKitError {
+    fn from(err: serde_json::Error) -> Self {
+        TestKitError::BackendError {
+            msg: format!("unexpected message format: {err:?}"),
+        }
+    }
+}
+
+impl Error for TestKitError {}
+
+impl TestKitError {
+    pub(crate) fn wrap_fatal<T, E: Error + Debug>(res: Result<T, E>) -> Result<T, Self> {
+        match res {
+            Ok(ok) => Ok(ok),
+            Err(err) => Err(Self::FatalError {
+                error: format!("{:?}", err),
+            }),
         }
     }
 
-    pub(crate) fn err<M: Into<String>>(message: M) -> MaybeDynError {
-        Err(Box::new(Self::new(message)))
-    }
-}
-
-impl Display for TestKitProtocolError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TestKitProtocolError: {}", self.message)
-    }
-}
-
-impl Error for TestKitProtocolError {}
-
-impl TestKitWrappableError for TestKitProtocolError {
-    fn wrap(&self) -> Response {
-        Response::BackendError {
-            msg: format!("unexpected TestKit protocol: {self:?}"),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct EndOfStream {}
-
-impl Display for EndOfStream {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "end of stream")
-    }
-}
-
-impl Error for EndOfStream {}
-
-pub(crate) trait TestKitWrappableError: Error {
-    fn wrap(&self) -> Response;
-}
-
-impl TestKitWrappableError for serde_json::Error {
-    fn wrap(&self) -> Response {
-        Response::BackendError {
-            msg: format!("unexpected message format: {self:?}"),
+    pub(crate) fn backend_err<S: Into<String>>(message: S) -> Self {
+        Self::BackendError {
+            msg: message.into(),
         }
     }
 }

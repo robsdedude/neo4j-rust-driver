@@ -12,11 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::BackendId;
 use serde::Serialize;
-use serde_json;
-use std::io::Write;
-
-use super::{Backend, MaybeDynError};
 
 #[derive(Serialize, Debug)]
 #[serde(tag = "name", content = "data")]
@@ -26,19 +23,10 @@ pub(crate) enum Response {
     RunTest,
     RunSubTests,
     SkipTest { reason: String },
+    Driver { id: BackendId },
 }
 
 impl Response {
-    pub(crate) fn send(&self, backend: &mut Backend) -> MaybeDynError {
-        let data = serde_json::to_string(self)?;
-        println!(">>> {data}");
-        backend.writer.write_all(b"#response begin\n")?;
-        backend.writer.write_all(data.as_bytes())?;
-        backend.writer.write_all(b"\n#response end\n")?;
-        backend.writer.flush()?;
-        Ok(())
-    }
-
     pub(crate) fn feature_list() -> Self {
         Self::FeatureList {
             features: [
