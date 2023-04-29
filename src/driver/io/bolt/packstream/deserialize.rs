@@ -197,7 +197,7 @@ impl<'a, R: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'a, R> {
                 let bytes = Self::decode_bytes(self.reader, size as usize)?;
                 Ok(V::load_bytes(bytes))
             }
-        } else if 0x80 <= marker && marker <= 0x8F {
+        } else if (0x80..=0x8F).contains(&marker) {
             let size = marker - 0x80;
             let string = Self::decode_string(self.reader, size.into())?;
             Ok(V::load_string(string))
@@ -216,7 +216,7 @@ impl<'a, R: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'a, R> {
             let size = Self::decode_u32(self.reader)?;
             let string = Self::decode_string(self.reader, size as usize)?;
             Ok(V::load_string(string))
-        } else if 0x90 <= marker && marker <= 0x9F {
+        } else if (0x90..=0x9F).contains(&marker) {
             let size = marker - 0x90;
             let list = Self::decode_list::<V, _, _>(self, bolt, size.into())?;
             Ok(V::load_list(list))
@@ -235,7 +235,7 @@ impl<'a, R: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'a, R> {
             let size = Self::decode_u32(self.reader)?;
             let list = Self::decode_list::<V, _, _>(self, bolt, size as usize)?;
             Ok(V::load_list(list))
-        } else if 0xA0 <= marker && marker <= 0xAF {
+        } else if (0xA0..=0xAF).contains(&marker) {
             let size = marker - 0xA0;
             let dict = Self::decode_dict::<V, _, _>(self, bolt, size.into())?;
             Ok(V::load_dict(dict))
@@ -254,7 +254,7 @@ impl<'a, R: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'a, R> {
             let size = Self::decode_u32(self.reader)?;
             let dict = Self::decode_dict::<V, _, _>(self, bolt, size as usize)?;
             Ok(V::load_dict(dict))
-        } else if 0xB0 <= marker && marker <= 0xBF {
+        } else if (0xB0..=0xBF).contains(&marker) {
             let size = marker - 0xB0;
             let tag = Self::decode_u8(self.reader)?;
             let fields = Self::decode_list::<V, _, _>(self, bolt, size.into())?;
@@ -270,7 +270,7 @@ impl<'a, R: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'a, R> {
         let mut marker = [0; 1];
         self.reader.read_exact(&mut marker)?;
         let marker = marker[0];
-        if 0x80 <= marker && marker <= 0x8F {
+        if (0x80..=0x8F).contains(&marker) {
             let size = marker - 0x80;
             Self::decode_string(self.reader, size.into())
         } else if marker == 0xD0 {

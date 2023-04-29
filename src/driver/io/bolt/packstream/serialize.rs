@@ -94,15 +94,15 @@ impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
     }
 
     fn write_int(&mut self, i: i64) -> Result<(), Self::Error> {
-        if -16 <= i && i <= 127 {
+        if (-16..=127).contains(&i) {
             self.writer.write_all(&i8::to_be_bytes(i as i8))?;
-        } else if -128 <= i && i <= 127 {
+        } else if (-128..=127).contains(&i) {
             self.writer.write_all(&[0xC8])?;
             self.writer.write_all(&i8::to_be_bytes(i as i8))?;
-        } else if -32_768 <= i && i <= 32_767 {
+        } else if (-32_768..=32_767).contains(&i) {
             self.writer.write_all(&[0xC9])?;
             self.writer.write_all(&i16::to_be_bytes(i as i16))?;
-        } else if -2_147_483_648 <= i && i <= 2_147_483_647 {
+        } else if (-2_147_483_648..=2_147_483_647).contains(&i) {
             self.writer.write_all(&[0xCA])?;
             self.writer.write_all(&i32::to_be_bytes(i as i32))?;
         } else {

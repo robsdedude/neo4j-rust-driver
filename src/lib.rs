@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![allow(clippy::option_map_unit_fn)]
 // TODO: remove when prototyping phase is done
 #![allow(dead_code)]
 
