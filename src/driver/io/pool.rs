@@ -16,11 +16,13 @@ mod routing;
 mod single_pool;
 
 use atomic_refcell::AtomicRefCell;
+use itertools::Itertools;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem;
+use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, RwLockReadGuard};
+use std::sync::{Arc, Condvar, Mutex, RwLockReadGuard};
 
 use log::{debug, info, warn};
 
@@ -30,11 +32,15 @@ use crate::error::ServerError;
 use crate::sync::MostlyRLock;
 use crate::{Address, Neo4jError, Result, ValueSend};
 use routing::RoutingTable;
-use single_pool::{SinglePool, SinglePooledBolt};
+use single_pool::{SimplePool, SinglePooledBolt, UnpreparedSinglePooledBolt};
+
+// 7 is a reasonable common upper bound for the size of clusters
+// this is, however, not a hard limit
+const DEFAULT_CLUSTER_SIZE: usize = 7;
 
 #[derive(Debug)]
 pub(crate) struct PooledBolt<'pool> {
-    bolt: SinglePooledBolt,
+    bolt: ManuallyDrop<SinglePooledBolt>,
     pool: &'pool Pool,
 }
 
@@ -80,6 +86,24 @@ impl<'pool> Deref for PooledBolt<'pool> {
 impl<'pool> DerefMut for PooledBolt<'pool> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.bolt
+    }
+}
+
+impl<'pool> Drop for PooledBolt<'pool> {
+    fn drop(&mut self) {
+        // safety: we're not using ManuallyDrop after this call
+        let bolt;
+        unsafe {
+            bolt = ManuallyDrop::take(&mut self.bolt);
+        }
+        match &self.pool.pools {
+            Pools::Direct(_) => drop(bolt),
+            Pools::Routing(pool) => {
+                let _lock = pool.wait_cond.0.lock().unwrap();
+                drop(bolt);
+                pool.wait_cond.1.notify_all()
+            }
+        }
     }
 }
 
@@ -132,12 +156,17 @@ impl Pool {
     }
 
     pub(crate) fn acquire(&self, args: AcquireConfig) -> Result<PooledBolt> {
-        match &self.pools {
-            Pools::Direct(single_pool) => single_pool.acquire(),
-            Pools::Routing(routing_pool) => routing_pool.acquire(args),
-        }
-        .map(|connection| PooledBolt {
-            bolt: connection,
+        Ok(PooledBolt {
+            bolt: ManuallyDrop::new(match &self.pools {
+                Pools::Direct(single_pool) => {
+                    let mut connection = None;
+                    while connection.is_none() {
+                        connection = single_pool.acquire().prepare()?;
+                    }
+                    connection.expect("loop above asserts existence")
+                }
+                Pools::Routing(routing_pool) => routing_pool.acquire(args)?,
+            }),
             pool: self,
         })
     }
@@ -151,14 +180,14 @@ impl Pool {
 
 #[derive(Debug)]
 enum Pools {
-    Direct(SinglePool),
+    Direct(SimplePool),
     Routing(RoutingPool),
 }
 
 impl Pools {
     fn new(config: Arc<PoolConfig>) -> Self {
         match config.routing_context {
-            None => Pools::Direct(SinglePool::new(config)),
+            None => Pools::Direct(SimplePool::new(config)),
             Some(_) => Pools::Routing(RoutingPool::new(config)),
         }
     }
@@ -173,11 +202,12 @@ impl Pools {
 }
 
 type RoutingTables = HashMap<Option<String>, RoutingTable>;
-type RoutingPools = HashMap<Address, SinglePool>;
+type RoutingPools = HashMap<Address, SimplePool>;
 
 #[derive(Debug)]
 struct RoutingPool {
     pools: MostlyRLock<RoutingPools>,
+    wait_cond: Arc<(Mutex<()>, Condvar)>,
     routing_tables: MostlyRLock<RoutingTables>,
     config: Arc<PoolConfig>,
 }
@@ -186,35 +216,114 @@ impl RoutingPool {
     fn new(config: Arc<PoolConfig>) -> Self {
         assert!(config.routing_context.is_some());
         Self {
-            pools: MostlyRLock::new(HashMap::with_capacity(
-                // 7 is a reasonable common upper bound for the size of clusters
-                7,
-            )),
+            pools: MostlyRLock::new(HashMap::with_capacity(DEFAULT_CLUSTER_SIZE)),
+            wait_cond: Arc::new((Mutex::new(()), Condvar::new())),
             routing_tables: MostlyRLock::new(HashMap::new()),
             config,
         }
     }
 
     fn acquire(&self, args: AcquireConfig) -> Result<SinglePooledBolt> {
-        let target = self.choose_address(args)?;
-        self.acquire_routing_address(&target)
+        let (mut targets, db) = self.choose_addresses_from_fresh_rt(args)?;
+        for target in &targets {
+            while let Some(connection) = self.acquire_routing_address_no_wait(target) {
+                match connection.prepare() {
+                    Ok(Some(connection)) => return Ok(connection),
+                    Ok(None) => continue,
+                    Err(Neo4jError::Disconnect { .. }) => {
+                        self.deactivate_server(&targets[0]);
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+
+        // time to wait for a free connection
+        let mut cond_lock = self.wait_cond.0.lock().unwrap();
+        loop {
+            targets = self.choose_addresses(args, &db)?;
+            // a connection could've been returned while we didn't hold the lock
+            // => try again with the lock
+            let connection = targets
+                .iter()
+                .map(|target| self.acquire_routing_address_no_wait(target))
+                .skip_while(Option::is_none)
+                .map(Option::unwrap)
+                .next();
+            if let Some(connection) = connection {
+                drop(cond_lock);
+                match connection.prepare() {
+                    Ok(Some(connection)) => return Ok(connection),
+                    Ok(None) => {
+                        cond_lock = self.wait_cond.0.lock().unwrap();
+                        continue;
+                    }
+                    Err(Neo4jError::Disconnect { .. }) => {
+                        self.deactivate_server(&targets[0]);
+                        cond_lock = self.wait_cond.0.lock().unwrap();
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            cond_lock = self.wait_cond.1.wait(cond_lock).unwrap();
+        }
     }
 
-    fn choose_address(&self, args: AcquireConfig) -> Result<Arc<Address>> {
+    /// Guarantees that Vec is not empty
+    fn choose_addresses_from_fresh_rt<'a>(
+        &self,
+        args: AcquireConfig<'a>,
+    ) -> Result<(Vec<Arc<Address>>, DbName<'a>)> {
         let (lock, db) = self.get_fresh_rt(args)?;
         let rt = lock.get(&*db).expect("created above");
-        self.least_used_server(rt.servers_for_mode(args.mode))
+        Ok((self.servers_by_usage(rt.servers_for_mode(args.mode))?, db))
+    }
+
+    /// Guarantees that Vec is not empty
+    fn choose_addresses(&self, args: AcquireConfig, db: &DbName) -> Result<Vec<Arc<Address>>> {
+        let rts = self.routing_tables.read();
+        self.servers_by_usage(
+            rts.get(db)
+                .map(|rt| rt.servers_for_mode(args.mode))
+                .unwrap_or(&[]),
+        )
+    }
+
+    fn acquire_routing_address_no_wait(
+        &self,
+        target: &Address,
+    ) -> Option<UnpreparedSinglePooledBolt> {
+        let pools = self.ensure_pool_exists(target);
+        pools
+            .get(target)
+            .expect("just created above")
+            .acquire_no_wait()
     }
 
     fn acquire_routing_address(&self, target: &Address) -> Result<SinglePooledBolt> {
-        let pools = self.pools.maybe_write(
-            |rt| rt.get(target).is_none(),
-            |mut rt| {
-                rt.insert((*target).clone(), SinglePool::new(Arc::clone(&self.config)));
-                Ok(())
-            },
-        )?;
-        pools.get(target).expect("just created above").acquire()
+        let mut connection = None;
+        while connection.is_none() {
+            connection = {
+                let pools = self.ensure_pool_exists(target);
+                pools.get(target).expect("just created above").acquire()
+            }
+            .prepare()?
+        }
+        Ok(connection.expect("loop above asserts existence"))
+    }
+
+    fn ensure_pool_exists(&self, target: &Address) -> RwLockReadGuard<RoutingPools> {
+        self.pools
+            .maybe_write(
+                |rt| rt.get(target).is_none(),
+                |mut rt| {
+                    rt.insert((*target).clone(), SimplePool::new(Arc::clone(&self.config)));
+                    Ok(())
+                },
+            )
+            .expect("updater is infallible")
     }
 
     fn get_fresh_rt<'lock, 'db>(
@@ -234,7 +343,7 @@ impl RoutingPool {
                 if rts.get(rt_args.db).is_none() {
                     rts.insert(rt_args.db.clone(), self.empty_rt());
                 }
-                let rt = rts.get(rt_args.db).unwrap();
+                let rt = rts.get(rt_args.db).expect("inserted above");
                 if !rt.is_fresh(args.mode) {
                     let new_db = self.update_rts(rt_args, &mut rts)?;
                     if db_name_ref.borrow().is_none() && new_db.is_some() {
@@ -248,20 +357,22 @@ impl RoutingPool {
         Ok((lock, db_name.into_inner()))
     }
 
-    fn least_used_server(&self, addresses: &[Arc<Address>]) -> Result<Arc<Address>> {
-        Ok(Arc::clone(match addresses.len() {
+    /// Guarantees that Vec is not empty
+    fn servers_by_usage(&self, addresses: &[Arc<Address>]) -> Result<Vec<Arc<Address>>> {
+        Ok(match addresses.len() {
             0 => return Err(Neo4jError::disconnect("routing options depleted")),
-            1 => &addresses[0],
+            1 => vec![Arc::clone(&addresses[0])],
             _ => {
                 let pools = self.pools.read();
                 addresses
-                    .into_iter()
-                    .map(|addr| (addr, pools.get(&addr).map(|p| p.in_use()).unwrap_or(0)))
-                    .min_by_key(|(_, usage)| *usage)
-                    .expect("cannot be of size 0")
-                    .0
+                    .iter()
+                    .map(|addr| (addr, pools.get(addr).map(|p| p.in_use()).unwrap_or(0)))
+                    .sorted_unstable_by_key(|(_, usage)| *usage)
+                    .map(|(addr, _)| Arc::clone(addr))
+                    // .rev()
+                    .collect()
             }
-        }))
+        })
     }
 
     fn update_rts<'a>(
@@ -304,6 +415,7 @@ impl RoutingPool {
                 if args.db.is_some() {
                     new_rt.database = args.db.clone();
                     rts.insert(new_rt.database.clone(), new_rt);
+                    self.clean_up_pools(rts);
                     Ok(&rts.get(args.db).expect("inserted above").database)
                 } else {
                     // can get rid of the clone once
@@ -311,6 +423,7 @@ impl RoutingPool {
                     // has been stabilized
                     let db = new_rt.database.clone();
                     rts.insert(new_rt.database.clone(), new_rt);
+                    self.clean_up_pools(rts);
                     Ok(&rts.get(&db).expect("inserted above").database)
                 }
             }
@@ -333,7 +446,7 @@ impl RoutingPool {
                     Ok(rt) => return Ok(Ok(rt)),
                     Err(err) => last_err = Some(err),
                 };
-                self.deactivate_server_locked_rts(&router, rts);
+                self.deactivate_server_locked_rts(router, rts);
             } else {
                 let Ok(resolved_addresses) = router.resolve() else {
                 self.deactivate_server_locked_rts(router, rts);
@@ -401,6 +514,38 @@ impl RoutingPool {
         RoutingTable::new(Arc::clone(&self.config.address))
     }
 
+    fn clean_up_pools(&self, rts: &mut RoutingTables) {
+        drop(self.pools.update(|mut pools| {
+            let used_addresses = rts
+                .values()
+                .map(|rt| {
+                    [&rt.readers, &rt.routers, &rt.writers]
+                        .into_iter()
+                        .flat_map(|addrs| addrs.iter().map(Arc::clone))
+                        .collect::<Vec<_>>()
+                })
+                .fold(
+                    HashSet::with_capacity(DEFAULT_CLUSTER_SIZE),
+                    |mut set, addrs| {
+                        addrs.into_iter().for_each(|addr| {
+                            set.insert(addr);
+                        });
+                        set
+                    },
+                );
+            let existing_addresses = pools
+                .iter()
+                .map(|(addr, _)| addr.clone())
+                .collect::<HashSet<_>>();
+            for addr in existing_addresses {
+                if !used_addresses.contains(&addr) {
+                    pools.remove(&addr);
+                }
+            }
+            Ok(())
+        }));
+    }
+
     fn deactivate_server(&self, addr: &Address) {
         drop(self.routing_tables.update(|mut rts| {
             drop(self.pools.update(|mut pools| {
@@ -462,7 +607,7 @@ impl<'a> Deref for DbName<'a> {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            DbName::Ref(s) => *s,
+            DbName::Ref(s) => s,
             DbName::Owned(s) => s,
         }
     }

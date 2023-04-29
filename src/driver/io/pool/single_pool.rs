@@ -51,52 +51,6 @@ impl InnerPool {
             made_room_condition: Condvar::new(),
         }
     }
-}
-
-#[derive(Debug)]
-pub(crate) struct SinglePool(Arc<InnerPool>);
-
-impl SinglePool {
-    pub(crate) fn new(config: Arc<PoolConfig>) -> Self {
-        Self(Arc::new(InnerPool::new(config)))
-    }
-
-    pub(crate) fn acquire(&self) -> Result<SinglePooledBolt> {
-        {
-            let mut synced = self.synced.lock().unwrap();
-            loop {
-                if let Some(connection) = self.acquire_existing(&mut synced) {
-                    return Ok(SinglePooledBolt::new(connection, Arc::clone(&self.0)));
-                }
-                if self.has_room(&synced) {
-                    synced.reservations += 1;
-                    break;
-                } else {
-                    synced = self.made_room_condition.wait(synced).unwrap();
-                }
-            }
-        }
-        let connection = self.acquire_new()?;
-        Ok(SinglePooledBolt::new(connection, Arc::clone(&self.0)))
-    }
-
-    pub(crate) fn in_use(&self) -> usize {
-        let synced = self.synced.lock().unwrap();
-        synced.borrowed + synced.reservations
-    }
-
-    fn has_room(&self, synced: &InnerPoolSyncedData) -> bool {
-        synced.raw_pool.len() + synced.borrowed + synced.reservations
-            < self.config.max_connection_pool_size
-    }
-
-    fn acquire_existing(&self, synced: &mut InnerPoolSyncedData) -> Option<PoolElement> {
-        let connection = synced.raw_pool.pop_front();
-        if connection.is_some() {
-            synced.borrowed += 1;
-        }
-        connection
-    }
 
     fn acquire_new(&self) -> Result<PoolElement> {
         let connection = self.open_new();
@@ -118,6 +72,75 @@ impl SinglePool {
         connection.read_all()?;
         Ok(connection)
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct SimplePool(Arc<InnerPool>);
+
+impl SimplePool {
+    pub(crate) fn new(config: Arc<PoolConfig>) -> Self {
+        Self(Arc::new(InnerPool::new(config)))
+    }
+
+    pub(crate) fn acquire(&self) -> UnpreparedSinglePooledBolt {
+        {
+            let mut synced = self.synced.lock().unwrap();
+            loop {
+                if let Some(connection) = self.acquire_existing(&mut synced) {
+                    return UnpreparedSinglePooledBolt::new(Some(connection), Arc::clone(&self.0));
+                }
+                if self.has_room(&synced) {
+                    synced.reservations += 1;
+                    break;
+                } else {
+                    synced = self.made_room_condition.wait(synced).unwrap();
+                }
+            }
+        }
+        UnpreparedSinglePooledBolt::new(None, Arc::clone(&self.0))
+    }
+
+    pub(crate) fn acquire_no_wait(&self) -> Option<UnpreparedSinglePooledBolt> {
+        {
+            let mut synced = self.synced.lock().unwrap();
+            if let Some(connection) = self.acquire_existing(&mut synced) {
+                return Some(UnpreparedSinglePooledBolt::new(
+                    Some(connection),
+                    Arc::clone(&self.0),
+                ));
+            }
+            if self.has_room(&synced) {
+                synced.reservations += 1;
+            } else {
+                return None;
+            }
+        }
+        Some(UnpreparedSinglePooledBolt::new(None, Arc::clone(&self.0)))
+    }
+
+    pub(crate) fn acquire_idle(&self) -> Option<SinglePooledBolt> {
+        let mut synced = self.synced.lock().unwrap();
+        self.acquire_existing(&mut synced)
+            .map(|connection| SinglePooledBolt::new(connection, Arc::clone(&self.0)))
+    }
+
+    pub(crate) fn in_use(&self) -> usize {
+        let synced = self.synced.lock().unwrap();
+        synced.borrowed + synced.reservations
+    }
+
+    fn has_room(&self, synced: &InnerPoolSyncedData) -> bool {
+        synced.raw_pool.len() + synced.borrowed + synced.reservations
+            < self.config.max_connection_pool_size
+    }
+
+    fn acquire_existing(&self, synced: &mut InnerPoolSyncedData) -> Option<PoolElement> {
+        let connection = synced.raw_pool.pop_front();
+        if connection.is_some() {
+            synced.borrowed += 1;
+        }
+        connection
+    }
 
     fn release(inner_pool: &Arc<InnerPool>, mut connection: PoolElement) {
         let mut lock = inner_pool.synced.lock().unwrap();
@@ -125,14 +148,8 @@ impl SinglePool {
         if connection.needs_reset() {
             let _ = connection
                 .reset()
-                .and_then(|_| {
-                    let res = connection.write_all();
-                    res
-                })
-                .and_then(|_| {
-                    let res = connection.read_all();
-                    res
-                });
+                .and_then(|_| connection.write_all())
+                .and_then(|_| connection.read_all());
         }
         if !connection.closed() {
             lock.raw_pool.push_back(connection);
@@ -141,7 +158,7 @@ impl SinglePool {
     }
 }
 
-impl Deref for SinglePool {
+impl Deref for SimplePool {
     type Target = InnerPool;
 
     fn deref(&self) -> &Self::Target {
@@ -153,6 +170,50 @@ impl Deref for SinglePool {
 // is mutating each connection
 // unsafe impl Send for Pool {}
 // unsafe impl Sync for Pool {}
+
+#[derive(Debug)]
+pub(crate) struct UnpreparedSinglePooledBolt {
+    pool: Arc<InnerPool>,
+    bolt: Option<ManuallyDrop<PoolElement>>,
+}
+
+impl UnpreparedSinglePooledBolt {
+    fn new(bolt: Option<PoolElement>, pool: Arc<InnerPool>) -> Self {
+        Self {
+            pool,
+            bolt: bolt.map(ManuallyDrop::new),
+        }
+    }
+
+    pub(crate) fn prepare(mut self) -> Result<Option<SinglePooledBolt>> {
+        let bolt = self.bolt.take();
+        let pool = Arc::clone(&self.pool);
+        match bolt {
+            None => {
+                let connection = self.pool.acquire_new()?;
+                Ok(Some(SinglePooledBolt::new(connection, pool)))
+            }
+            Some(bolt) => {
+                // room for health check etc. (return None of failed health check)
+                Ok(Some(SinglePooledBolt { pool, bolt }))
+            }
+        }
+    }
+}
+
+impl Drop for UnpreparedSinglePooledBolt {
+    fn drop(&mut self) {
+        let Some(drop_bolt) = &mut self.bolt else {
+            return;
+        };
+        // safety: we're not using ManuallyDrop after this call
+        let bolt;
+        unsafe {
+            bolt = ManuallyDrop::take(drop_bolt);
+        }
+        SimplePool::release(&self.pool, bolt);
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct SinglePooledBolt {
@@ -176,7 +237,7 @@ impl Drop for SinglePooledBolt {
         unsafe {
             bolt = ManuallyDrop::take(&mut self.bolt);
         }
-        SinglePool::release(&self.pool, bolt);
+        SimplePool::release(&self.pool, bolt);
     }
 }
 
