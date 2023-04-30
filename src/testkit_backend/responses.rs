@@ -82,7 +82,7 @@ impl Response {
                 // "Backend:RTForceUpdate",
             ]
             .into_iter()
-            .map(Into::into)
+            .map(String::from)
             .collect(),
         }
     }

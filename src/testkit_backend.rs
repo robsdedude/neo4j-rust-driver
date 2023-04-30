@@ -12,17 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use log::debug;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::error::Error;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::{TcpListener, TcpStream};
 
+mod backend_id;
 mod errors;
 mod requests;
 mod responses;
 
 use crate::driver::Driver;
+pub(crate) use backend_id::BackendId;
+use backend_id::Generator;
 use errors::TestKitError;
 use requests::Request;
 
@@ -30,7 +34,6 @@ const ADDRESS: &str = "0.0.0.0:9876";
 
 type DynError = Box<dyn Error>;
 type TestKitResult = Result<(), TestKitError>;
-type BackendId = usize;
 
 pub fn main() {
     start_server()
@@ -67,7 +70,7 @@ fn handle_stream(stream: TcpStream) -> DynError {
     let mut backend = Backend::new(reader, writer);
     loop {
         if let Err(err) = backend.handle_request() {
-            return err.into();
+            return err;
         }
     }
 }
@@ -76,7 +79,7 @@ pub(crate) struct Backend {
     reader: BufReader<TcpStream>,
     writer: BufWriter<TcpStream>,
 
-    next_id: BackendId,
+    id_generator: Generator,
     drivers: HashMap<BackendId, Driver>,
 }
 
@@ -85,7 +88,7 @@ impl Backend {
         Self {
             reader,
             writer,
-            next_id: Default::default(),
+            id_generator: Generator::new(),
             drivers: Default::default(),
         }
     }
@@ -140,7 +143,7 @@ impl Backend {
     }
 
     fn process_request(&mut self, request: String) -> TestKitResult {
-        println!("<<< {request}");
+        debug!("<<< {request}");
         let request: Request = match serde_json::from_str(&request) {
             Ok(req) => req,
             Err(err) => return self.send(&TestKitError::from(err)),
@@ -157,7 +160,7 @@ impl Backend {
 
     pub(crate) fn send<S: Serialize>(&mut self, message: &S) -> TestKitResult {
         let data = TestKitError::wrap_fatal(serde_json::to_string(message))?;
-        println!(">>> {data}");
+        debug!(">>> {data}");
         TestKitError::wrap_fatal(self.writer.write_all(b"#response begin\n"))?;
         TestKitError::wrap_fatal(self.writer.write_all(data.as_bytes()))?;
         TestKitError::wrap_fatal(self.writer.write_all(b"\n#response end\n"))?;
@@ -166,8 +169,6 @@ impl Backend {
     }
 
     pub(crate) fn next_id(&mut self) -> BackendId {
-        let res = self.next_id;
-        self.next_id += 1;
-        return res;
+        self.id_generator.next_id()
     }
 }

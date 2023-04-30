@@ -130,6 +130,79 @@ pub(crate) enum Request {
         tx_meta: Option<HashMap<String, Value>>,
         timeout: Option<u64>,
     },
+    #[serde(rename_all = "camelCase")]
+    SessionReadTransaction {
+        session_id: BackendId,
+        tx_meta: Option<HashMap<String, Value>>,
+        timeout: Option<u64>,
+    },
+    #[serde(rename_all = "camelCase")]
+    SessionWriteTransaction {
+        session_id: BackendId,
+        tx_meta: Option<HashMap<String, Value>>,
+        timeout: Option<u64>,
+    },
+    #[serde(rename_all = "camelCase")]
+    SessionBeginTransaction {
+        session_id: BackendId,
+        tx_meta: Option<HashMap<String, Value>>,
+        timeout: Option<u64>,
+    },
+    #[serde(rename_all = "camelCase")]
+    SessionLastBookmarks {
+        session_id: BackendId,
+    },
+    #[serde(rename_all = "camelCase")]
+    TransactionRun {
+        #[serde(rename = "txId")]
+        transaction_id: BackendId,
+        #[serde(rename = "cypher")]
+        query: String,
+        params: Option<HashMap<String, Value>>,
+    },
+    #[serde(rename_all = "camelCase")]
+    TransactionCommit {
+        #[serde(rename = "txId")]
+        transaction_id: BackendId,
+    },
+    #[serde(rename_all = "camelCase")]
+    TransactionRollback {
+        #[serde(rename = "txId")]
+        transaction_id: BackendId,
+    },
+    #[serde(rename_all = "camelCase")]
+    TransactionClose {
+        #[serde(rename = "txId")]
+        transaction_id: BackendId,
+    },
+    #[serde(rename_all = "camelCase")]
+    ResultNext {
+        result_id: BackendId,
+    },
+    #[serde(rename_all = "camelCase")]
+    ResultSingle {
+        result_id: BackendId,
+    },
+    #[serde(rename_all = "camelCase")]
+    ResultSingleOptional {
+        result_id: BackendId,
+    },
+    #[serde(rename_all = "camelCase")]
+    ResultPeek {
+        result_id: BackendId,
+    },
+    #[serde(rename_all = "camelCase")]
+    ResultConsume {
+        result_id: BackendId,
+    },
+    #[serde(rename_all = "camelCase")]
+    ResultList {
+        result_id: BackendId,
+    },
+    #[serde(rename_all = "camelCase")]
+    RetryablePositive {
+        session_id: BackendId,
+    },
 }
 
 #[derive(Deserialize, Debug)]

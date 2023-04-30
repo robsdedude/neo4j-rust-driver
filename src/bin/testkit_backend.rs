@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use env_logger;
 use neo4j::testkit_backend;
 
 fn main() {
+    env_logger::init();
     testkit_backend::main();
 }

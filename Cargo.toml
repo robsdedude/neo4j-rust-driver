@@ -17,7 +17,7 @@ documentation = "https://github.com/robsdedude/neo4j-rust-driver/"
 
 [features]
 # internal feature, do not use, not supported
-_internal_testkit_backend = ["serde", "serde_json"]
+_internal_testkit_backend = ["serde", "serde_json", "env_logger", "snowflaked", "base64"]
 
 [[bin]]
 name = "testkit_backend"
@@ -34,6 +34,9 @@ duplicate = "1.0.0"
 itertools = "0.10.5"
 atomic_refcell = "0.1.9"
 # TestKit Backend Dependencies
+env_logger = { version = "0.10.0", optional = true }
+snowflaked = { version = "1.0.1", optional = true }
+base64 = { version = "0.21.0", optional = true }
 serde = { version = "1.0.159", optional = true, features = ["derive"] }
 serde_json = { version = "1.0.95", optional = true }
 
