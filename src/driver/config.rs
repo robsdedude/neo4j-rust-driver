@@ -315,7 +315,7 @@ mod tests {
     use mockall::*;
     use rstest::*;
 
-    use crate::macros::map;
+    use crate::macros::hash_map;
 
     use super::*;
 

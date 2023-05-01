@@ -21,7 +21,7 @@ use rstest::rstest;
 use super::deserialize::{PackStreamDeserializer, PackStreamDeserializerImpl};
 use super::serialize::{PackStreamSerializer, PackStreamSerializerImpl};
 use super::*;
-use crate::macros::map;
+use crate::macros::hash_map;
 
 const TAG_2D: u8 = 0;
 const TAG_3D: u8 = 1;
@@ -191,7 +191,7 @@ fn test_decode_null(#[case] input: Vec<u8>, #[case] output: PackStreamTestValue)
     dbg!(&input);
     let (result, rest) = decode(input);
     assert_eq!(result, output);
-    assert_eq!(rest, vec![]);
+    assert_eq!(rest, Vec::<u8>::new());
 }
 
 #[rstest]
@@ -201,7 +201,7 @@ fn test_decode_bool(#[case] input: Vec<u8>, #[case] output: PackStreamTestValue)
     dbg!(&input);
     let (result, rest) = decode(input);
     assert_eq!(result, output);
-    assert_eq!(rest, vec![]);
+    assert_eq!(rest, Vec::<u8>::new());
 }
 
 #[rstest]
@@ -246,7 +246,7 @@ fn test_decode_integer(#[case] input: Vec<u8>, #[case] output: PackStreamTestVal
     dbg!(&input);
     let (result, rest) = decode(input);
     assert_eq!(result, output);
-    assert_eq!(rest, vec![]);
+    assert_eq!(rest, Vec::<u8>::new());
 }
 
 #[rstest]
@@ -267,7 +267,7 @@ fn test_decode_float(#[case] input: Vec<u8>, #[case] output: f64) {
     } else {
         assert_eq!(result, PackStreamTestValue::Float(output));
     }
-    assert_eq!(rest, vec![]);
+    assert_eq!(rest, Vec::<u8>::new());
 }
 
 fn damn_long_vec(header: Option<Vec<u8>>, size: usize) -> Vec<u8> {
@@ -303,7 +303,7 @@ fn test_decode_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
     let (result, rest) = decode(input);
 
     assert_eq!(result, PackStreamTestValue::Bytes(output));
-    assert_eq!(rest, vec![]);
+    assert_eq!(rest, Vec::<u8>::new());
 }
 
 // this test is only feasible with a release build
@@ -316,7 +316,7 @@ fn test_decode_max_len_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
     let (result, rest) = decode(input);
 
     assert_eq!(result, PackStreamTestValue::Bytes(output));
-    assert_eq!(rest, vec![]);
+    assert_eq!(rest, Vec::<u8>::new());
 }
 
 #[rstest]
@@ -336,7 +336,7 @@ fn test_decode_string(#[case] input: Vec<u8>, #[case] output: &str) {
     let (result, rest) = decode(input);
 
     assert_eq!(result, PackStreamTestValue::String(String::from(output)));
-    assert_eq!(rest, vec![]);
+    assert_eq!(rest, Vec::<u8>::new());
 }
 
 // this test is only feasible with a release build
@@ -353,7 +353,7 @@ fn test_decode_max_len_string() {
     let (result, rest) = decode(input);
 
     assert_eq!(result, PackStreamTestValue::String(output));
-    assert_eq!(rest, vec![]);
+    assert_eq!(rest, Vec::<u8>::new());
 }
 
 #[rstest]
@@ -377,7 +377,7 @@ fn test_decode_list(#[case] input: Vec<u8>, #[case] output: Vec<PackStreamTestVa
     let (result, rest) = decode(input);
 
     assert_eq!(result, PackStreamTestValue::List(output));
-    assert_eq!(rest, vec![]);
+    assert_eq!(rest, Vec::<u8>::new());
 }
 
 #[rstest]
@@ -396,7 +396,7 @@ fn test_decode_dict(#[case] input: Vec<u8>, #[case] output: HashMap<String, Pack
     let (result, rest) = decode(input);
 
     assert_eq!(result, PackStreamTestValue::Dictionary(output));
-    assert_eq!(rest, vec![]);
+    assert_eq!(rest, Vec::<u8>::new());
 }
 
 #[rstest]
@@ -413,7 +413,7 @@ fn test_decode_struct(#[case] input: Vec<u8>, #[case] output: PackStreamTestStru
     let (result, rest) = decode(input);
 
     assert_eq!(result, PackStreamTestValue::Structure(output));
-    assert_eq!(rest, vec![]);
+    assert_eq!(rest, Vec::<u8>::new());
 }
 
 #[rstest]
@@ -427,7 +427,7 @@ fn test_decode_unknown_struct(#[case] input: Vec<u8>) {
         result,
         PackStreamTestValue::Broken(unknown_tag_message(TAG_UNKNOWN))
     );
-    assert_eq!(rest, vec![]);
+    assert_eq!(rest, Vec::<u8>::new());
 }
 
 #[rstest]
@@ -445,7 +445,7 @@ fn test_decode_error(#[case] input: Vec<u8>, #[case] error: &'static str) {
     dbg!(error);
     let message = format!("{}", error);
     assert!(message.to_lowercase().contains(error));
-    assert_eq!(rest, vec![]);
+    assert_eq!(rest, Vec::<u8>::new());
 }
 
 // =============

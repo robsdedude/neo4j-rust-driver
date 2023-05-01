@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use serde::Deserialize;
+use serde::{de::Error as _, Deserialize, Deserializer};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -88,9 +88,9 @@ pub(crate) enum Request {
     },
     #[serde(rename_all = "camelCase")]
     NewBookmarkManager {
-        initial_bookmarks: Vec<String>,
-        bookmarks_supplier_registered: bool,
-        bookmarks_consumer_registered: bool,
+        initial_bookmarks: Option<Vec<String>>,
+        bookmarks_supplier_registered: Option<bool>,
+        bookmarks_consumer_registered: Option<bool>,
     },
     #[serde(rename_all = "camelCase")]
     BookmarkManagerClose {
@@ -203,6 +203,45 @@ pub(crate) enum Request {
     RetryablePositive {
         session_id: BackendId,
     },
+    #[serde(rename_all = "camelCase")]
+    RetryableNegative {
+        session_id: BackendId,
+        error_id: BackendErrorId,
+    },
+    #[serde(rename_all = "camelCase")]
+    ForcedRoutingTableUpdate {
+        driver_id: BackendId,
+        database: Option<String>,
+        bookmarks: Option<Vec<String>>,
+    },
+    #[serde(rename_all = "camelCase")]
+    GetRoutingTable {
+        driver_id: BackendId,
+        database: Option<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    GetConnectionPoolMetrics {
+        driver_id: BackendId,
+        address: String,
+    },
+    // Currently unused and fields are not well documented
+    // #[serde(rename_all = "camelCase")]
+    // CypherTypeField {
+    //     // ...
+    // },
+    #[serde(rename_all = "camelCase")]
+    ExecuteQuery {
+        driver_id: BackendId,
+        #[serde(rename = "cypher")]
+        query: String,
+        config: Option<ExecuteQueryConfig>,
+    },
+    FakeTimeInstall {},
+    #[serde(rename_all = "camelCase")]
+    FakeTimeTick {
+        increment_ms: i64,
+    },
+    FakeTimeUninstall {},
 }
 
 #[derive(Deserialize, Debug)]
@@ -223,11 +262,56 @@ pub(crate) enum RequestTrustedCertificates {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(untagged)]
+pub(crate) enum BackendErrorId {
+    BackendError(BackendId),
+    #[serde(deserialize_with = "deserialize_client_error_id")]
+    ClientError,
+}
+
+fn deserialize_client_error_id<'de, D>(d: D) -> Result<(), D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match String::deserialize(d)?.as_str() {
+        "" => Ok(()),
+        _ => Err(D::Error::custom("client error must be represented as \"\"")),
+    }
+}
+
+#[derive(Deserialize, Debug)]
 pub(crate) enum RequestAccessMode {
     #[serde(rename = "r")]
     Read,
     #[serde(rename = "w")]
     Write,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ExecuteQueryConfig {
+    database: Option<String>,
+    routing: Option<RequestAccessMode>,
+    impersonated_user: Option<String>,
+    bookmark_manager_id: Option<ExecuteQueryBmmId>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+pub(crate) enum ExecuteQueryBmmId {
+    BackendId(BackendId),
+    #[serde(deserialize_with = "deserialize_default_bmm_id")]
+    Default,
+}
+
+fn deserialize_default_bmm_id<'de, D>(d: D) -> Result<(), D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match i8::deserialize(d)? {
+        -1 => Ok(()),
+        _ => Err(D::Error::custom("default BMM ID must be -1")),
+    }
 }
 
 impl Request {
@@ -237,6 +321,43 @@ impl Request {
             // Request::StartSubTest
             Request::GetFeatures {} => backend.send(&Response::feature_list())?,
             Request::NewDriver { .. } => self.new_driver(backend)?,
+            // Request::VerifyConnectivity
+            // Request::GetServerInfo
+            // Request::CheckMultiDBSupport
+            // Request::CheckDriverIsEncrypted
+            // Request::ResolverResolutionCompleted
+            // Request::BookmarksSupplierCompleted
+            // Request::BookmarksConsumerCompleted
+            // Request::NewBookmarkManager
+            // Request::BookmarkManagerClose
+            // Request::DomainNameResolutionCompleted
+            // Request::DriverClose
+            // Request::NewSession
+            // Request::SessionClose
+            // Request::SessionRun
+            // Request::SessionReadTransaction
+            // Request::SessionWriteTransaction
+            // Request::SessionBeginTransaction
+            // Request::SessionLastBookmarks
+            // Request::TransactionRun
+            // Request::TransactionCommit
+            // Request::TransactionRollback
+            // Request::TransactionClose
+            // Request::ResultNext
+            // Request::ResultSingle
+            // Request::ResultSingleOptional
+            // Request::ResultPeek
+            // Request::ResultConsume
+            // Request::ResultList
+            // Request::RetryablePositive
+            // Request::RetryableNegative
+            // Request::ForcedRoutingTableUpdate
+            // Request::GetRoutingTable
+            // Request::GetConnectionPoolMetrics
+            // Request::ExecuteQuery
+            // Request::FakeTimeInstall
+            // Request::FakeTimeTick
+            // Request::FakeTimeUninstall
             _ => backend.send(&TestKitError::BackendError {
                 msg: format!("Unhandled request {:?}", self),
             })?,
