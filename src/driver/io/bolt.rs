@@ -24,12 +24,13 @@ use std::borrow::Borrow;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Formatter};
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::mem::swap;
+use std::mem;
 use std::net::{Shutdown, TcpStream};
+use std::ops::Deref;
 use std::result;
 use std::sync::Arc;
 
-use log::{debug, log_enabled, Level};
+use log::{debug, log_enabled, warn, Level};
 use usize_cast::FromUsize;
 
 use crate::{Address, Neo4jError, Result, ValueReceive, ValueSend};
@@ -115,6 +116,8 @@ fn dbg_extra(socket: Option<&TcpStream>, bolt_id: Option<&str>) -> String {
     )
 }
 
+const SERVER_AGENT_KEY: &str = "server";
+
 pub enum ConnectionState {
     Healthy,
     Broken,
@@ -131,6 +134,7 @@ pub struct Bolt<R: Read, W: Write> {
     connection_state: ConnectionState,
     bolt_state: BoltStateTracker,
     meta: Arc<AtomicRefCell<HashMap<String, ValueReceive>>>,
+    server_agent: Arc<AtomicRefCell<Arc<String>>>,
     address: Arc<Address>,
 }
 
@@ -153,7 +157,8 @@ impl<R: Read, W: Write> Bolt<R, W> {
             version,
             connection_state: ConnectionState::Healthy,
             bolt_state: BoltStateTracker::new(version),
-            meta: Arc::new(AtomicRefCell::new(HashMap::new())),
+            meta: Default::default(),
+            server_agent: Default::default(),
             address,
         }
     }
@@ -182,8 +187,16 @@ impl<R: Read, W: Write> Bolt<R, W> {
             && matches!(self.bolt_state.state(), BoltState::Failed)
     }
 
-    pub(crate) fn address(&self) -> &Arc<Address> {
-        &self.address
+    pub(crate) fn protocol_version(&self) -> (u8, u8) {
+        self.version
+    }
+
+    pub(crate) fn address(&self) -> Arc<Address> {
+        Arc::clone(&self.address)
+    }
+
+    pub(crate) fn server_agent(&self) -> Arc<String> {
+        Arc::clone(self.server_agent.deref().borrow().deref())
     }
 
     pub(crate) fn hello(
@@ -242,10 +255,22 @@ impl<R: Read, W: Write> Bolt<R, W> {
         debug_buf_end!(self, log_buf);
 
         let self_meta = Arc::clone(&self.meta);
+        let self_server_agent = Arc::clone(&self.server_agent);
         self.responses.push_back(BoltResponse::new(
             ResponseMessage::Hello,
             ResponseCallbacks::new().with_on_success(move |mut meta| {
-                swap(&mut *self_meta.borrow_mut(), &mut meta);
+                if let Some((key, value)) = meta.remove_entry(SERVER_AGENT_KEY) {
+                    match value {
+                        ValueReceive::String(value) => {
+                            mem::swap(&mut *self_server_agent.borrow_mut(), &mut Arc::new(value));
+                        }
+                        _ => {
+                            warn!("Server sent unexpected server_agent type {:?}", &value);
+                            meta.insert(key, value);
+                        }
+                    }
+                }
+                mem::swap(&mut *self_meta.borrow_mut(), &mut meta);
                 Ok(())
             }),
         ));
@@ -474,14 +499,12 @@ impl<R: Read, W: Write> Bolt<R, W> {
         if fields.len() == expected_count {
             Ok(())
         } else {
-            Err(Neo4jError::ProtocolError {
-                message: format!(
-                    "{} response should have {} field but found {:?}",
-                    name,
-                    expected_count,
-                    fields.len()
-                ),
-            })
+            Err(Neo4jError::protocol_error(format!(
+                "{} response should have {} field but found {:?}",
+                name,
+                expected_count,
+                fields.len()
+            )))
         }
     }
 
@@ -585,12 +608,17 @@ pub trait BoltStructTranslator {
 const BOLT_MAGIC_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
 const BOLT_VERSION_OFFER: [u8; 16] = [
     0, 0, 0, 5, // BOLT 5.0
-    0, 0, 0, 0, // -
+    0, 0, 4, 4, // BOLT 4.4
     0, 0, 0, 0, // -
     0, 0, 0, 0, // -
 ];
 
 pub(crate) fn open(address: Arc<Address>) -> Result<TcpBolt> {
+    debug!(
+        "{}{}",
+        dbg_extra(None, None),
+        format!("C: <OPEN> {}", address)
+    );
     let stream = Neo4jError::wrap_connect(TcpStream::connect(&*address))?;
 
     // TODO: TLS
@@ -613,6 +641,7 @@ pub(crate) fn open(address: Arc<Address>) -> Result<TcpBolt> {
             message: String::from("Server version not supported."),
         }),
         [0, 0, 0, 5] => Ok((5, 0)),
+        [0, 0, 4, 4] => Ok((4, 4)),
         [72, 84, 84, 80] => {
             // "HTTP"
             Err(Neo4jError::InvalidConfig {

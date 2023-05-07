@@ -113,9 +113,9 @@ impl ResponseCallbacks {
                 None => Ok(()),
                 Some(cb) => cb(meta),
             },
-            _ => Err(Neo4jError::ProtocolError {
-                message: "onSuccess meta was not a Dictionary".into(),
-            }),
+            _ => Err(Neo4jError::protocol_error(
+                "onSuccess meta was not a Dictionary",
+            )),
         };
         self.on_summary();
         res
@@ -127,9 +127,9 @@ impl ResponseCallbacks {
                 None => Ok(()),
                 Some(cb) => cb(meta),
             },
-            _ => Err(Neo4jError::ProtocolError {
-                message: "onFailure meta was not a Dictionary".into(),
-            }),
+            _ => Err(Neo4jError::protocol_error(
+                "onFailure meta was not a Dictionary",
+            )),
         };
         self.on_summary();
         res
@@ -147,9 +147,7 @@ impl ResponseCallbacks {
                 None => Ok(()),
                 Some(cb) => cb(values),
             },
-            _ => Err(Neo4jError::ProtocolError {
-                message: "onRecord data was not a List".into(),
-            }),
+            _ => Err(Neo4jError::protocol_error("onRecord data was not a List")),
         }
     }
 

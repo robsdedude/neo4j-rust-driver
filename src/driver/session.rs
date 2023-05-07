@@ -74,7 +74,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         let cx = self.pool.acquire(AcquireConfig {
             mode: builder.mode,
             update_rt_args: UpdateRtArgs {
-                db: &self.resolved_db,
+                db: self.resolved_db(),
                 bookmarks: self.last_raw_bookmarks(),
                 imp_user: &self.config.as_ref().impersonated_user,
             },
@@ -86,7 +86,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
                 RoutingControl::Read => Some("r"),
                 RoutingControl::Write => None,
             },
-            self.config.as_ref().database.as_deref(),
+            self.resolved_db().as_deref(),
             None,
         )?;
         if !builder.meta.borrow().is_empty() {

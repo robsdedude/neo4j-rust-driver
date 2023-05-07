@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::io::bolt::BoltMeta;
-use crate::{Neo4jError, Result, ValueReceive};
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use super::io::bolt::BoltMeta;
+use super::io::PooledBolt;
+use crate::{Address, Neo4jError, Result, ValueReceive};
 
 /// Root struct containing query meta data.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Summary {
     pub result_available_after: i64,
@@ -28,16 +31,32 @@ pub struct Summary {
     pub plan: Option<Plan>,
     pub query_type: SummaryQueryType,
     pub database: Option<String>,
+    pub server_info: ServerInfo,
 }
 
 impl Summary {
+    pub(crate) fn new(connection: &PooledBolt) -> Self {
+        Self {
+            result_available_after: Default::default(),
+            result_consumed_after: Default::default(),
+            counters: Default::default(),
+            notifications: Default::default(),
+            profile: Default::default(),
+            plan: Default::default(),
+            query_type: Default::default(),
+            database: Default::default(),
+            server_info: ServerInfo {
+                address: connection.address(),
+                server_agent: connection.server_agent(),
+                protocol_version: connection.protocol_version(),
+            },
+        }
+    }
+
     pub(crate) fn load_run_meta(&mut self, meta: &mut BoltMeta) -> Result<()> {
         if let Some(t_first) = meta.remove("t_first") {
             let ValueReceive::Integer(t_first) = t_first else {
-                return Err(Neo4jError::ProtocolError {
-                    message: format!("t_first in summary was not integer but {:?}",
-                                     t_first),
-                })
+                return Err(Neo4jError::protocol_error(format!("t_first in summary was not integer but {:?}", t_first)))
             };
             self.result_available_after = t_first;
         }
@@ -46,9 +65,7 @@ impl Summary {
     pub(crate) fn load_pull_meta(&mut self, meta: &mut BoltMeta) -> Result<()> {
         if let Some(t_last) = meta.remove("t_last") {
             let ValueReceive::Integer(t_last) = t_last else {
-                return Err(Neo4jError::ProtocolError {
-                    message: format!("t_last in summary was not integer but {:?}", t_last),
-                })
+                return Err(Neo4jError::protocol_error(format!("t_last in summary was not integer but {:?}", t_last)))
             };
             self.result_consumed_after = t_last;
         }
@@ -58,9 +75,7 @@ impl Summary {
         self.plan = Plan::load_meta(meta)?;
         if let Some(query_type) = meta.remove("type") {
             let ValueReceive::String(query_type) = query_type else {
-                return Err(Neo4jError::ProtocolError {
-                    message: format!("type in summary was not string but {:?}", query_type),
-                })
+                return Err(Neo4jError::protocol_error(format!("type in summary was not string but {:?}", query_type)))
             };
             self.query_type = match query_type.as_str() {
                 "r" => SummaryQueryType::Read,
@@ -68,21 +83,18 @@ impl Summary {
                 "rw" => SummaryQueryType::ReadWrite,
                 "s" => SummaryQueryType::Schema,
                 _ => {
-                    return Err(Neo4jError::ProtocolError {
-                        message: format!("type in summary was an unknown string {:?}", query_type),
-                    })
+                    return Err(Neo4jError::protocol_error(format!(
+                        "type in summary was an unknown string {:?}",
+                        query_type
+                    )))
                 }
             };
         } else {
-            return Err(Neo4jError::ProtocolError {
-                message: "type in summary missing".into(),
-            });
+            return Err(Neo4jError::protocol_error("type in summary missing"));
         }
         if let Some(db) = meta.remove("db") {
             let ValueReceive::String(db) = db else {
-                return Err(Neo4jError::ProtocolError {
-                    message: format!("db in summary was not string but {:?}", db),
-                })
+                return Err(Neo4jError::protocol_error(format!("db in summary was not string but {:?}", db)))
             };
             self.database = Some(db);
         }
@@ -93,20 +105,20 @@ impl Summary {
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct Counters {
-    nodes_created: i64,
-    nodes_deleted: i64,
-    relationships_created: i64,
-    relationships_deleted: i64,
-    properties_set: i64,
-    labels_added: i64,
-    labels_removed: i64,
-    indexes_added: i64,
-    indexes_removed: i64,
-    constraints_added: i64,
-    constraints_removed: i64,
-    system_updates: i64,
-    contains_updates: bool,
-    contains_system_updates: bool,
+    pub nodes_created: i64,
+    pub nodes_deleted: i64,
+    pub relationships_created: i64,
+    pub relationships_deleted: i64,
+    pub properties_set: i64,
+    pub labels_added: i64,
+    pub labels_removed: i64,
+    pub indexes_added: i64,
+    pub indexes_removed: i64,
+    pub constraints_added: i64,
+    pub constraints_removed: i64,
+    pub system_updates: i64,
+    pub contains_updates: bool,
+    pub contains_system_updates: bool,
 }
 
 impl Counters {
@@ -546,36 +558,39 @@ impl Profile {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ServerInfo {
+    pub address: Arc<Address>,
+    pub server_agent: Arc<String>,
+    pub protocol_version: (u8, u8),
+}
+
 fn try_into_bool(v: ValueReceive, context: &str) -> Result<bool> {
     v.try_into_bool()
-        .map_err(|v| protocol_error(format!("{} was not bool but {:?}", context, v)))
+        .map_err(|v| Neo4jError::protocol_error(format!("{} was not bool but {:?}", context, v)))
 }
 
 fn try_into_int(v: ValueReceive, context: &str) -> Result<i64> {
     v.try_into_int()
-        .map_err(|v| protocol_error(format!("{} was not int but {:?}", context, v)))
+        .map_err(|v| Neo4jError::protocol_error(format!("{} was not int but {:?}", context, v)))
 }
 
 fn try_into_float(v: ValueReceive, context: &str) -> Result<f64> {
     v.try_into_float()
-        .map_err(|v| protocol_error(format!("{} was not float but {:?}", context, v)))
+        .map_err(|v| Neo4jError::protocol_error(format!("{} was not float but {:?}", context, v)))
 }
 
 fn try_into_string(v: ValueReceive, context: &str) -> Result<String> {
     v.try_into_string()
-        .map_err(|v| protocol_error(format!("{} was not string but {:?}", context, v)))
+        .map_err(|v| Neo4jError::protocol_error(format!("{} was not string but {:?}", context, v)))
 }
 
 fn try_into_list(v: ValueReceive, context: &str) -> Result<Vec<ValueReceive>> {
     v.try_into_list()
-        .map_err(|v| protocol_error(format!("{} was not list but {:?}", context, v)))
+        .map_err(|v| Neo4jError::protocol_error(format!("{} was not list but {:?}", context, v)))
 }
 
 fn try_into_map(v: ValueReceive, context: &str) -> Result<HashMap<String, ValueReceive>> {
     v.try_into_map()
-        .map_err(|v| protocol_error(format!("{} was not map but {:?}", context, v)))
-}
-
-fn protocol_error(message: String) -> Neo4jError {
-    Neo4jError::ProtocolError { message }
+        .map_err(|v| Neo4jError::protocol_error(format!("{} was not map but {:?}", context, v)))
 }

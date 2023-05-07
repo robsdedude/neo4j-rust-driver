@@ -20,13 +20,17 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::{TcpListener, TcpStream};
 
 mod backend_id;
+mod cypher_value;
+mod driver_holder;
 mod errors;
 mod requests;
 mod responses;
+mod session_holder;
 
-use crate::driver::Driver;
+use crate::testkit_backend::responses::Response;
 pub(crate) use backend_id::BackendId;
 use backend_id::Generator;
+use driver_holder::DriverHolder;
 use errors::TestKitError;
 use requests::Request;
 
@@ -75,12 +79,15 @@ fn handle_stream(stream: TcpStream) -> DynError {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct Backend {
     reader: BufReader<TcpStream>,
     writer: BufWriter<TcpStream>,
 
     id_generator: Generator,
-    drivers: HashMap<BackendId, Driver>,
+    drivers: HashMap<BackendId, DriverHolder>,
+    session_id_to_driver_id: HashMap<BackendId, BackendId>,
+    result_id_to_driver_id: HashMap<BackendId, BackendId>,
 }
 
 impl Backend {
@@ -90,6 +97,8 @@ impl Backend {
             writer,
             id_generator: Generator::new(),
             drivers: Default::default(),
+            session_id_to_driver_id: Default::default(),
+            result_id_to_driver_id: Default::default(),
         }
     }
 
@@ -146,14 +155,14 @@ impl Backend {
         debug!("<<< {request}");
         let request: Request = match serde_json::from_str(&request) {
             Ok(req) => req,
-            Err(err) => return self.send(&TestKitError::from(err)),
+            Err(err) => return self.send_err(TestKitError::from(err)),
         };
         let res = request.handle(self);
         if let Err(e) = res {
             if matches!(e, TestKitError::FatalError { .. }) {
                 return Err(e);
             }
-            TestKitError::wrap_fatal(self.send(&e))?;
+            self.send_err(e)?;
         }
         Ok(())
     }
@@ -166,6 +175,11 @@ impl Backend {
         TestKitError::wrap_fatal(self.writer.write_all(b"\n#response end\n"))?;
         TestKitError::wrap_fatal(self.writer.flush())?;
         Ok(())
+    }
+
+    pub(crate) fn send_err(&mut self, err: TestKitError) -> TestKitResult {
+        let response = Response::try_from_testkit_error(err, &self.id_generator)?;
+        self.send(&response)
     }
 
     pub(crate) fn next_id(&mut self) -> BackendId {

@@ -12,9 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::iter;
+use std::sync::Arc;
+
 use super::io::bolt::BoltRecordFields;
+use crate::ValueReceive;
 
 #[derive(Debug)]
 pub struct Record {
-    pub(crate) fields: BoltRecordFields,
+    // TODO: consider encapsulating in nice API
+    pub entries: Vec<(Arc<String>, ValueReceive)>,
+}
+
+impl Record {
+    pub(crate) fn new(keys: &[Arc<String>], fields: BoltRecordFields) -> Self {
+        assert_eq!(keys.len(), fields.len());
+        Self {
+            entries: iter::zip(keys.iter().map(Arc::clone), fields.into_iter()).collect(),
+        }
+    }
 }

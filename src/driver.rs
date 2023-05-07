@@ -37,7 +37,6 @@ pub struct Driver {
 impl Driver {
     pub fn new(connection_config: ConnectionConfig, config: DriverConfig) -> Self {
         let pool_config = PoolConfig {
-            address: Arc::new(connection_config.address),
             routing_context: connection_config.routing_context,
             user_agent: config.user_agent,
             auth: config.auth,
@@ -45,7 +44,7 @@ impl Driver {
         };
         Driver {
             // config,
-            pool: Pool::new(pool_config),
+            pool: Pool::new(Arc::new(connection_config.address), pool_config),
         }
     }
 

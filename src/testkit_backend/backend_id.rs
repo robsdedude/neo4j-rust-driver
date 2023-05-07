@@ -12,16 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
+use std::sync::{Arc, Mutex};
+
 use base64::prelude::BASE64_STANDARD_NO_PAD;
 use base64::Engine;
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use snowflaked::Generator as SnowflakeGenerator;
-use std::fmt::Formatter;
-use std::str::FromStr;
 
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub(crate) struct BackendId(u64);
+
+impl Display for BackendId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ({})", String::from(*self), self.0)
+    }
+}
 
 impl From<BackendId> for String {
     fn from(id: BackendId) -> Self {
@@ -88,18 +96,20 @@ impl<'de> Visitor<'de> for BackendIdVisitor {
     }
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct Generator {
-    generator: SnowflakeGenerator,
+    generator: Arc<Mutex<SnowflakeGenerator>>,
 }
 
 impl Generator {
     pub(crate) fn new() -> Self {
         Self {
-            generator: SnowflakeGenerator::new(0),
+            generator: Arc::new(Mutex::new(SnowflakeGenerator::new(0))),
         }
     }
 
-    pub(crate) fn next_id(&mut self) -> BackendId {
-        BackendId(self.generator.generate())
+    pub(crate) fn next_id(&self) -> BackendId {
+        let mut generator = self.generator.lock().unwrap();
+        BackendId(generator.generate())
     }
 }

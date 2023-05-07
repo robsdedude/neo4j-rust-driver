@@ -12,14 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use serde::{de::Error as _, Deserialize, Deserializer};
+use crate::bookmarks::Bookmarks;
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
-use crate::driver::{ConnectionConfig, Driver, DriverConfig};
-use crate::testkit_backend::errors::TestKitError;
+use crate::driver::{ConnectionConfig, DriverConfig, RoutingControl};
+use crate::session::SessionConfig;
 
+use super::cypher_value::CypherValue;
+use super::driver_holder::{CloseSession, DriverHolder, NewSession};
+use super::errors::TestKitError;
 use super::responses::Response;
+use super::session_holder::{AutoCommit, ResultConsume, ResultNext};
 use super::{Backend, BackendId, TestKitResult};
 
 #[derive(Deserialize, Debug)]
@@ -40,7 +45,8 @@ pub(crate) enum Request {
     NewDriver {
         uri: String,
         #[serde(rename = "authorizationToken")]
-        auth: RequestAuth,
+        auth: TestKitAuth,
+        auth_token_manager_id: Option<BackendId>,
         user_agent: Option<String>,
         resolver_registered: Option<bool>,
         #[serde(rename = "domainNameResolverRegistered")]
@@ -114,7 +120,7 @@ pub(crate) enum Request {
         fetch_size: Option<usize>,
         impersonated_user: Option<String>,
         notifications_min_severity: Option<String>,
-        notifications_disabled_categories: Option<String>,
+        notifications_disabled_categories: Option<Vec<String>>,
         bookmark_manager_id: Option<BackendId>,
     },
     #[serde(rename_all = "camelCase")]
@@ -126,26 +132,26 @@ pub(crate) enum Request {
         session_id: BackendId,
         #[serde(rename = "cypher")]
         query: String,
-        params: Option<HashMap<String, Value>>,
-        tx_meta: Option<HashMap<String, Value>>,
+        params: Option<HashMap<String, CypherValue>>,
+        tx_meta: Option<HashMap<String, CypherValue>>,
         timeout: Option<u64>,
     },
     #[serde(rename_all = "camelCase")]
     SessionReadTransaction {
         session_id: BackendId,
-        tx_meta: Option<HashMap<String, Value>>,
+        tx_meta: Option<HashMap<String, CypherValue>>,
         timeout: Option<u64>,
     },
     #[serde(rename_all = "camelCase")]
     SessionWriteTransaction {
         session_id: BackendId,
-        tx_meta: Option<HashMap<String, Value>>,
+        tx_meta: Option<HashMap<String, CypherValue>>,
         timeout: Option<u64>,
     },
     #[serde(rename_all = "camelCase")]
     SessionBeginTransaction {
         session_id: BackendId,
-        tx_meta: Option<HashMap<String, Value>>,
+        tx_meta: Option<HashMap<String, CypherValue>>,
         timeout: Option<u64>,
     },
     #[serde(rename_all = "camelCase")]
@@ -158,7 +164,7 @@ pub(crate) enum Request {
         transaction_id: BackendId,
         #[serde(rename = "cypher")]
         query: String,
-        params: Option<HashMap<String, Value>>,
+        params: Option<HashMap<String, CypherValue>>,
     },
     #[serde(rename_all = "camelCase")]
     TransactionCommit {
@@ -244,9 +250,9 @@ pub(crate) enum Request {
     FakeTimeUninstall {},
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 #[serde(tag = "name", content = "data")]
-pub(crate) enum RequestAuth {
+pub(crate) enum TestKitAuth {
     AuthorizationToken {
         scheme: String,
         #[serde(flatten)]
@@ -287,6 +293,15 @@ pub(crate) enum RequestAccessMode {
     Write,
 }
 
+impl From<RequestAccessMode> for RoutingControl {
+    fn from(mode: RequestAccessMode) -> Self {
+        match mode {
+            RequestAccessMode::Read => RoutingControl::Read,
+            RequestAccessMode::Write => RoutingControl::Write,
+        }
+    }
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ExecuteQueryConfig {
@@ -314,53 +329,83 @@ where
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    fn foo() {
+        let r: Result<Request, _> = serde_json::from_str(
+            "{
+    \"name\": \"NewDriver\",
+    \"data\": {
+        \"uri\": \"foo\",
+        \"authorizationToken\": {
+            \"name\": \"AuthorizationToken\",
+            \"data\": {
+                \"scheme\": \"basic\"
+            }
+        }
+    }
+}
+        ",
+        );
+        let r = r.unwrap();
+        println!("{r:?}");
+    }
+}
+
 impl Request {
     pub(crate) fn handle(self, backend: &mut Backend) -> TestKitResult {
         match self {
             Request::StartTest { .. } => backend.send(&Response::RunTest)?,
             // Request::StartSubTest
-            Request::GetFeatures {} => backend.send(&Response::feature_list())?,
+            Request::GetFeatures { .. } => backend.send(&Response::feature_list())?,
             Request::NewDriver { .. } => self.new_driver(backend)?,
-            // Request::VerifyConnectivity
-            // Request::GetServerInfo
-            // Request::CheckMultiDBSupport
-            // Request::CheckDriverIsEncrypted
-            // Request::ResolverResolutionCompleted
-            // Request::BookmarksSupplierCompleted
-            // Request::BookmarksConsumerCompleted
-            // Request::NewBookmarkManager
-            // Request::BookmarkManagerClose
-            // Request::DomainNameResolutionCompleted
-            // Request::DriverClose
-            // Request::NewSession
-            // Request::SessionClose
-            // Request::SessionRun
-            // Request::SessionReadTransaction
-            // Request::SessionWriteTransaction
-            // Request::SessionBeginTransaction
-            // Request::SessionLastBookmarks
-            // Request::TransactionRun
-            // Request::TransactionCommit
-            // Request::TransactionRollback
-            // Request::TransactionClose
-            // Request::ResultNext
-            // Request::ResultSingle
-            // Request::ResultSingleOptional
-            // Request::ResultPeek
-            // Request::ResultConsume
-            // Request::ResultList
-            // Request::RetryablePositive
-            // Request::RetryableNegative
-            // Request::ForcedRoutingTableUpdate
-            // Request::GetRoutingTable
-            // Request::GetConnectionPoolMetrics
-            // Request::ExecuteQuery
-            // Request::FakeTimeInstall
-            // Request::FakeTimeTick
-            // Request::FakeTimeUninstall
-            _ => backend.send(&TestKitError::BackendError {
-                msg: format!("Unhandled request {:?}", self),
-            })?,
+            // Request::VerifyConnectivity { .. } => {},
+            // Request::GetServerInfo { .. } => {},
+            // Request::CheckMultiDBSupport { .. } => {},
+            // Request::CheckDriverIsEncrypted { .. } => {},
+            // Request::ResolverResolutionCompleted { .. } => {},
+            // Request::BookmarksSupplierCompleted { .. } => {},
+            // Request::BookmarksConsumerCompleted { .. } => {},
+            // Request::NewBookmarkManager { .. } => {},
+            // Request::BookmarkManagerClose { .. } => {},
+            // Request::DomainNameResolutionCompleted { .. } => {},
+            Request::DriverClose { .. } => self.driver_close(backend)?,
+            Request::NewSession { .. } => self.new_session(backend)?,
+            Request::SessionClose { .. } => self.close_session(backend)?,
+            Request::SessionRun { .. } => self.session_auto_commit(backend)?,
+            // Request::SessionReadTransaction { .. } => {},
+            // Request::SessionWriteTransaction { .. } => {},
+            // Request::SessionBeginTransaction { .. } => {},
+            // Request::SessionLastBookmarks { .. } => {},
+            // Request::TransactionRun { .. } => {},
+            // Request::TransactionCommit { .. } => {},
+            // Request::TransactionRollback { .. } => {},
+            // Request::TransactionClose { .. } => {},
+            Request::ResultNext { .. } => self.result_next(backend)?,
+            // Request::ResultSingle { .. } => {},
+            // Request::ResultSingleOptional { .. } => {},
+            // Request::ResultPeek { .. } => {},
+            Request::ResultConsume { .. } => self.result_consume(backend)?,
+            // Request::ResultList { .. } => {},
+            // Request::RetryablePositive { .. } => {},
+            // Request::RetryableNegative { .. } => {},
+            // Request::ForcedRoutingTableUpdate { .. } => {},
+            // Request::GetRoutingTable { .. } => {},
+            // Request::GetConnectionPoolMetrics { .. } => {},
+            // Request::ExecuteQuery { .. } => {},
+            // Request::FakeTimeInstall { .. } => {},
+            // Request::FakeTimeTick { .. } => {},
+            // Request::FakeTimeUninstall { .. } => {},
+            _ => {
+                return Err(TestKitError::backend_err(format!(
+                    "Unhandled request {:?}",
+                    self
+                )))
+            }
         }
         Ok(())
     }
@@ -369,6 +414,7 @@ impl Request {
         let Request::NewDriver {
             uri,
             auth,
+            auth_token_manager_id,
             user_agent,
             resolver_registered,
             dns_registered,
@@ -390,6 +436,9 @@ impl Request {
         driver_config = set_auth(driver_config, auth)?;
         if let Some(user_agent) = user_agent {
             driver_config = driver_config.with_user_agent(user_agent);
+        }
+        if auth_token_manager_id.is_some() {
+            return Err(TestKitError::backend_err("auth token manager unsupported"));
         }
         if resolver_registered.unwrap_or(false) {
             return Err(TestKitError::backend_err("resolver unsupported"));
@@ -435,16 +484,171 @@ impl Request {
         if trusted_certificates.is_some() {
             return Err(TestKitError::backend_err("CA config unsupported"));
         }
-        let driver = Driver::new(connection_config, driver_config);
+        // let driver = Driver::new(connection_config, driver_config);
+        let driver_holder = DriverHolder::new(
+            backend.id_generator.clone(),
+            connection_config,
+            driver_config,
+        );
         let id = backend.next_id();
-        backend.drivers.insert(id, driver);
-        backend.send(&Response::Driver { id })?;
-        Ok(())
+        backend.drivers.insert(id, driver_holder);
+        backend.send(&Response::Driver { id })
+    }
+
+    fn driver_close(self, backend: &mut Backend) -> TestKitResult {
+        let Request::DriverClose {
+            driver_id
+        } = self else {
+            panic!("expected Request::DriverClose");
+        };
+        let Some(driver_holder) = backend.drivers.remove(&driver_id) else {
+            return Err(TestKitError::backend_err(format!("No driver with id {driver_id} found")));
+        };
+        drop(driver_holder);
+        backend.send(&Response::Driver { id: driver_id })
+    }
+
+    fn new_session(self, backend: &mut Backend) -> TestKitResult {
+        let Request::NewSession {
+            driver_id, access_mode, bookmarks, database, fetch_size, impersonated_user, notifications_min_severity, notifications_disabled_categories, bookmark_manager_id,
+        } = self else {
+            panic!("expected Request::NewDriver");
+        };
+        let Some(driver_holder) = backend.drivers.get(&driver_id) else {
+            return Err(TestKitError::backend_err(format!("No driver with id {driver_id} found")));
+        };
+        let mut config = SessionConfig::new();
+        if let Some(bookmarks) = bookmarks {
+            config = config.with_bookmarks(Bookmarks::from_raw(bookmarks));
+        }
+        if let Some(database) = database {
+            config = config.with_database(database);
+        }
+        if let Some(fetch_size) = fetch_size {
+            return Err(TestKitError::backend_err(format!(
+                "Driver does not yet support custom fetch_size, found {fetch_size}"
+            )));
+        }
+        if let Some(imp_user) = impersonated_user {
+            config = config.with_impersonated_user(imp_user);
+        }
+        if let Some(notifications_min_severity) = notifications_min_severity {
+            return Err(TestKitError::backend_err(format!("Driver does not yet support notifications_min_severity, found {notifications_min_severity}")));
+        }
+        if let Some(notifications_disabled_categories) = notifications_disabled_categories {
+            return Err(TestKitError::backend_err(format!("Driver does not yet support notifications_disabled_categories, found {notifications_disabled_categories:?}")));
+        }
+        if let Some(bookmark_manager_id) = bookmark_manager_id {
+            return Err(TestKitError::backend_err(format!(
+                "Driver does not yet support bookmark_manager_id, found {bookmark_manager_id}"
+            )));
+        }
+        let id = driver_holder
+            .session(NewSession {
+                auto_commit_access_mode: access_mode.into(),
+                config,
+            })
+            .session_id;
+        backend.session_id_to_driver_id.insert(id, driver_id);
+        backend.send(&Response::Session { id })
+    }
+
+    fn close_session(self, backend: &mut Backend) -> TestKitResult {
+        let Request::SessionClose { session_id } = self else {
+            panic!("expected Request::SessionClose");
+        };
+        let Some(driver_id) = backend.session_id_to_driver_id.remove(&session_id) else {
+            return Err(TestKitError::backend_err(format!("Unknown session id {} in backend", session_id)));
+        };
+        backend
+            .drivers
+            .get(&driver_id)
+            .unwrap()
+            .session_close(CloseSession { session_id })
+            .result?;
+        backend.send(&Response::Session { id: session_id })
+    }
+
+    fn session_auto_commit(self, backend: &mut Backend) -> TestKitResult {
+        let Request::SessionRun { session_id, query, params, tx_meta, timeout } = self else {
+            panic!("expected Request::SessionRun");
+        };
+        let Some(&driver_id) = backend.session_id_to_driver_id.get(&session_id) else {
+            return Err(TestKitError::backend_err(format!("Unknown session id {} in backend", session_id)));
+        };
+        let params = params
+            .map(|params| {
+                params
+                    .into_iter()
+                    .map(|(k, v)| Ok::<_, TestKitError>((k, v.try_into()?)))
+                    .collect::<Result<_, _>>()
+            })
+            .transpose()?;
+        let (result_id, keys) = backend
+            .drivers
+            .get(&driver_id)
+            .unwrap()
+            .auto_commit(AutoCommit {
+                session_id,
+                query,
+                params,
+                tx_meta: None,
+                timeout: None,
+            })
+            .result?;
+        backend.result_id_to_driver_id.insert(result_id, driver_id);
+        backend.send(&Response::Result {
+            id: result_id,
+            keys: keys.into_iter().map(|k| (*k).clone()).collect(),
+        })
+    }
+
+    fn result_next(self, backend: &mut Backend) -> TestKitResult {
+        let Request::ResultNext { result_id } = self else {
+            panic!("expected Request::ResultNext");
+        };
+        let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
+            return Err(TestKitError::backend_err(format!("Unknown result id {result_id} in backend")));
+        };
+        let response = match backend
+            .drivers
+            .get(&driver_id)
+            .unwrap()
+            .result_next(ResultNext { result_id })
+            .result?
+            .transpose()?
+        {
+            None => Response::NullRecord,
+            Some(record) => Response::Record {
+                values: record
+                    .entries
+                    .into_iter()
+                    .map(|(_, v)| v.try_into())
+                    .collect::<Result<_, _>>()?,
+            },
+        };
+        backend.send(&response)
+    }
+
+    fn result_consume(self, backend: &mut Backend) -> TestKitResult {
+        let Request::ResultConsume { result_id } = self else {
+            panic!("expected Request::ResultConsume");
+        };
+        let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
+            return Err(TestKitError::backend_err(format!("Unknown result id {result_id} in backend")));
+        };
+        let summary = backend
+            .drivers
+            .get(&driver_id)
+            .unwrap()
+            .result_consume(ResultConsume { result_id })
+            .result??;
+        backend.send(&Response::Summary(summary.try_into()?))
     }
 }
 
-fn set_auth(mut config: DriverConfig, auth: RequestAuth) -> Result<DriverConfig, TestKitError> {
-    let RequestAuth::AuthorizationToken { scheme, mut data } = auth;
+fn set_auth(mut config: DriverConfig, auth: TestKitAuth) -> Result<DriverConfig, TestKitError> {
+    let TestKitAuth::AuthorizationToken { scheme, mut data } = auth;
     match scheme.as_str() {
         "basic" => {
             let Value::String(principal) = data.remove("principal").ok_or_else(|| {

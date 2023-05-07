@@ -33,9 +33,10 @@ impl<V: PackStreamDeserialize> BoltMessage<V> {
         Neo4jError::wrap_read(reader.read_exact(&mut marker))?;
         let marker = marker[0];
         if !(0xB0..=0xBF).contains(&marker) {
-            return Err(Neo4jError::ProtocolError {
-                message: format!("expected bolt message marker, received {:02X?}", marker),
-            });
+            return Err(Neo4jError::protocol_error(format!(
+                "expected bolt message marker, received {:02X?}",
+                marker
+            )));
         }
         let size = marker - 0xB0;
         let mut tag = [0; 1];

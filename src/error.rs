@@ -132,6 +132,12 @@ impl Neo4jError {
         }
     }
 
+    pub(crate) fn protocol_error<S: Into<String>>(message: S) -> Self {
+        Self::ProtocolError {
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn failed_commit(mut self) -> Self {
         if let Self::Disconnect { during_commit, .. } = &mut self {
             *during_commit = true;

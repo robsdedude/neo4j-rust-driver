@@ -38,10 +38,13 @@ pub struct RecordStream<'driver> {
 
 impl<'driver> RecordStream<'driver> {
     pub(crate) fn new(connection: Rc<RefCell<PooledBolt<'driver>>>, auto_commit: bool) -> Self {
+        let listener = Arc::new(AtomicRefCell::new(RecordListener::new(
+            &connection.borrow(),
+        )));
         Self {
             connection,
             auto_commit,
-            listener: Arc::new(AtomicRefCell::new(RecordListener::new())),
+            listener,
         }
     }
 
@@ -104,6 +107,21 @@ impl<'driver> RecordStream<'driver> {
         self.wrap_commit(res)?;
 
         Ok(self.listener.borrow_mut().summary.take())
+    }
+
+    pub fn keys(&self) -> Vec<Arc<String>> {
+        self.listener
+            .borrow()
+            .keys
+            .as_ref()
+            .expect(
+                "keys were not present but should be after RUN's SUCCESS. \
+            Even if they are missing, the SUCCESS handler should've caused a protocol violation \
+            error before the user is handed out the stream object",
+            )
+            .iter()
+            .map(Arc::clone)
+            .collect()
     }
 
     pub(crate) fn into_bookmark(self) -> Option<String> {
@@ -237,19 +255,20 @@ impl RecordListenerState {
 #[derive(Debug)]
 struct RecordListener {
     buffer: VecDeque<Record>,
-    keys: Option<Vec<String>>,
+    keys: Option<Vec<Arc<String>>>,
     state: RecordListenerState,
     summary: Option<Summary>,
     bookmark: Option<String>,
 }
 
 impl RecordListener {
-    fn new() -> Self {
+    fn new(connection: &PooledBolt) -> Self {
+        let summary = Summary::new(connection);
         Self {
             buffer: VecDeque::new(),
             keys: None,
             state: RecordListenerState::Streaming,
-            summary: Some(Summary::default()),
+            summary: Some(summary),
             bookmark: None,
         }
     }
@@ -262,21 +281,18 @@ impl RecordListener {
         }
         // TODO: qid (when transaction support)
         let Some(fields) = meta.remove("fields") else {
-            return Err(Neo4jError::ProtocolError {
-                message: "SUCCESS after RUN did not contain 'fields'".into()
-            });
+            return Err(Neo4jError::protocol_error("SUCCESS after RUN did not contain 'fields'"));
         };
         let ValueReceive::List(fields) = fields else {
-            return Err(Neo4jError::ProtocolError {
-                message: "SUCCESS after RUN 'fields' was not a list".into()});
+            return Err(Neo4jError::protocol_error("SUCCESS after RUN 'fields' was not a list"));
         };
         let fields = fields
             .into_iter()
             .map(|field| match field {
-                ValueReceive::String(field) => Ok(field),
-                _ => Err(Neo4jError::ProtocolError {
-                    message: "SUCCESS after RUN 'fields' was not a list".into(),
-                }),
+                ValueReceive::String(field) => Ok(Arc::new(field)),
+                _ => Err(Neo4jError::protocol_error(
+                    "SUCCESS after RUN 'fields' was not a list",
+                )),
             })
             .collect::<Result<_>>()?;
         self.keys = Some(fields);
@@ -294,7 +310,18 @@ impl RecordListener {
     }
 
     fn record_cb(&mut self, fields: BoltRecordFields) -> Result<()> {
-        self.buffer.push_back(Record { fields });
+        let keys = self
+            .keys
+            .as_ref()
+            .ok_or_else(|| Neo4jError::protocol_error("RECORD received before RUN SUCCESS"))?;
+        if keys.len() != fields.len() {
+            return Err(Neo4jError::protocol_error(format!(
+                "RECORD contained {} entries but {} keys were announced",
+                fields.len(),
+                keys.len()
+            )));
+        }
+        self.buffer.push_back(Record::new(keys, fields));
         Ok(())
     }
 

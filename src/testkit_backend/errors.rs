@@ -12,17 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use serde::Serialize;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
 use crate::Neo4jError;
 
-#[derive(Debug, Serialize)]
+use super::cypher_value::{BrokenValueError, NotADriverValueError};
+
+#[derive(Debug)]
 #[allow(clippy::enum_variant_names)]
-#[serde(tag = "name", content = "data")]
 pub(crate) enum TestKitError {
-    #[serde(rename_all = "camelCase")]
     DriverError {
         error_type: String,
         msg: String,
@@ -87,6 +86,27 @@ impl From<serde_json::Error> for TestKitError {
     fn from(err: serde_json::Error) -> Self {
         TestKitError::BackendError {
             msg: format!("unexpected message format: {err:?}"),
+        }
+    }
+}
+
+impl From<NotADriverValueError> for TestKitError {
+    fn from(v: NotADriverValueError) -> Self {
+        TestKitError::BackendError {
+            msg: format!("{v}"),
+        }
+    }
+}
+
+impl From<BrokenValueError> for TestKitError {
+    fn from(v: BrokenValueError) -> Self {
+        // TestKit expects broken values to be represented as error when accessing the field.
+        // Instead, the Rust driver exposes them a an enum variant.
+        // Hence we just re-write that variant as an error.
+        TestKitError::DriverError {
+            error_type: String::from("BrokenValueError"),
+            msg: format!("{v}"),
+            code: None,
         }
     }
 }

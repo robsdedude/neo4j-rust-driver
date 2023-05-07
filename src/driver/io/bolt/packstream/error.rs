@@ -103,9 +103,7 @@ impl From<PackStreamDeserializeError> for Neo4jError {
         match err.cause {
             None => {
                 if err.protocol_violation {
-                    Self::ProtocolError {
-                        message: err.reason,
-                    }
+                    Self::protocol_error(err.reason)
                 } else {
                     Self::InvalidConfig {
                         message: err.reason,

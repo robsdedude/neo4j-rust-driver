@@ -143,7 +143,7 @@ impl WGS84_3D {
     pub fn latitude(&self) -> f64 {
         self.coordinates[1]
     }
-    pub fn height(&self) -> f64 {
+    pub fn altitude(&self) -> f64 {
         self.coordinates[2]
     }
     pub fn srid(&self) -> i64 {

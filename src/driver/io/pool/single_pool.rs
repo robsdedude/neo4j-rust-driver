@@ -13,18 +13,20 @@
 // limitations under the License.
 
 use std::collections::VecDeque;
+// TODO: should be able to replace ManuallyDrop with Option::take for safe code
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Condvar, Mutex};
 
 use super::super::bolt::{self, TcpBolt};
 use super::PoolConfig;
-use crate::Result;
+use crate::{Address, Result};
 
 type PoolElement = TcpBolt;
 
 #[derive(Debug)]
 pub(crate) struct InnerPool {
+    address: Arc<Address>,
     config: Arc<PoolConfig>,
     synced: Mutex<InnerPoolSyncedData>,
     made_room_condition: Condvar,
@@ -38,7 +40,7 @@ struct InnerPoolSyncedData {
 }
 
 impl InnerPool {
-    fn new(config: Arc<PoolConfig>) -> Self {
+    fn new(address: Arc<Address>, config: Arc<PoolConfig>) -> Self {
         let raw_pool = VecDeque::with_capacity(config.max_connection_pool_size);
         let synced = Mutex::new(InnerPoolSyncedData {
             raw_pool,
@@ -46,6 +48,7 @@ impl InnerPool {
             borrowed: 0,
         });
         Self {
+            address,
             config,
             synced,
             made_room_condition: Condvar::new(),
@@ -62,7 +65,7 @@ impl InnerPool {
     }
 
     fn open_new(&self) -> Result<PoolElement> {
-        let mut connection = bolt::open(Arc::clone(&self.config.address))?;
+        let mut connection = bolt::open(Arc::clone(&self.address))?;
         connection.hello(
             self.config.user_agent.as_str(),
             &self.config.auth,
@@ -78,8 +81,8 @@ impl InnerPool {
 pub(crate) struct SimplePool(Arc<InnerPool>);
 
 impl SimplePool {
-    pub(crate) fn new(config: Arc<PoolConfig>) -> Self {
-        Self(Arc::new(InnerPool::new(config)))
+    pub(crate) fn new(address: Arc<Address>, config: Arc<PoolConfig>) -> Self {
+        Self(Arc::new(InnerPool::new(address, config)))
     }
 
     pub(crate) fn acquire(&self) -> UnpreparedSinglePooledBolt {

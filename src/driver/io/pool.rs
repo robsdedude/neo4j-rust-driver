@@ -49,7 +49,7 @@ impl<'pool> PooledBolt<'pool> {
         let was_broken = self.bolt.unexpectedly_closed();
         let res = io_op(&mut self.bolt);
         if !was_broken && self.bolt.unexpectedly_closed() {
-            self.pool.deactivate_server(self.bolt.address())
+            self.pool.deactivate_server(&self.bolt.address())
         }
         res
     }
@@ -109,7 +109,6 @@ impl<'pool> Drop for PooledBolt<'pool> {
 
 #[derive(Debug)]
 pub(crate) struct PoolConfig {
-    pub(crate) address: Arc<Address>,
     // pub(crate) routing: bool,
     pub(crate) routing_context: Option<HashMap<String, ValueSend>>,
     // pub(crate) ssl_context: Option<SslContext>,
@@ -120,16 +119,19 @@ pub(crate) struct PoolConfig {
 
 #[derive(Debug)]
 pub(crate) struct Pool {
+    address: Arc<Address>,
     config: Arc<PoolConfig>,
     pools: Pools,
 }
 
 impl Pool {
-    pub(crate) fn new(config: PoolConfig) -> Self {
+    pub(crate) fn new(address: Arc<Address>, config: PoolConfig) -> Self {
         let config = Arc::new(config);
+        let pools = Pools::new(Arc::clone(&address), Arc::clone(&config));
         Self {
-            config: Arc::clone(&config),
-            pools: Pools::new(config),
+            address,
+            config,
+            pools,
         }
     }
 
@@ -185,10 +187,10 @@ enum Pools {
 }
 
 impl Pools {
-    fn new(config: Arc<PoolConfig>) -> Self {
+    fn new(address: Arc<Address>, config: Arc<PoolConfig>) -> Self {
         match config.routing_context {
-            None => Pools::Direct(SimplePool::new(config)),
-            Some(_) => Pools::Routing(RoutingPool::new(config)),
+            None => Pools::Direct(SimplePool::new(address, config)),
+            Some(_) => Pools::Routing(RoutingPool::new(address, config)),
         }
     }
 
@@ -202,23 +204,25 @@ impl Pools {
 }
 
 type RoutingTables = HashMap<Option<String>, RoutingTable>;
-type RoutingPools = HashMap<Address, SimplePool>;
+type RoutingPools = HashMap<Arc<Address>, SimplePool>;
 
 #[derive(Debug)]
 struct RoutingPool {
     pools: MostlyRLock<RoutingPools>,
     wait_cond: Arc<(Mutex<()>, Condvar)>,
     routing_tables: MostlyRLock<RoutingTables>,
+    address: Arc<Address>,
     config: Arc<PoolConfig>,
 }
 
 impl RoutingPool {
-    fn new(config: Arc<PoolConfig>) -> Self {
+    fn new(address: Arc<Address>, config: Arc<PoolConfig>) -> Self {
         assert!(config.routing_context.is_some());
         Self {
             pools: MostlyRLock::new(HashMap::with_capacity(DEFAULT_CLUSTER_SIZE)),
             wait_cond: Arc::new((Mutex::new(()), Condvar::new())),
             routing_tables: MostlyRLock::new(HashMap::new()),
+            address,
             config,
         }
     }
@@ -293,7 +297,7 @@ impl RoutingPool {
 
     fn acquire_routing_address_no_wait(
         &self,
-        target: &Address,
+        target: &Arc<Address>,
     ) -> Option<UnpreparedSinglePooledBolt> {
         let pools = self.ensure_pool_exists(target);
         pools
@@ -302,7 +306,7 @@ impl RoutingPool {
             .acquire_no_wait()
     }
 
-    fn acquire_routing_address(&self, target: &Address) -> Result<SinglePooledBolt> {
+    fn acquire_routing_address(&self, target: &Arc<Address>) -> Result<SinglePooledBolt> {
         let mut connection = None;
         while connection.is_none() {
             connection = {
@@ -314,12 +318,15 @@ impl RoutingPool {
         Ok(connection.expect("loop above asserts existence"))
     }
 
-    fn ensure_pool_exists(&self, target: &Address) -> RwLockReadGuard<RoutingPools> {
+    fn ensure_pool_exists(&self, target: &Arc<Address>) -> RwLockReadGuard<RoutingPools> {
         self.pools
             .maybe_write(
                 |rt| rt.get(target).is_none(),
                 |mut rt| {
-                    rt.insert((*target).clone(), SimplePool::new(Arc::clone(&self.config)));
+                    rt.insert(
+                        Arc::clone(target),
+                        SimplePool::new(Arc::clone(target), Arc::clone(&self.config)),
+                    );
                     Ok(())
                 },
             )
@@ -392,18 +399,18 @@ impl RoutingPool {
         let routers = rt
             .routers
             .iter()
-            .filter(|&r| r != &self.config.address)
+            .filter(|&r| r != &self.address)
             .map(Arc::clone)
             .collect::<Vec<_>>();
         if pref_init_router {
-            new_rt = self.fetch_rt_from_routers(&[&self.config.address], args, rts)?;
+            new_rt = self.fetch_rt_from_routers(&[Arc::clone(&self.address)], args, rts)?;
             if new_rt.is_err() && !routers.is_empty() {
                 new_rt = self.fetch_rt_from_routers(&routers, args, rts)?;
             }
         } else {
             new_rt = self.fetch_rt_from_routers(&routers, args, rts)?;
             if new_rt.is_err() {
-                new_rt = self.fetch_rt_from_routers(&[&self.config.address], args, rts)?;
+                new_rt = self.fetch_rt_from_routers(&[Arc::clone(&self.address)], args, rts)?;
             }
         }
         match new_rt {
@@ -430,14 +437,14 @@ impl RoutingPool {
         }
     }
 
-    fn fetch_rt_from_routers<ADDR: AsRef<Address>>(
+    fn fetch_rt_from_routers(
         &self,
-        routers: &[ADDR],
+        routers: &[Arc<Address>],
         args: UpdateRtArgs,
         rts: &mut RoutingTables,
     ) -> Result<Result<RoutingTable>> {
         let mut last_err = None;
-        for router in routers.iter().map(AsRef::as_ref) {
+        for router in routers {
             if router.is_resolved {
                 match Self::wrap_discovery_error(
                     self.acquire_routing_address(router)
@@ -452,7 +459,7 @@ impl RoutingPool {
                 self.deactivate_server_locked_rts(router, rts);
                 continue;
             };
-                for resolved_address in resolved_addresses {
+                for resolved_address in resolved_addresses.into_iter().map(Arc::new) {
                     match Self::wrap_discovery_error(
                         self.acquire_routing_address(&resolved_address)
                             .and_then(|mut con| self.fetch_rt_from_router(&mut con, args)),
@@ -491,9 +498,7 @@ impl RoutingPool {
                             Ok(new_rt) => res = Some(Ok(new_rt)),
                             Err(e) => {
                                 warn!("failed to parse routing table: {}", e);
-                                res = Some(Err(Neo4jError::ProtocolError {
-                                    message: format!("{}", e),
-                                }));
+                                res = Some(Err(Neo4jError::protocol_error(format!("{}", e))));
                             }
                         }
                         mem::swap(rt.deref().borrow_mut().deref_mut(), &mut res);
@@ -505,13 +510,13 @@ impl RoutingPool {
         con.write_all()?;
         con.read_all()?;
         let rt = Arc::try_unwrap(rt).expect("read_all flushes all ResponseCallbacks");
-        rt.into_inner().ok_or_else(|| Neo4jError::ProtocolError {
-            message: String::from("server did not reply with SUCCESS to ROUTE request"),
+        rt.into_inner().ok_or_else(|| {
+            Neo4jError::protocol_error("server did not reply with SUCCESS to ROUTE request")
         })?
     }
 
     fn empty_rt(&self) -> RoutingTable {
-        RoutingTable::new(Arc::clone(&self.config.address))
+        RoutingTable::new(Arc::clone(&self.address))
     }
 
     fn clean_up_pools(&self, rts: &mut RoutingTables) {

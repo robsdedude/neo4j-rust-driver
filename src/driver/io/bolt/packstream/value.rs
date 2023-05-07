@@ -52,7 +52,7 @@ impl PackStreamSerialize for &ValueSend {
                 bolt.serialize_point_2d(serializer, 4326, v.longitude(), v.latitude())
             }
             ValueSend::WGS84_3D(v) => {
-                bolt.serialize_point_3d(serializer, 4979, v.longitude(), v.latitude(), v.height())
+                bolt.serialize_point_3d(serializer, 4979, v.longitude(), v.latitude(), v.altitude())
             }
         }
     }
