@@ -27,7 +27,7 @@ use super::io::{AcquireConfig, Pool, UpdateRtArgs};
 use super::record_stream::RecordStream;
 use super::transaction::Transaction;
 use crate::driver::io::PooledBolt;
-use crate::driver::{EagerResult,, RoutingControl};
+use crate::driver::{EagerResult, RoutingControl};
 use crate::transaction::InnerTransaction;
 use crate::{Result, ValueSend};
 use bookmarks::Bookmarks;

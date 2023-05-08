@@ -13,8 +13,6 @@
 // limitations under the License.
 
 use std::collections::VecDeque;
-// TODO: should be able to replace ManuallyDrop with Option::take for safe code
-use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -169,23 +167,15 @@ impl Deref for SimplePool {
     }
 }
 
-// while TcpBolt is not Send, the pool asserts that only ever one thread
-// is mutating each connection
-// unsafe impl Send for Pool {}
-// unsafe impl Sync for Pool {}
-
 #[derive(Debug)]
 pub(crate) struct UnpreparedSinglePooledBolt {
     pool: Arc<InnerPool>,
-    bolt: Option<ManuallyDrop<PoolElement>>,
+    bolt: Option<PoolElement>,
 }
 
 impl UnpreparedSinglePooledBolt {
     fn new(bolt: Option<PoolElement>, pool: Arc<InnerPool>) -> Self {
-        Self {
-            pool,
-            bolt: bolt.map(ManuallyDrop::new),
-        }
+        Self { pool, bolt }
     }
 
     pub(crate) fn prepare(mut self) -> Result<Option<SinglePooledBolt>> {
@@ -196,7 +186,7 @@ impl UnpreparedSinglePooledBolt {
                 let connection = self.pool.acquire_new()?;
                 Ok(Some(SinglePooledBolt::new(connection, pool)))
             }
-            Some(bolt) => {
+            Some(_) => {
                 // room for health check etc. (return None of failed health check)
                 Ok(Some(SinglePooledBolt { pool, bolt }))
             }
@@ -206,14 +196,10 @@ impl UnpreparedSinglePooledBolt {
 
 impl Drop for UnpreparedSinglePooledBolt {
     fn drop(&mut self) {
-        let Some(drop_bolt) = &mut self.bolt else {
+        if self.bolt.is_none() {
             return;
-        };
-        // safety: we're not using ManuallyDrop after this call
-        let bolt;
-        unsafe {
-            bolt = ManuallyDrop::take(drop_bolt);
         }
+        let bolt = self.bolt.take().unwrap();
         SimplePool::release(&self.pool, bolt);
     }
 }
@@ -221,25 +207,24 @@ impl Drop for UnpreparedSinglePooledBolt {
 #[derive(Debug)]
 pub(crate) struct SinglePooledBolt {
     pool: Arc<InnerPool>,
-    bolt: ManuallyDrop<PoolElement>,
+    bolt: Option<PoolElement>,
 }
 
 impl SinglePooledBolt {
     fn new(bolt: PoolElement, pool: Arc<InnerPool>) -> Self {
         Self {
             pool,
-            bolt: ManuallyDrop::new(bolt),
+            bolt: Some(bolt),
         }
     }
 }
 
 impl Drop for SinglePooledBolt {
     fn drop(&mut self) {
-        // safety: we're not using ManuallyDrop after this call
-        let bolt;
-        unsafe {
-            bolt = ManuallyDrop::take(&mut self.bolt);
-        }
+        let bolt = self
+            .bolt
+            .take()
+            .expect("bolt option should be Some from init to drop");
         SimplePool::release(&self.pool, bolt);
     }
 }
@@ -248,12 +233,16 @@ impl Deref for SinglePooledBolt {
     type Target = TcpBolt;
 
     fn deref(&self) -> &Self::Target {
-        &self.bolt
+        self.bolt
+            .as_ref()
+            .expect("bolt option should be Some from init to drop")
     }
 }
 
 impl DerefMut for SinglePooledBolt {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.bolt
+        self.bolt
+            .as_mut()
+            .expect("bolt option should be Some from init to drop")
     }
 }

@@ -20,8 +20,6 @@ use itertools::Itertools;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::mem;
-// TODO: should be able to replace ManuallyDrop with Option::take for safe code
-use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Condvar, Mutex, RwLockReadGuard};
 
@@ -41,16 +39,16 @@ const DEFAULT_CLUSTER_SIZE: usize = 7;
 
 #[derive(Debug)]
 pub(crate) struct PooledBolt<'pool> {
-    bolt: ManuallyDrop<SinglePooledBolt>,
+    bolt: Option<SinglePooledBolt>,
     pool: &'pool Pool,
 }
 
 impl<'pool> PooledBolt<'pool> {
     fn wrap_io(&mut self, io_op: fn(&mut TcpBolt) -> Result<()>) -> Result<()> {
-        let was_broken = self.bolt.unexpectedly_closed();
-        let res = io_op(&mut self.bolt);
-        if !was_broken && self.bolt.unexpectedly_closed() {
-            self.pool.deactivate_server(&self.bolt.address())
+        let was_broken = self.deref().unexpectedly_closed();
+        let res = io_op(self);
+        if !was_broken && self.deref().unexpectedly_closed() {
+            self.pool.deactivate_server(&self.deref().address())
         }
         res
     }
@@ -80,23 +78,26 @@ impl<'pool> Deref for PooledBolt<'pool> {
     type Target = SinglePooledBolt;
 
     fn deref(&self) -> &Self::Target {
-        &self.bolt
+        self.bolt
+            .as_ref()
+            .expect("bolt option should be Some from init to drop")
     }
 }
 
 impl<'pool> DerefMut for PooledBolt<'pool> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.bolt
+        self.bolt
+            .as_mut()
+            .expect("bolt option should be Some from init to drop")
     }
 }
 
 impl<'pool> Drop for PooledBolt<'pool> {
     fn drop(&mut self) {
-        // safety: we're not using ManuallyDrop after this call
-        let bolt;
-        unsafe {
-            bolt = ManuallyDrop::take(&mut self.bolt);
-        }
+        let bolt = self
+            .bolt
+            .take()
+            .expect("bolt option should be Some from init to drop");
         match &self.pool.pools {
             Pools::Direct(_) => drop(bolt),
             Pools::Routing(pool) => {
@@ -160,7 +161,7 @@ impl Pool {
 
     pub(crate) fn acquire(&self, args: AcquireConfig) -> Result<PooledBolt> {
         Ok(PooledBolt {
-            bolt: ManuallyDrop::new(match &self.pools {
+            bolt: Some(match &self.pools {
                 Pools::Direct(single_pool) => {
                     let mut connection = None;
                     while connection.is_none() {
