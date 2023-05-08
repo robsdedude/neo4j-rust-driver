@@ -13,16 +13,18 @@
 // limitations under the License.
 
 pub(crate) mod config;
+pub(crate) mod eager_result;
 pub(crate) mod io;
 pub(crate) mod record;
 pub(crate) mod record_stream;
 pub(crate) mod session;
 pub(crate) mod summary;
+pub(crate) mod transaction;
 
 pub use config::{ConnectionConfig, DriverConfig};
-pub use io::bolt::{PackStreamDeserialize, PackStreamSerialize};
 use std::sync::Arc;
 
+pub use eager_result::EagerResult;
 use io::{Pool, PoolConfig};
 pub use record::Record;
 pub use record_stream::RecordStream;
@@ -57,6 +59,15 @@ impl Driver {
 pub enum RoutingControl {
     Read,
     Write,
+}
+
+impl RoutingControl {
+    pub(crate) fn as_protocol_str(&self) -> Option<&'static str> {
+        match self {
+            RoutingControl::Read => Some("r"),
+            RoutingControl::Write => None,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@
 pub(crate) mod bookmarks;
 pub(crate) mod config;
 
-use log::debug;
+use log::{debug, info};
 use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -25,8 +25,10 @@ use std::rc::Rc;
 use super::io::bolt::PackStreamSerialize;
 use super::io::{AcquireConfig, Pool, UpdateRtArgs};
 use super::record_stream::RecordStream;
-use crate::driver::RoutingControl;
-use crate::summary::Summary;
+use super::transaction::Transaction;
+use crate::driver::io::PooledBolt;
+use crate::driver::{EagerResult,, RoutingControl};
+use crate::transaction::InnerTransaction;
 use crate::{Result, ValueSend};
 use bookmarks::Bookmarks;
 pub use config::SessionConfig;
@@ -52,8 +54,8 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
     pub fn auto_commit<'session, Q: AsRef<str>>(
         &'session mut self,
         query: Q,
-    ) -> AutoCommitTransaction<'driver, 'session, C, Q, DefaultMeta, DefaultReceiver> {
-        AutoCommitTransaction::new(self, query)
+    ) -> AutoCommitBuilder<'driver, 'session, C, Q, DefaultMeta, DefaultReceiver> {
+        AutoCommitBuilder::new(self, query)
     }
 
     fn auto_commit_run<
@@ -67,25 +69,14 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         FRes: FnOnce(&mut RecordStream) -> Result<R>,
     >(
         &'session mut self,
-        builder: AutoCommitTransaction<'driver, 'session, C, Q, M, FRes>,
+        builder: AutoCommitBuilder<'driver, 'session, C, Q, M, FRes>,
         parameters: P,
     ) -> Result<R> {
-        self.resolve_db()?;
-        let cx = self.pool.acquire(AcquireConfig {
-            mode: builder.mode,
-            update_rt_args: UpdateRtArgs {
-                db: self.resolved_db(),
-                bookmarks: self.last_raw_bookmarks(),
-                imp_user: &self.config.as_ref().impersonated_user,
-            },
-        })?;
+        let cx = self.acquire_connection(builder.mode)?;
         let mut run_prep = cx.run_prepare(
             builder.query.as_ref(),
             self.last_raw_bookmarks().as_deref(),
-            match builder.mode {
-                RoutingControl::Read => Some("r"),
-                RoutingControl::Write => None,
-            },
+            builder.mode.as_protocol_str(),
             self.resolved_db().as_deref(),
             self.config.as_ref().impersonated_user.as_deref(),
         )?;
@@ -112,8 +103,60 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
                 Err(e)
             }
         };
-        let bookmarks = record_stream.into_bookmark();
-        self.last_bookmarks = bookmarks.map(|bm| vec![bm]);
+        let bookmark = record_stream.into_bookmark();
+        if let Some(bookmark) = bookmark {
+            self.last_bookmarks = Some(vec![bookmark])
+        }
+        res
+    }
+
+    pub fn transaction<'session>(
+        &'session mut self,
+    ) -> TransactionBuilder<'driver, 'session, C, DefaultMeta> {
+        TransactionBuilder::new(self)
+    }
+
+    fn transaction_run<
+        'session,
+        M: Borrow<HashMap<String, ValueSend>>,
+        R,
+        FTx: for<'tx> FnOnce(Transaction<'driver, 'tx>) -> Result<R>,
+    >(
+        &'session mut self,
+        builder: TransactionBuilder<'driver, 'session, C, M>,
+        receiver: FTx,
+    ) -> Result<R> {
+        let connection = self.acquire_connection(builder.mode)?;
+        let mut tx = InnerTransaction::new(connection);
+        tx.begin(
+            self.last_raw_bookmarks().as_deref(),
+            builder.timeout,
+            builder.meta.borrow(),
+            builder.mode.as_protocol_str(),
+            self.resolved_db().as_deref(),
+            self.config.as_ref().impersonated_user.as_deref(),
+        )?;
+        let res = receiver(Transaction::new(&mut tx));
+        let res = match res {
+            Ok(_) => {
+                tx.close()?;
+                res
+            }
+            Err(_) => {
+                if let Err(e) = tx.close() {
+                    info!(
+                        "while propagating user code error: \
+                        ignored tx.close() error in transaction_run: {}",
+                        e
+                    )
+                }
+                res
+            }
+        };
+        let bookmark = tx.into_bookmark();
+        if let Some(bookmark) = bookmark {
+            self.last_bookmarks = Some(vec![bookmark])
+        }
         res
     }
 
@@ -138,6 +181,18 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         }
     }
 
+    fn acquire_connection(&mut self, mode: RoutingControl) -> Result<PooledBolt<'driver>> {
+        self.resolve_db()?;
+        self.pool.acquire(AcquireConfig {
+            mode,
+            update_rt_args: UpdateRtArgs {
+                db: self.resolved_db(),
+                bookmarks: self.last_raw_bookmarks(),
+                imp_user: &self.config.as_ref().impersonated_user,
+            },
+        })
+    }
+
     #[inline]
     fn last_raw_bookmarks(&self) -> &Option<Vec<String>> {
         if self.last_bookmarks.is_some() {
@@ -153,7 +208,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
     }
 }
 
-pub struct AutoCommitTransaction<'driver, 'session, C, Q, M, FRes> {
+pub struct AutoCommitBuilder<'driver, 'session, C, Q, M, FRes> {
     session: Option<&'session mut Session<'driver, C>>,
     query: Q,
     meta: M,
@@ -162,17 +217,24 @@ pub struct AutoCommitTransaction<'driver, 'session, C, Q, M, FRes> {
     receiver: FRes,
 }
 
-fn default_receiver(res: &mut RecordStream) -> Result<Summary> {
-    res.consume().map(|summary| {
+fn default_receiver(res: &mut RecordStream) -> Result<EagerResult> {
+    let keys = res.keys();
+    let records = res.collect::<Result<_>>()?;
+    let summary = res.consume().map(|summary| {
         summary.expect("first call and only applied on successful consume => summary must be Some")
+    })?;
+    Ok(EagerResult {
+        keys,
+        records,
+        summary,
     })
 }
 
-type DefaultReceiver = fn(&mut RecordStream) -> Result<Summary>;
+type DefaultReceiver = fn(&mut RecordStream) -> Result<EagerResult>;
 type DefaultMeta = HashMap<String, ValueSend>;
 
 impl<'driver, 'session, C: AsRef<SessionConfig>, Q: AsRef<str>>
-    AutoCommitTransaction<'driver, 'session, C, Q, DefaultMeta, DefaultReceiver>
+    AutoCommitBuilder<'driver, 'session, C, Q, DefaultMeta, DefaultReceiver>
 {
     fn new(session: &'session mut Session<'driver, C>, query: Q) -> Self {
         Self {
@@ -194,12 +256,12 @@ impl<
         M: Borrow<HashMap<String, ValueSend>>,
         R,
         FRes: FnOnce(&mut RecordStream) -> Result<R>,
-    > AutoCommitTransaction<'driver, 'session, C, Q, M, FRes>
+    > AutoCommitBuilder<'driver, 'session, C, Q, M, FRes>
 {
     pub fn with_tx_meta<M_: Borrow<HashMap<String, ValueSend>>>(
         self,
         meta: M_,
-    ) -> AutoCommitTransaction<'driver, 'session, C, Q, M_, FRes> {
+    ) -> AutoCommitBuilder<'driver, 'session, C, Q, M_, FRes> {
         let Self {
             session,
             query,
@@ -208,7 +270,7 @@ impl<
             mode,
             receiver,
         } = self;
-        AutoCommitTransaction {
+        AutoCommitBuilder {
             session,
             query,
             meta,
@@ -236,7 +298,7 @@ impl<
     pub fn with_receiver<R_, FRes_: FnOnce(&mut RecordStream) -> Result<R_>>(
         self,
         receiver: FRes_,
-    ) -> AutoCommitTransaction<'driver, 'session, C, Q, M, FRes_> {
+    ) -> AutoCommitBuilder<'driver, 'session, C, Q, M, FRes_> {
         let Self {
             session,
             query,
@@ -245,7 +307,7 @@ impl<
             mode,
             receiver: _,
         } = self;
-        AutoCommitTransaction {
+        AutoCommitBuilder {
             session,
             query,
             meta,
@@ -280,7 +342,7 @@ impl<
         Q: AsRef<str>,
         M: Borrow<HashMap<String, ValueSend>>,
         FRes,
-    > Debug for AutoCommitTransaction<'driver, 'session, C, Q, M, FRes>
+    > Debug for AutoCommitBuilder<'driver, 'session, C, Q, M, FRes>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -296,5 +358,67 @@ impl<
             self.timeout,
             self.mode
         )
+    }
+}
+
+pub struct TransactionBuilder<'driver, 'session, C, M> {
+    session: Option<&'session mut Session<'driver, C>>,
+    meta: M,
+    timeout: Option<i64>,
+    mode: RoutingControl,
+}
+
+impl<'driver, 'session, C: AsRef<SessionConfig>>
+    TransactionBuilder<'driver, 'session, C, DefaultMeta>
+{
+    fn new(session: &'session mut Session<'driver, C>) -> Self {
+        Self {
+            session: Some(session),
+            meta: Default::default(),
+            timeout: None,
+            mode: RoutingControl::Write,
+        }
+    }
+}
+
+impl<'driver, 'session, C: AsRef<SessionConfig>, M: Borrow<HashMap<String, ValueSend>>>
+    TransactionBuilder<'driver, 'session, C, M>
+{
+    pub fn with_tx_meta<M_: Borrow<HashMap<String, ValueSend>>>(
+        self,
+        meta: M_,
+    ) -> TransactionBuilder<'driver, 'session, C, M_> {
+        let Self {
+            session,
+            meta: _,
+            timeout,
+            mode,
+        } = self;
+        TransactionBuilder {
+            session,
+            meta,
+            timeout,
+            mode,
+        }
+    }
+
+    pub fn with_tx_timeout(mut self, timeout: i64) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_default_tx_timeout(mut self) -> Self {
+        self.timeout = None;
+        self
+    }
+
+    pub fn with_routing_control(mut self, mode: RoutingControl) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    pub fn run<R, FTx: FnOnce(Transaction) -> Result<R>>(mut self, receiver: FTx) -> Result<R> {
+        let session = self.session.take().unwrap();
+        session.transaction_run(self, receiver)
     }
 }

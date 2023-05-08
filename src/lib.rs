@@ -39,6 +39,9 @@ pub mod spatial {
 pub mod session {
     pub use super::driver::session::*;
 }
+pub mod transaction {
+    pub use super::driver::transaction::*;
+}
 /// Query summary structs (metadata) received via [`driver::RecordStream::consume()`].
 pub mod summary {
     pub use super::driver::summary::*;

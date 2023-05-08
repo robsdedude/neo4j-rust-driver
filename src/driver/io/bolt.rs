@@ -368,6 +368,140 @@ impl<R: Read, W: Write> Bolt<R, W> {
         Ok(())
     }
 
+    pub(crate) fn begin<K: AsRef<str> + Debug, S: PackStreamSerialize>(
+        &mut self,
+        bookmarks: Option<&[String]>,
+        tx_timeout: Option<i64>,
+        tx_metadata: Option<&HashMap<K, S>>,
+        mode: Option<&str>,
+        db: Option<&str>,
+        imp_user: Option<&str>,
+    ) -> Result<()> {
+        debug_buf_start!(log_buf);
+        debug_buf!(log_buf, "C: BEGIN ");
+        let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
+        let mut message_buff = Vec::new();
+        let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
+        let translator = Bolt5x0StructTranslator {};
+        serializer.write_struct_header(0x11, 1)?;
+
+        let extra_size = [
+            bookmarks.is_some() && !bookmarks.unwrap().is_empty(),
+            tx_timeout.is_some(),
+            tx_metadata.is_some() && !tx_metadata.unwrap().is_empty(),
+            mode.is_some() && mode.unwrap() != "w",
+            db.is_some(),
+            imp_user.is_some(),
+        ]
+        .into_iter()
+        .map(<bool as Into<u64>>::into)
+        .sum();
+
+        debug_buf!(log_buf, "{}", {
+            dbg_serializer.write_dict_header(extra_size).unwrap();
+            dbg_serializer.flush()
+        });
+        serializer.write_dict_header(extra_size)?;
+
+        if let Some(bookmarks) = bookmarks {
+            if !bookmarks.is_empty() {
+                debug_buf!(log_buf, "{}", {
+                    dbg_serializer.write_string("bookmarks").unwrap();
+                    bookmarks
+                        .serialize(&mut dbg_serializer, &translator)
+                        .unwrap();
+                    dbg_serializer.flush()
+                });
+                serializer.write_string("bookmarks")?;
+                bookmarks.serialize(&mut serializer, &translator)?;
+            }
+        }
+
+        if let Some(tx_timeout) = tx_timeout {
+            debug_buf!(log_buf, "{}", {
+                dbg_serializer.write_string("tx_timeout").unwrap();
+                dbg_serializer.write_int(tx_timeout).unwrap();
+                dbg_serializer.flush()
+            });
+            serializer.write_string("tx_timeout")?;
+            serializer.write_int(tx_timeout)?;
+        }
+
+        if let Some(tx_metadata) = tx_metadata {
+            if !tx_metadata.is_empty() {
+                debug_buf!(log_buf, "{}", {
+                    dbg_serializer.write_string("tx_metadata").unwrap();
+                    tx_metadata
+                        .serialize(&mut dbg_serializer, &translator)
+                        .unwrap();
+                    dbg_serializer.flush()
+                });
+                serializer.write_string("tx_metadata")?;
+                tx_metadata.serialize(&mut serializer, &translator)?;
+            }
+        }
+
+        if let Some(mode) = mode {
+            debug_buf!(log_buf, "{}", {
+                dbg_serializer.write_string("mode").unwrap();
+                dbg_serializer.write_string(mode).unwrap();
+                dbg_serializer.flush()
+            });
+            serializer.write_string("mode")?;
+            serializer.write_string(mode)?;
+        }
+
+        if let Some(db) = db {
+            debug_buf!(log_buf, "{}", {
+                dbg_serializer.write_string("db").unwrap();
+                dbg_serializer.write_string(db).unwrap();
+                dbg_serializer.flush()
+            });
+            serializer.write_string("db")?;
+            serializer.write_string(db)?;
+        }
+
+        if let Some(imp_user) = imp_user {
+            debug_buf!(log_buf, "{}", {
+                dbg_serializer.write_string("imp_user").unwrap();
+                dbg_serializer.write_string(imp_user).unwrap();
+                dbg_serializer.flush()
+            });
+            serializer.write_string("imp_user")?;
+            serializer.write_string(imp_user)?;
+        }
+
+        self.message_buff.push_back(vec![message_buff]);
+        self.responses
+            .push_back(BoltResponse::from_message(ResponseMessage::Begin));
+        debug_buf_end!(self, log_buf);
+        Ok(())
+    }
+
+    pub(crate) fn commit(&mut self, callbacks: ResponseCallbacks) -> Result<()> {
+        let mut message_buff = Vec::new();
+        let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
+        serializer.write_struct_header(0x12, 0)?;
+
+        self.message_buff.push_back(vec![message_buff]);
+        self.responses
+            .push_back(BoltResponse::new(ResponseMessage::Commit, callbacks));
+        bolt_debug!(self, "C: COMMIT");
+        Ok(())
+    }
+
+    pub(crate) fn rollback(&mut self) -> Result<()> {
+        let mut message_buff = Vec::new();
+        let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
+        serializer.write_struct_header(0x13, 0)?;
+
+        self.message_buff.push_back(vec![message_buff]);
+        self.responses
+            .push_back(BoltResponse::from_message(ResponseMessage::Rollback));
+        bolt_debug!(self, "C: ROLLBACK");
+        Ok(())
+    }
+
     pub(crate) fn route(
         &mut self,
         routing_context: &HashMap<String, ValueSend>,
@@ -684,7 +818,6 @@ impl RunPreparation {
     fn new(
         query: &str,
         bookmarks: Option<&[String]>,
-        // tx_timeout: Option<i64>,
         mode: Option<&str>,
         db: Option<&str>,
         imp_user: Option<&str>,

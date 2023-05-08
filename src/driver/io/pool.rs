@@ -20,6 +20,7 @@ use itertools::Itertools;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::mem;
+// TODO: should be able to replace ManuallyDrop with Option::take for safe code
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Condvar, Mutex, RwLockReadGuard};
