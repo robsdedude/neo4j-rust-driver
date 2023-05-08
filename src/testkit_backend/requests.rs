@@ -19,6 +19,7 @@ use std::collections::HashMap;
 
 use crate::driver::{ConnectionConfig, DriverConfig, RoutingControl};
 use crate::session::SessionConfig;
+use crate::ValueSend;
 
 use super::cypher_value::CypherValue;
 use super::driver_holder::{CloseSession, DriverHolder, NewSession};
@@ -134,25 +135,25 @@ pub(crate) enum Request {
         query: String,
         params: Option<HashMap<String, CypherValue>>,
         tx_meta: Option<HashMap<String, CypherValue>>,
-        timeout: Option<u64>,
+        timeout: Option<i64>,
     },
     #[serde(rename_all = "camelCase")]
     SessionReadTransaction {
         session_id: BackendId,
         tx_meta: Option<HashMap<String, CypherValue>>,
-        timeout: Option<u64>,
+        timeout: Option<i64>,
     },
     #[serde(rename_all = "camelCase")]
     SessionWriteTransaction {
         session_id: BackendId,
         tx_meta: Option<HashMap<String, CypherValue>>,
-        timeout: Option<u64>,
+        timeout: Option<i64>,
     },
     #[serde(rename_all = "camelCase")]
     SessionBeginTransaction {
         session_id: BackendId,
         tx_meta: Option<HashMap<String, CypherValue>>,
-        timeout: Option<u64>,
+        timeout: Option<i64>,
     },
     #[serde(rename_all = "camelCase")]
     SessionLastBookmarks {
@@ -576,13 +577,9 @@ impl Request {
         let Some(&driver_id) = backend.session_id_to_driver_id.get(&session_id) else {
             return Err(TestKitError::backend_err(format!("Unknown session id {} in backend", session_id)));
         };
-        let params = params
-            .map(|params| {
-                params
-                    .into_iter()
-                    .map(|(k, v)| Ok::<_, TestKitError>((k, v.try_into()?)))
-                    .collect::<Result<_, _>>()
-            })
+        let params = params.map(cypher_value_map_to_value_send_map).transpose()?;
+        let tx_meta = tx_meta
+            .map(cypher_value_map_to_value_send_map)
             .transpose()?;
         let (result_id, keys) = backend
             .drivers
@@ -592,8 +589,8 @@ impl Request {
                 session_id,
                 query,
                 params,
-                tx_meta: None,
-                timeout: None,
+                tx_meta,
+                timeout,
             })
             .result?;
         backend.result_id_to_driver_id.insert(result_id, driver_id);
@@ -673,4 +670,12 @@ fn set_auth(mut config: DriverConfig, auth: TestKitAuth) -> Result<DriverConfig,
         _ => return Err(TestKitError::backend_err("unsupported scheme")),
     }
     Ok(config)
+}
+
+fn cypher_value_map_to_value_send_map(
+    map: HashMap<String, CypherValue>,
+) -> Result<HashMap<String, ValueSend>, TestKitError> {
+    map.into_iter()
+        .map(|(k, v)| Ok::<_, TestKitError>((k, v.try_into()?)))
+        .collect::<Result<_, _>>()
 }

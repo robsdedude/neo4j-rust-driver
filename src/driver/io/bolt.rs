@@ -411,11 +411,13 @@ impl<R: Read, W: Write> Bolt<R, W> {
         if let Some(db) = db {
             sep = ", ";
             debug_buf!(log_buf, "\"db\": {:?}", db);
+            serializer.write_string("db")?;
             serializer.write_string(db)?;
         }
 
         if let Some(imp_user) = imp_user {
             debug_buf!(log_buf, "{}\"imp_user\": {:?}", sep, imp_user);
+            serializer.write_string("imp_user")?;
             serializer.write_string(imp_user)?;
         }
         debug_buf!(log_buf, "}}");

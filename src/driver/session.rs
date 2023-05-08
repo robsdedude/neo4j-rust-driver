@@ -87,7 +87,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
                 RoutingControl::Write => None,
             },
             self.resolved_db().as_deref(),
-            None,
+            self.config.as_ref().impersonated_user.as_deref(),
         )?;
         if !builder.meta.borrow().is_empty() {
             run_prep.with_tx_meta(builder.meta.borrow())?;

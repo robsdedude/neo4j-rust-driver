@@ -130,13 +130,14 @@ impl SessionHolderRunner {
                     timeout,
                 }) => {
                     let mut auto_commit = session.auto_commit(query);
-                    let mut started_receiver = false;
+                    auto_commit = auto_commit.with_routing_control(self.auto_commit_access_mode);
                     if let Some(timeout) = timeout {
                         auto_commit = auto_commit.with_tx_timeout(timeout);
                     }
                     if let Some(tx_meta) = tx_meta {
                         auto_commit = auto_commit.with_tx_meta(tx_meta)
                     }
+                    let mut started_receiver = false;
                     let auto_commit = {
                         let started_receiver = &mut started_receiver;
                         let record_buffers = &mut self.record_buffers;
@@ -158,8 +159,8 @@ impl SessionHolderRunner {
                                 let _ = buffered_command
                                     .get_or_insert_with(|| self.rx_req.recv().unwrap());
                                 match buffered_command.take().unwrap() {
-                                    Command::ResultNext(ResultNext { result_id: res_id })
-                                        if res_id == id =>
+                                    Command::ResultNext(ResultNext { result_id })
+                                        if result_id == id =>
                                     {
                                         self.tx_res
                                             .send(
@@ -170,11 +171,15 @@ impl SessionHolderRunner {
                                             )
                                             .unwrap();
                                     }
-                                    Command::ResultNext(ResultNext { result_id: res_id }) => {
-                                        Self::send_record_from_buffer(record_buffers, id, tx_res)
+                                    Command::ResultNext(ResultNext { result_id }) => {
+                                        Self::send_record_from_buffer(
+                                            record_buffers,
+                                            result_id,
+                                            tx_res,
+                                        )
                                     }
-                                    Command::ResultConsume(ResultConsume { result_id: res_id })
-                                        if res_id == id =>
+                                    Command::ResultConsume(ResultConsume { result_id })
+                                        if result_id == id =>
                                     {
                                         record_buffers.get_mut(&id).unwrap().buffer(stream);
                                         Self::send_summary_from_buffer(record_buffers, id, tx_res);
