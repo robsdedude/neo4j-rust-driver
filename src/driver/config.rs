@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::Path;
+use std::result;
 
 use openssl::error::ErrorStack;
 #[cfg(not(test))]
@@ -29,12 +30,14 @@ use crate::address::DEFAULT_PORT;
 use crate::{Address, Neo4jError, Result, ValueSend};
 
 const DEFAULT_USER_AGENT: &str = env!("NEO4J_DEFAULT_USER_AGENT");
+pub(crate) const DEFAULT_FETCH_SIZE: i64 = 1000;
 
 #[derive(Debug)]
 pub struct DriverConfig {
     pub(crate) user_agent: String,
     pub(crate) auth: HashMap<String, ValueSend>, // max_connection_lifetime
     pub(crate) max_connection_pool_size: usize,
+    pub(crate) fetch_size: i64,
     // connection_timeout
     // trust
     // resolver
@@ -57,6 +60,7 @@ impl Default for DriverConfig {
             user_agent: String::from(DEFAULT_USER_AGENT),
             auth: HashMap::new(),
             max_connection_pool_size: 100,
+            fetch_size: DEFAULT_FETCH_SIZE,
         }
     }
 }
@@ -86,6 +90,30 @@ impl DriverConfig {
 
     pub fn with_max_connection_pool_size(mut self, max_connection_pool_size: usize) -> Self {
         self.max_connection_pool_size = max_connection_pool_size;
+        self
+    }
+
+    /// fetch_size must be <= i64::MAX
+    pub fn with_fetch_size(
+        mut self,
+        fetch_size: u64,
+    ) -> result::Result<Self, ConfigureFetchSizeError<Self>> {
+        match i64::try_from(fetch_size) {
+            Ok(fetch_size) => {
+                self.fetch_size = fetch_size;
+                Ok(self)
+            }
+            Err(_) => Err(ConfigureFetchSizeError { builder: self }),
+        }
+    }
+
+    pub fn with_fetch_all(mut self) -> Self {
+        self.fetch_size = -1;
+        self
+    }
+
+    pub fn with_default_fetch_size(mut self) -> Self {
+        self.fetch_size = DEFAULT_FETCH_SIZE;
         self
     }
 }
@@ -587,4 +615,10 @@ mod tests {
         let connection_config = connection_config.unwrap();
         assert_eq!(connection_config.routing_context, Some(routing_context));
     }
+}
+
+#[derive(Debug, Error)]
+#[error("fetch size must be <= i64::MAX")]
+pub struct ConfigureFetchSizeError<Builder> {
+    pub builder: Builder,
 }

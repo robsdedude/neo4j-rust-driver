@@ -21,7 +21,7 @@ pub(crate) mod session;
 pub(crate) mod summary;
 pub mod transaction;
 
-pub use config::{ConnectionConfig, DriverConfig};
+pub use config::{ConfigureFetchSizeError, ConnectionConfig, DriverConfig};
 use std::sync::Arc;
 
 pub use eager_result::EagerResult;
@@ -31,7 +31,7 @@ use session::{Session, SessionConfig};
 
 #[derive(Debug)]
 pub struct Driver {
-    // pub(crate) config: DriverConfig,
+    pub(crate) config: ReducedDriverConfig,
     pub(crate) pool: Pool,
 }
 
@@ -44,14 +44,21 @@ impl Driver {
             max_connection_pool_size: config.max_connection_pool_size,
         };
         Driver {
-            // config,
+            config: ReducedDriverConfig {
+                fetch_size: config.fetch_size,
+            },
             pool: Pool::new(Arc::new(connection_config.address), pool_config),
         }
     }
 
     pub fn session<C: AsRef<SessionConfig>>(&self, config: C) -> Session<C> {
-        Session::new(config, &self.pool)
+        Session::new(config, &self.pool, &self.config)
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct ReducedDriverConfig {
+    pub(crate) fetch_size: i64,
 }
 
 #[derive(Debug, Copy, Clone)]

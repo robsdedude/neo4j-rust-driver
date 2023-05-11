@@ -56,7 +56,7 @@ pub(crate) enum Request {
         #[serde(rename = "domainNameResolverRegistered")]
         dns_registered: Option<bool>,
         connection_timeout_ms: Option<u64>,
-        fetch_size: Option<usize>,
+        fetch_size: Option<i64>,
         max_tx_retry_time_ms: Option<u64>,
         liveness_check_timeout_ms: Option<u64>,
         max_connection_pool_size: Option<usize>,
@@ -121,7 +121,7 @@ pub(crate) enum Request {
         access_mode: RequestAccessMode,
         bookmarks: Option<Vec<String>>,
         database: Option<String>,
-        fetch_size: Option<u64>,
+        fetch_size: Option<i64>,
         impersonated_user: Option<String>,
         notifications_min_severity: Option<String>,
         notifications_disabled_categories: Option<Vec<String>>,
@@ -453,8 +453,16 @@ impl Request {
         if connection_timeout_ms.is_some() {
             return Err(TestKitError::backend_err("connection timeout unsupported"));
         }
-        if fetch_size.is_some() {
-            return Err(TestKitError::backend_err("fetch size unsupported"));
+        if let Some(fetch_size) = fetch_size {
+            if fetch_size == -1 {
+                driver_config = driver_config.with_fetch_all();
+            } else if fetch_size > 0 {
+                driver_config = driver_config.with_fetch_size(fetch_size as u64).unwrap();
+            } else {
+                return Err(TestKitError::backend_err(
+                    "fetch size must be positive or -1",
+                ));
+            }
         }
         if max_tx_retry_time_ms.is_some() {
             return Err(TestKitError::backend_err("max tx retry time unsupported"));
@@ -529,9 +537,14 @@ impl Request {
             config = config.with_database(database);
         }
         if let Some(fetch_size) = fetch_size {
-            config = match config.with_fetch_size(fetch_size) {
-                Ok(config) => config,
-                Err(e) => return Err(e.into()),
+            if fetch_size == -1 {
+                config = config.with_fetch_all();
+            } else if fetch_size > 0 {
+                config = config.with_fetch_size(fetch_size as u64).unwrap();
+            } else {
+                return Err(TestKitError::backend_err(
+                    "fetch size must be positive or -1",
+                ));
             }
         }
         if let Some(imp_user) = impersonated_user {

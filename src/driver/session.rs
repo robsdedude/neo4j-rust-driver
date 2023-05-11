@@ -30,25 +30,31 @@ use super::io::{AcquireConfig, Pool, UpdateRtArgs};
 use super::record_stream::RecordStream;
 use super::transaction::Transaction;
 use crate::driver::io::PooledBolt;
-use crate::driver::{EagerResult, RoutingControl};
+use crate::driver::{EagerResult, ReducedDriverConfig, RoutingControl};
 use crate::transaction::InnerTransaction;
 use crate::{Result, ValueSend};
 use bookmarks::Bookmarks;
-pub use config::{ConfigureFetchSizeError, SessionConfig};
+pub use config::SessionConfig;
 
 #[derive(Debug)]
 pub struct Session<'driver, C> {
     config: C,
     pool: &'driver Pool,
+    driver_config: &'driver ReducedDriverConfig,
     resolved_db: Option<String>,
     last_bookmarks: Option<Vec<String>>,
 }
 
 impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
-    pub(crate) fn new(config: C, pool: &'driver Pool) -> Self {
+    pub(crate) fn new(
+        config: C,
+        pool: &'driver Pool,
+        driver_config: &'driver ReducedDriverConfig,
+    ) -> Self {
         Session {
             config,
             pool,
+            driver_config,
             resolved_db: None,
             last_bookmarks: None,
         }
@@ -92,12 +98,8 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         if let Some(timeout) = builder.timeout {
             run_prep.with_tx_timeout(timeout)?;
         }
-        let mut record_stream = RecordStream::new(
-            Rc::new(RefCell::new(cx)),
-            self.config.as_ref().fetch_size,
-            true,
-            None,
-        );
+        let mut record_stream =
+            RecordStream::new(Rc::new(RefCell::new(cx)), self.fetch_size(), true, None);
         let res = record_stream
             .run(run_prep)
             .and_then(|_| (builder.receiver)(&mut record_stream));
@@ -135,7 +137,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         receiver: FTx,
     ) -> Result<R> {
         let connection = self.acquire_connection(builder.mode)?;
-        let mut tx = InnerTransaction::new(connection, self.config.as_ref().fetch_size);
+        let mut tx = InnerTransaction::new(connection, self.fetch_size());
         tx.begin(
             self.last_raw_bookmarks().as_deref(),
             builder.timeout,
@@ -213,6 +215,14 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
     #[inline]
     pub fn last_bookmarks(&self) -> Bookmarks {
         Bookmarks::from_raw(self.last_raw_bookmarks().clone().unwrap_or_default())
+    }
+
+    #[inline]
+    fn fetch_size(&self) -> i64 {
+        self.config
+            .as_ref()
+            .fetch_size
+            .unwrap_or(self.driver_config.fetch_size)
     }
 }
 

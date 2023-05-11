@@ -15,7 +15,8 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
-use crate::session::{ConfigureFetchSizeError, ConfigureTimeoutError};
+use crate::driver::ConfigureFetchSizeError;
+use crate::session::ConfigureTimeoutError;
 use crate::Neo4jError;
 
 use super::cypher_value::{BrokenValueError, NotADriverValueError};
