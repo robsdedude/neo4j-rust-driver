@@ -29,7 +29,7 @@ pub struct Summary {
     pub notifications: Option<Vec<Notification>>,
     pub profile: Option<Profile>,
     pub plan: Option<Plan>,
-    pub query_type: SummaryQueryType,
+    pub query_type: Option<SummaryQueryType>,
     pub database: Option<String>,
     pub server_info: ServerInfo,
 }
@@ -77,7 +77,7 @@ impl Summary {
             let ValueReceive::String(query_type) = query_type else {
                 return Err(Neo4jError::protocol_error(format!("type in summary was not string but {:?}", query_type)))
             };
-            self.query_type = match query_type.as_str() {
+            self.query_type = Some(match query_type.as_str() {
                 "r" => SummaryQueryType::Read,
                 "w" => SummaryQueryType::Write,
                 "rw" => SummaryQueryType::ReadWrite,
@@ -88,9 +88,7 @@ impl Summary {
                         query_type
                     )))
                 }
-            };
-        } else {
-            return Err(Neo4jError::protocol_error("type in summary missing"));
+            });
         }
         if let Some(db) = meta.remove("db") {
             let ValueReceive::String(db) = db else {

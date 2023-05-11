@@ -98,6 +98,7 @@ impl BoltStateTracker {
         match self.state {
             BoltState::Ready => self.state = BoltState::Streaming,
             BoltState::TxReady => self.state = BoltState::TxMaybeStreaming,
+            BoltState::TxMaybeStreaming => {} // stay in same state
             _ => panic!("unexpected run for {:?}", self),
         }
     }

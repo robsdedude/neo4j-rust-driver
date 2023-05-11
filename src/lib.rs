@@ -32,7 +32,6 @@ pub use value::ValueSend;
 pub mod bookmarks {
     pub use super::driver::session::bookmarks::*;
 }
-
 pub mod spatial {
     pub use super::value::spatial::*;
 }

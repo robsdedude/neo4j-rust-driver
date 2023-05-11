@@ -16,10 +16,10 @@ pub(crate) mod config;
 pub(crate) mod eager_result;
 pub(crate) mod io;
 pub(crate) mod record;
-pub(crate) mod record_stream;
+pub mod record_stream;
 pub(crate) mod session;
 pub(crate) mod summary;
-pub(crate) mod transaction;
+pub mod transaction;
 
 pub use config::{ConnectionConfig, DriverConfig};
 use std::sync::Arc;
@@ -27,7 +27,6 @@ use std::sync::Arc;
 pub use eager_result::EagerResult;
 use io::{Pool, PoolConfig};
 pub use record::Record;
-pub use record_stream::RecordStream;
 use session::{Session, SessionConfig};
 
 #[derive(Debug)]

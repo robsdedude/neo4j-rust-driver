@@ -15,12 +15,15 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
+use std::iter::FusedIterator;
 use std::mem;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::result;
+use std::sync::{Arc, Weak};
 
 use atomic_refcell::AtomicRefCell;
 use duplicate::duplicate_item;
+use thiserror::Error;
 
 use super::io::bolt::{BoltMeta, BoltRecordFields, ResponseCallbacks, RunPreparation};
 use super::summary::Summary;
@@ -32,34 +35,45 @@ use crate::{Neo4jError, Result, ValueReceive};
 #[derive(Debug)]
 pub struct RecordStream<'driver> {
     connection: Rc<RefCell<PooledBolt<'driver>>>,
+    fetch_size: i64,
     auto_commit: bool,
     listener: Arc<AtomicRefCell<RecordListener>>,
 }
 
 impl<'driver> RecordStream<'driver> {
-    pub(crate) fn new(connection: Rc<RefCell<PooledBolt<'driver>>>, auto_commit: bool) -> Self {
+    pub(crate) fn new(
+        connection: Rc<RefCell<PooledBolt<'driver>>>,
+        fetch_size: i64,
+        auto_commit: bool,
+        error_propagator: Option<SharedErrorPropagator>,
+    ) -> Self {
         let listener = Arc::new(AtomicRefCell::new(RecordListener::new(
             &connection.borrow(),
+            error_propagator.as_ref().map(Arc::clone),
         )));
+        if let Some(error_propagator) = error_propagator {
+            error_propagator
+                .borrow_mut()
+                .add_listener(Arc::downgrade(&listener));
+        }
         Self {
             connection,
+            fetch_size,
             auto_commit,
             listener,
         }
     }
 
     pub(crate) fn run(&mut self, run_prep: RunPreparation) -> Result<()> {
+        if let RecordListenerState::ForeignError(e) = &self.listener.borrow().state {
+            return Err(ServerError::new(String::from(e.code()), String::from(e.message())).into());
+        }
+
+        let mut callbacks = self.failure_callbacks();
         let listener = Arc::downgrade(&self.listener);
-        let mut callbacks = ResponseCallbacks::new().with_on_success(move |meta| {
+        callbacks = callbacks.with_on_success(move |meta| {
             if let Some(listener) = listener.upgrade() {
                 return listener.borrow_mut().run_success_cb(meta);
-            }
-            Ok(())
-        });
-        let listener = Arc::downgrade(&self.listener);
-        callbacks = callbacks.with_on_failure(move |meta| {
-            if let Some(listener) = listener.upgrade() {
-                return listener.borrow_mut().failure_cb(meta);
             }
             Ok(())
         });
@@ -81,6 +95,18 @@ impl<'driver> RecordStream<'driver> {
             listener.state = RecordListenerState::Done;
             return Err(self.failed_commit(e));
         };
+
+        {
+            let state = &mut self.listener.borrow_mut().state;
+            if let RecordListenerState::Error(_) = state {
+                let mut state_swap = RecordListenerState::Done;
+                mem::swap(state, &mut state_swap);
+                match state_swap {
+                    RecordListenerState::Error(e) => return Err(self.failed_commit(e)),
+                    _ => panic!("checked state to be error above"),
+                }
+            }
+        }
         if let Err(err) = self.connection.borrow_mut().read_all() {
             self.listener.borrow_mut().state = RecordListenerState::Error(self.failed_commit(err));
         }
@@ -95,16 +121,10 @@ impl<'driver> RecordStream<'driver> {
     ///
     /// Returns [`None`] if
     ///  * [`RecordStream::consume()`] has been called before or
-    ///  * there was an error (earlier) while processing the [`RecordStream`].
+    ///  * there was an error (earlier) other than `GetSingleRecordError`
+    ///    while processing the [`RecordStream`].
     pub fn consume(&mut self) -> Result<Option<Summary>> {
-        if self.listener.borrow().state.is_streaming() {
-            let mut listener = self.listener.borrow_mut();
-            listener.buffer.clear();
-            listener.state = RecordListenerState::Discarding;
-        }
-
-        let res = self.try_for_each(|e| e.map(drop));
-        self.wrap_commit(res)?;
+        self.exhaust()?;
 
         Ok(self.listener.borrow_mut().summary.take())
     }
@@ -124,6 +144,33 @@ impl<'driver> RecordStream<'driver> {
             .collect()
     }
 
+    /// Exhausts the stream and returns a single record.
+    /// If any error occurs while consuming the stream, the error is returned as `Ok(Err(error))`.
+    /// If consumption is successful return `Ok(Ok(record))` if exactly one record was consumed.
+    /// If more or less records were found, `Err(GetSingleRecordError)` is returned.
+    ///
+    /// TODO: examples
+    ///  * successful single
+    ///  * failing, wrong number
+    ///  * failing, wrong number and stream error (show precedence)
+    pub fn single(&mut self) -> result::Result<Result<Record>, GetSingleRecordError> {
+        let next = self.next();
+        match next {
+            Some(Ok(record)) => {
+                if self.next().is_some() {
+                    match self.consume() {
+                        Ok(_) => Err(GetSingleRecordError::TooManyRecords),
+                        Err(e) => Ok(Err(e)),
+                    }
+                } else {
+                    Ok(Ok(record))
+                }
+            }
+            Some(Err(e)) => Ok(Err(e)),
+            None => Err(GetSingleRecordError::NoRecords),
+        }
+    }
+
     pub(crate) fn into_bookmark(self) -> Option<String> {
         Arc::try_unwrap(self.listener)
             .unwrap()
@@ -131,22 +178,24 @@ impl<'driver> RecordStream<'driver> {
             .bookmark
     }
 
+    fn exhaust(&mut self) -> Result<()> {
+        if self.listener.borrow().state.is_streaming() {
+            let mut listener = self.listener.borrow_mut();
+            listener.buffer.clear();
+            listener.state = RecordListenerState::Discarding;
+        }
+
+        let res = self.try_for_each(|e| e.map(drop));
+        self.wrap_commit(res)?;
+
+        Ok(())
+    }
+
     fn pull(&mut self, flush: bool) -> Result<()> {
-        let listener = Arc::downgrade(&self.listener);
-        let mut callbacks = ResponseCallbacks::new().with_on_success(move |meta| {
-            if let Some(listener) = listener.upgrade() {
-                return listener.borrow_mut().pull_success_cb(meta);
-            }
-            Ok(())
-        });
-        let listener = Arc::downgrade(&self.listener);
-        callbacks = callbacks.with_on_record(move |data| {
-            if let Some(listener) = listener.upgrade() {
-                return listener.borrow_mut().record_cb(data);
-            }
-            Ok(())
-        });
-        self.connection.borrow_mut().pull(1000, -1, callbacks)?;
+        let callbacks = self.pull_callbacks();
+        self.connection
+            .borrow_mut()
+            .pull(self.fetch_size, self.qid(), callbacks)?;
         if flush {
             self.connection.borrow_mut().write_all()?;
             let res = self.connection.borrow_mut().read_all();
@@ -156,20 +205,62 @@ impl<'driver> RecordStream<'driver> {
     }
 
     fn discard(&mut self, flush: bool) -> Result<()> {
-        let listener = Arc::downgrade(&self.listener);
-        let callbacks = ResponseCallbacks::new().with_on_success(move |meta| {
-            if let Some(listener) = listener.upgrade() {
-                return listener.borrow_mut().pull_success_cb(meta);
-            }
-            Ok(())
-        });
-        self.connection.borrow_mut().discard(-1, -1, callbacks)?;
+        let callbacks = self.discard_callbacks();
+        self.connection
+            .borrow_mut()
+            .discard(-1, self.qid(), callbacks)?;
         if flush {
             self.connection.borrow_mut().write_all()?;
             let res = self.connection.borrow_mut().read_all();
             self.wrap_commit(res)?;
         }
         Ok(())
+    }
+
+    fn pull_callbacks(&self) -> ResponseCallbacks {
+        let callbacks = self.discard_callbacks();
+        let listener = Arc::downgrade(&self.listener);
+        callbacks.with_on_record(move |data| {
+            if let Some(listener) = listener.upgrade() {
+                return listener.borrow_mut().record_cb(data);
+            }
+            Ok(())
+        })
+    }
+
+    fn discard_callbacks(&self) -> ResponseCallbacks {
+        let callbacks = self.failure_callbacks();
+        let listener = Arc::downgrade(&self.listener);
+        callbacks.with_on_success(move |meta| {
+            if let Some(listener) = listener.upgrade() {
+                return listener.borrow_mut().pull_success_cb(meta);
+            }
+            Ok(())
+        })
+    }
+
+    fn failure_callbacks(&self) -> ResponseCallbacks {
+        let mut callbacks = ResponseCallbacks::new();
+        let listener = Arc::downgrade(&self.listener);
+        callbacks = callbacks.with_on_failure(move |meta| {
+            if let Some(listener) = listener.upgrade() {
+                return listener
+                    .borrow_mut()
+                    .failure_cb(Arc::downgrade(&listener), meta);
+            }
+            Ok(())
+        });
+        let listener = Arc::downgrade(&self.listener);
+        callbacks.with_on_ignored(move || {
+            if let Some(listener) = listener.upgrade() {
+                return listener.borrow_mut().ignored_cb();
+            }
+            Ok(())
+        })
+    }
+
+    fn qid(&self) -> i64 {
+        self.listener.borrow().qid.unwrap_or(-1)
     }
 
     fn failed_commit(&self, err: Neo4jError) -> Neo4jError {
@@ -207,11 +298,19 @@ impl<'driver> Iterator for RecordStream<'driver> {
             }
             if need_to_pull(&self.listener) {
                 if let Err(err) = self.pull(true) {
-                    self.listener.borrow_mut().set_error(err);
+                    self.listener
+                        .borrow_mut()
+                        .set_error(self.failed_commit(err));
+                } else {
+                    continue;
                 }
             } else if need_to_discard(&self.listener) {
                 if let Err(err) = self.discard(true) {
-                    self.listener.borrow_mut().set_error(err);
+                    self.listener
+                        .borrow_mut()
+                        .set_error(self.failed_commit(err));
+                } else {
+                    continue;
                 }
             }
             let mut listener = self.listener.borrow_mut();
@@ -224,6 +323,25 @@ impl<'driver> Iterator for RecordStream<'driver> {
                         _ => panic!("checked state to be error above"),
                     }
                 }
+                RecordListenerState::ForeignError(_) => {
+                    let mut state = RecordListenerState::Done;
+                    mem::swap(&mut listener.state, &mut state);
+                    match state {
+                        RecordListenerState::ForeignError(e) => {
+                            return Some(Err(ServerError::new(
+                                String::from(e.code()),
+                                String::from(e.message()),
+                            )
+                            .into()))
+                        }
+                        _ => panic!("checked state to be foreign error above"),
+                    }
+                }
+                RecordListenerState::Ignored => {
+                    let mut state = RecordListenerState::Done;
+                    mem::swap(&mut listener.state, &mut state);
+                    return Some(Err(Neo4jError::protocol_error("record stream was ignored")));
+                }
                 RecordListenerState::Done => return None,
                 _ => {}
             }
@@ -231,21 +349,28 @@ impl<'driver> Iterator for RecordStream<'driver> {
     }
 }
 
+impl<'driver> FusedIterator for RecordStream<'driver> {}
+
 #[derive(Debug)]
 enum RecordListenerState {
     Streaming,
     Discarding,
     Error(Neo4jError),
+    /// another result stream of the same transaction has failed
+    ForeignError(Arc<ServerError>),
+    Ignored,
     Done,
 }
 
 impl RecordListenerState {
     #[duplicate_item(
-        fn_name            variant;
-        [ is_streaming ]   [ Streaming ];
-        [ is_discarding ]  [ Discarding ];
-        [ is_error ]       [ Error(_) ];
-        [ is_done ]        [ Done ];
+        fn_name               variant;
+        [ is_streaming ]      [ Streaming ];
+        [ is_discarding ]     [ Discarding ];
+        [ is_error ]          [ Error(_) ];
+        [ is_foreign_error ]  [ ForeignError(_) ];
+        [ is_ignored ]        [ Ignored ];
+        [ is_done ]           [ Done ];
     )]
     pub fn fn_name(&self) -> bool {
         matches!(self, RecordListenerState::variant)
@@ -256,30 +381,37 @@ impl RecordListenerState {
 struct RecordListener {
     buffer: VecDeque<Record>,
     keys: Option<Vec<Arc<String>>>,
+    qid: Option<i64>,
     state: RecordListenerState,
     summary: Option<Summary>,
     bookmark: Option<String>,
+    error_propagator: Option<SharedErrorPropagator>,
 }
 
 impl RecordListener {
-    fn new(connection: &PooledBolt) -> Self {
+    fn new(connection: &PooledBolt, error_propagator: Option<SharedErrorPropagator>) -> Self {
         let summary = Summary::new(connection);
         Self {
             buffer: VecDeque::new(),
             keys: None,
+            qid: None,
             state: RecordListenerState::Streaming,
             summary: Some(summary),
             bookmark: None,
+            error_propagator,
         }
     }
-}
 
-impl RecordListener {
     fn run_success_cb(&mut self, mut meta: BoltMeta) -> Result<()> {
         if self.keys.is_some() {
             return Ok(());
         }
-        // TODO: qid (when transaction support)
+        if let Some(qid) = meta.remove("qid") {
+            let ValueReceive::Integer(qid) = qid else {
+                return Err(Neo4jError::protocol_error("SUCCESS after RUN 'qid' was not an integer"))
+            };
+            self.qid = Some(qid);
+        }
         let Some(fields) = meta.remove("fields") else {
             return Err(Neo4jError::protocol_error("SUCCESS after RUN did not contain 'fields'"));
         };
@@ -303,8 +435,18 @@ impl RecordListener {
         Ok(())
     }
 
-    fn failure_cb(&mut self, meta: BoltMeta) -> Result<()> {
-        self.state = RecordListenerState::Error(ServerError::from_meta(meta).into());
+    fn failure_cb(&mut self, me: Weak<AtomicRefCell<Self>>, meta: BoltMeta) -> Result<()> {
+        let error = ServerError::from_meta(meta);
+        if let Some(error_propagator) = &self.error_propagator {
+            error_propagator.borrow_mut().propagate_error(me, &error);
+        }
+        self.state = RecordListenerState::Error(error.into());
+        self.summary = None;
+        Ok(())
+    }
+
+    fn ignored_cb(&mut self) -> Result<()> {
+        self.state = RecordListenerState::Ignored;
         self.summary = None;
         Ok(())
     }
@@ -342,5 +484,79 @@ impl RecordListener {
     fn set_error(&mut self, error: Neo4jError) {
         self.state = RecordListenerState::Error(error);
         self.summary = None
+    }
+
+    fn set_foreign_error(&mut self, error: Arc<ServerError>) {
+        self.state = RecordListenerState::ForeignError(error);
+        self.summary = None
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct ErrorPropagator {
+    listeners: Vec<Weak<AtomicRefCell<RecordListener>>>,
+    error: Option<Arc<ServerError>>,
+}
+
+impl ErrorPropagator {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    fn add_listener(&mut self, listener: Weak<AtomicRefCell<RecordListener>>) {
+        if let Some(error) = &self.error {
+            if let Some(listener) = listener.upgrade() {
+                listener.borrow_mut().set_foreign_error(Arc::clone(error));
+            } else {
+                // no need to add a dead listener anyway
+                return;
+            }
+        }
+        self.listeners.push(listener);
+    }
+
+    fn propagate_error(
+        &mut self,
+        source: Weak<AtomicRefCell<RecordListener>>,
+        error: &ServerError,
+    ) {
+        let error = Arc::new(ServerError::new(
+            String::from(error.code()),
+            format!(
+                "failure in a query of this transaction caused transaction to be closed: {}",
+                error.message()
+            ),
+        ));
+        for listener in self.listeners.iter() {
+            if source.ptr_eq(listener) {
+                continue;
+            }
+            if let Some(listener) = listener.upgrade() {
+                listener.borrow_mut().set_foreign_error(Arc::clone(&error));
+            }
+        }
+        self.error = Some(error);
+    }
+
+    pub(crate) fn error(&self) -> &Option<Arc<ServerError>> {
+        &self.error
+    }
+}
+
+pub(crate) type SharedErrorPropagator = Arc<AtomicRefCell<ErrorPropagator>>;
+
+#[derive(Debug, Error)]
+pub enum GetSingleRecordError {
+    #[error("no records were found")]
+    NoRecords,
+    #[error("more than one record was found")]
+    TooManyRecords,
+}
+
+impl From<GetSingleRecordError> for Neo4jError {
+    fn from(err: GetSingleRecordError) -> Self {
+        Self::InvalidConfig {
+            message: format!("GetSingleRecordError: {}", err),
+        }
     }
 }

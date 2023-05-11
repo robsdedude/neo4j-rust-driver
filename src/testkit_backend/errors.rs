@@ -15,6 +15,7 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
+use crate::session::{ConfigureFetchSizeError, ConfigureTimeoutError};
 use crate::Neo4jError;
 
 use super::cypher_value::{BrokenValueError, NotADriverValueError};
@@ -106,6 +107,26 @@ impl From<BrokenValueError> for TestKitError {
         TestKitError::DriverError {
             error_type: String::from("BrokenValueError"),
             msg: format!("{v}"),
+            code: None,
+        }
+    }
+}
+
+impl<Builder> From<ConfigureFetchSizeError<Builder>> for TestKitError {
+    fn from(e: ConfigureFetchSizeError<Builder>) -> Self {
+        TestKitError::DriverError {
+            error_type: String::from("ConfigureFetchSizeError"),
+            msg: format!("{e}"),
+            code: None,
+        }
+    }
+}
+
+impl<Builder> From<ConfigureTimeoutError<Builder>> for TestKitError {
+    fn from(e: ConfigureTimeoutError<Builder>) -> Self {
+        TestKitError::DriverError {
+            error_type: String::from("ConfigureTimeoutError"),
+            msg: format!("{e}"),
             code: None,
         }
     }

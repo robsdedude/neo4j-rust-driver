@@ -17,7 +17,7 @@ use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
-use crate::driver::{ConnectionConfig, DriverConfig, RoutingControl};
+use crate::driver::{ConnectionConfig, DriverConfig, Record, RoutingControl};
 use crate::session::SessionConfig;
 use crate::ValueSend;
 
@@ -25,7 +25,10 @@ use super::cypher_value::CypherValue;
 use super::driver_holder::{CloseSession, DriverHolder, NewSession};
 use super::errors::TestKitError;
 use super::responses::Response;
-use super::session_holder::{AutoCommit, ResultConsume, ResultNext};
+use super::session_holder::{
+    AutoCommit, BeginTransaction, CloseTransaction, CommitTransaction, ResultConsume, ResultNext,
+    ResultSingle, RollbackTransaction, TransactionRun,
+};
 use super::{Backend, BackendId, TestKitResult};
 
 #[derive(Deserialize, Debug)]
@@ -118,7 +121,7 @@ pub(crate) enum Request {
         access_mode: RequestAccessMode,
         bookmarks: Option<Vec<String>>,
         database: Option<String>,
-        fetch_size: Option<usize>,
+        fetch_size: Option<u64>,
         impersonated_user: Option<String>,
         notifications_min_severity: Option<String>,
         notifications_disabled_categories: Option<Vec<String>>,
@@ -380,14 +383,14 @@ impl Request {
             Request::SessionRun { .. } => self.session_auto_commit(backend)?,
             // Request::SessionReadTransaction { .. } => {},
             // Request::SessionWriteTransaction { .. } => {},
-            // Request::SessionBeginTransaction { .. } => {},
+            Request::SessionBeginTransaction { .. } => self.session_begin_transaction(backend)?,
             // Request::SessionLastBookmarks { .. } => {},
-            // Request::TransactionRun { .. } => {},
-            // Request::TransactionCommit { .. } => {},
-            // Request::TransactionRollback { .. } => {},
-            // Request::TransactionClose { .. } => {},
+            Request::TransactionRun { .. } => self.transaction_run(backend)?,
+            Request::TransactionCommit { .. } => self.transaction_commit(backend)?,
+            Request::TransactionRollback { .. } => self.transaction_rollback(backend)?,
+            Request::TransactionClose { .. } => self.transaction_close(backend)?,
             Request::ResultNext { .. } => self.result_next(backend)?,
-            // Request::ResultSingle { .. } => {},
+            Request::ResultSingle { .. } => self.result_single(backend)?,
             // Request::ResultSingleOptional { .. } => {},
             // Request::ResultPeek { .. } => {},
             Request::ResultConsume { .. } => self.result_consume(backend)?,
@@ -526,9 +529,10 @@ impl Request {
             config = config.with_database(database);
         }
         if let Some(fetch_size) = fetch_size {
-            return Err(TestKitError::backend_err(format!(
-                "Driver does not yet support custom fetch_size, found {fetch_size}"
-            )));
+            config = match config.with_fetch_size(fetch_size) {
+                Ok(config) => config,
+                Err(e) => return Err(e.into()),
+            }
         }
         if let Some(imp_user) = impersonated_user {
             config = config.with_impersonated_user(imp_user);
@@ -600,6 +604,103 @@ impl Request {
         })
     }
 
+    fn session_begin_transaction(self, backend: &mut Backend) -> TestKitResult {
+        let Request::SessionBeginTransaction { session_id, tx_meta, timeout } = self else {
+            panic!("expected Request::SessionBeginTransaction");
+        };
+        let Some(&driver_id) = backend.session_id_to_driver_id.get(&session_id) else {
+            return Err(TestKitError::backend_err(format!("Unknown session id {} in backend", session_id)));
+        };
+        let tx_meta = tx_meta
+            .map(cypher_value_map_to_value_send_map)
+            .transpose()?;
+        let tx_id = backend
+            .drivers
+            .get(&driver_id)
+            .unwrap()
+            .begin_transaction(BeginTransaction {
+                session_id,
+                tx_meta,
+                timeout,
+            })
+            .result??;
+        backend.tx_id_to_driver_id.insert(tx_id, driver_id);
+        backend.send(&Response::Transaction { id: tx_id })
+    }
+
+    fn transaction_run(self, backend: &mut Backend) -> TestKitResult {
+        let Request::TransactionRun { transaction_id, query, params } = self else {
+            panic!("expected Request::TransactionRun");
+        };
+        let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
+            return Err(TestKitError::backend_err(format!("Unknown transaction id {} in backend", transaction_id)));
+        };
+        let params = params.map(cypher_value_map_to_value_send_map).transpose()?;
+        let (result_id, keys) = backend
+            .drivers
+            .get(&driver_id)
+            .unwrap()
+            .transaction_run(TransactionRun {
+                transaction_id,
+                query,
+                params,
+            })
+            .result??;
+        backend.result_id_to_driver_id.insert(result_id, driver_id);
+        backend.send(&Response::Result {
+            id: result_id,
+            keys: keys.into_iter().map(|k| (*k).clone()).collect(),
+        })
+    }
+
+    fn transaction_commit(self, backend: &mut Backend) -> TestKitResult {
+        let Request::TransactionCommit { transaction_id } = self else {
+            panic!("expected Request::TransactionCommit");
+        };
+        let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
+            return Err(TestKitError::backend_err(format!("Unknown transaction id {} in backend", transaction_id)));
+        };
+        backend
+            .drivers
+            .get(&driver_id)
+            .unwrap()
+            .commit_transaction(CommitTransaction { transaction_id })
+            .result??;
+        backend.send(&Response::Transaction { id: transaction_id })
+    }
+
+    fn transaction_rollback(self, backend: &mut Backend) -> TestKitResult {
+        let Request::TransactionRollback { transaction_id } = self else {
+            panic!("expected Request::TransactionRollback");
+        };
+        let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
+            return Err(TestKitError::backend_err(format!("Unknown transaction id {} in backend", transaction_id)));
+        };
+        backend
+            .drivers
+            .get(&driver_id)
+            .unwrap()
+            .rollback_transaction(RollbackTransaction { transaction_id })
+            .result??;
+        backend.send(&Response::Transaction { id: transaction_id })
+    }
+
+    fn transaction_close(self, backend: &mut Backend) -> TestKitResult {
+        let Request::TransactionClose { transaction_id } = self else {
+            panic!("expected Request::TransactionClose");
+        };
+        let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
+            return Err(TestKitError::backend_err(format!("Unknown transaction id {} in backend", transaction_id)));
+        };
+        backend
+            .drivers
+            .get(&driver_id)
+            .unwrap()
+            .close_transaction(CloseTransaction { transaction_id })
+            .result??;
+        backend.send(&Response::Transaction { id: transaction_id })
+    }
+
     fn result_next(self, backend: &mut Backend) -> TestKitResult {
         let Request::ResultNext { result_id } = self else {
             panic!("expected Request::ResultNext");
@@ -607,23 +708,31 @@ impl Request {
         let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
             return Err(TestKitError::backend_err(format!("Unknown result id {result_id} in backend")));
         };
-        let response = match backend
+        let record = backend
             .drivers
             .get(&driver_id)
             .unwrap()
             .result_next(ResultNext { result_id })
             .result?
-            .transpose()?
-        {
-            None => Response::NullRecord,
-            Some(record) => Response::Record {
-                values: record
-                    .entries
-                    .into_iter()
-                    .map(|(_, v)| v.try_into())
-                    .collect::<Result<_, _>>()?,
-            },
+            .transpose()?;
+        let response = write_record(record)?;
+        backend.send(&response)
+    }
+
+    fn result_single(self, backend: &mut Backend) -> TestKitResult {
+        let Request::ResultSingle { result_id } = self else {
+            panic!("expected Request::ResultSingle");
         };
+        let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
+            return Err(TestKitError::backend_err(format!("Unknown result id {result_id} in backend")));
+        };
+        let record = backend
+            .drivers
+            .get(&driver_id)
+            .unwrap()
+            .result_single(ResultSingle { result_id })
+            .result??;
+        let response = write_record(Some(record))?;
         backend.send(&response)
     }
 
@@ -678,4 +787,18 @@ fn cypher_value_map_to_value_send_map(
     map.into_iter()
         .map(|(k, v)| Ok::<_, TestKitError>((k, v.try_into()?)))
         .collect::<Result<_, _>>()
+}
+
+fn write_record(record: Option<Record>) -> Result<Response, TestKitError> {
+    let response = match record {
+        None => Response::NullRecord,
+        Some(record) => Response::Record {
+            values: record
+                .entries
+                .into_iter()
+                .map(|(_, v)| v.try_into())
+                .collect::<Result<_, _>>()?,
+        },
+    };
+    Ok(response)
 }

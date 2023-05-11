@@ -12,15 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use thiserror::Error;
+
 use crate::driver::session::Bookmarks;
-use crate::driver::RoutingControl;
+
+const DEFAULT_FETCH_SIZE: i64 = 1000;
 
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
     pub(crate) database: Option<String>,
     pub(crate) bookmarks: Option<Vec<String>>,
     pub(crate) impersonated_user: Option<String>,
-    pub(crate) run_routing: RoutingControl,
+    pub(crate) fetch_size: i64,
 }
 
 impl Default for SessionConfig {
@@ -29,7 +32,7 @@ impl Default for SessionConfig {
             database: None,
             bookmarks: None,
             impersonated_user: None,
-            run_routing: RoutingControl::Write,
+            fetch_size: DEFAULT_FETCH_SIZE,
         }
     }
 }
@@ -69,8 +72,27 @@ impl SessionConfig {
         self
     }
 
-    pub fn run_routing(mut self, mode: RoutingControl) -> Self {
-        self.run_routing = mode;
+    /// fetch_size must be <= i64::MAX
+    pub fn with_fetch_size(
+        mut self,
+        fetch_size: u64,
+    ) -> Result<Self, ConfigureFetchSizeError<Self>> {
+        match i64::try_from(fetch_size) {
+            Ok(fetch_size) => {
+                self.fetch_size = fetch_size;
+                Ok(self)
+            }
+            Err(_) => Err(ConfigureFetchSizeError { builder: self }),
+        }
+    }
+
+    pub fn with_fetch_all(mut self) -> Self {
+        self.fetch_size = -1;
+        self
+    }
+
+    pub fn with_default_fetch_size(mut self) -> Self {
+        self.fetch_size = DEFAULT_FETCH_SIZE;
         self
     }
 }
@@ -80,4 +102,10 @@ impl AsRef<SessionConfig> for SessionConfig {
     fn as_ref(&self) -> &SessionConfig {
         self
     }
+}
+
+#[derive(Debug, Error)]
+#[error("fetch size must be <= i64::MAX")]
+pub struct ConfigureFetchSizeError<Builder> {
+    pub builder: Builder,
 }

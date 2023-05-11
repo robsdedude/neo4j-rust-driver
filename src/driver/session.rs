@@ -21,6 +21,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
+use std::result;
+
+use thiserror::Error;
 
 use super::io::bolt::PackStreamSerialize;
 use super::io::{AcquireConfig, Pool, UpdateRtArgs};
@@ -31,7 +34,7 @@ use crate::driver::{EagerResult, RoutingControl};
 use crate::transaction::InnerTransaction;
 use crate::{Result, ValueSend};
 use bookmarks::Bookmarks;
-pub use config::SessionConfig;
+pub use config::{ConfigureFetchSizeError, SessionConfig};
 
 #[derive(Debug)]
 pub struct Session<'driver, C> {
@@ -89,7 +92,12 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         if let Some(timeout) = builder.timeout {
             run_prep.with_tx_timeout(timeout)?;
         }
-        let mut record_stream = RecordStream::new(Rc::new(RefCell::new(cx)), true);
+        let mut record_stream = RecordStream::new(
+            Rc::new(RefCell::new(cx)),
+            self.config.as_ref().fetch_size,
+            true,
+            None,
+        );
         let res = record_stream
             .run(run_prep)
             .and_then(|_| (builder.receiver)(&mut record_stream));
@@ -127,7 +135,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         receiver: FTx,
     ) -> Result<R> {
         let connection = self.acquire_connection(builder.mode)?;
-        let mut tx = InnerTransaction::new(connection);
+        let mut tx = InnerTransaction::new(connection, self.config.as_ref().fetch_size);
         tx.begin(
             self.last_raw_bookmarks().as_deref(),
             builder.timeout,
@@ -280,8 +288,19 @@ impl<
         }
     }
 
-    pub fn with_tx_timeout(mut self, timeout: i64) -> Self {
+    pub fn with_tx_timeout(
+        mut self,
+        timeout: i64,
+    ) -> result::Result<Self, ConfigureTimeoutError<Self>> {
+        if timeout <= 0 {
+            return Err(ConfigureTimeoutError::new(self));
+        }
         self.timeout = Some(timeout);
+        Ok(self)
+    }
+
+    pub fn without_tx_timeout(mut self) -> Self {
+        self.timeout = Some(0);
         self
     }
 
@@ -402,8 +421,19 @@ impl<'driver, 'session, C: AsRef<SessionConfig>, M: Borrow<HashMap<String, Value
         }
     }
 
-    pub fn with_tx_timeout(mut self, timeout: i64) -> Self {
+    pub fn with_tx_timeout(
+        mut self,
+        timeout: i64,
+    ) -> result::Result<Self, ConfigureTimeoutError<Self>> {
+        if timeout <= 0 {
+            return Err(ConfigureTimeoutError::new(self));
+        }
         self.timeout = Some(timeout);
+        Ok(self)
+    }
+
+    pub fn without_tx_timeout(mut self) -> Self {
+        self.timeout = Some(0);
         self
     }
 
@@ -420,5 +450,17 @@ impl<'driver, 'session, C: AsRef<SessionConfig>, M: Borrow<HashMap<String, Value
     pub fn run<R, FTx: FnOnce(Transaction) -> Result<R>>(mut self, receiver: FTx) -> Result<R> {
         let session = self.session.take().unwrap();
         session.transaction_run(self, receiver)
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("timeout must be > 0")]
+pub struct ConfigureTimeoutError<Builder> {
+    pub builder: Builder,
+}
+
+impl<Builder> ConfigureTimeoutError<Builder> {
+    fn new(builder: Builder) -> Self {
+        Self { builder }
     }
 }

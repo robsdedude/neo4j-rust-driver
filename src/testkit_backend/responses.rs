@@ -479,7 +479,7 @@ impl Response {
                 // "Feature:API:Liveness.Check",
                 // "Feature:API:Result.List",
                 // "Feature:API:Result.Peek",
-                // "Feature:API:Result.Single",
+                "Feature:API:Result.Single",
                 // "Feature:API:Result.SingleOptional",
                 // "Feature:API:Session:NotificationsConfig",
                 // "Feature:API:SSLConfig",
@@ -505,7 +505,7 @@ impl Response {
 
                 // "AuthorizationExpiredTreatment",
                 "Optimization:ConnectionReuse",
-                // "Optimization:EagerTransactionBegin",
+                "Optimization:EagerTransactionBegin",
                 "Optimization:ImplicitDefaultArguments",
                 "Optimization:MinimalBookmarksSet",
                 "Optimization:MinimalResets",

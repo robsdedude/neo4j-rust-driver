@@ -18,6 +18,7 @@ use std::thread::{self, JoinHandle};
 
 use flume;
 use flume::{Receiver, Sender};
+use log::warn;
 
 use crate::driver::{ConnectionConfig, Driver, DriverConfig, RoutingControl};
 use crate::session::SessionConfig;
@@ -26,7 +27,11 @@ use super::backend_id::{BackendId, Generator};
 use super::errors::TestKitError;
 use super::session_holder::SessionHolder;
 use super::session_holder::{
-    AutoCommit, AutoCommitResult, ResultConsume, ResultConsumeResult, ResultNext, ResultNextResult,
+    AutoCommit, AutoCommitResult, BeginTransaction, BeginTransactionResult,
+    CloseResult as CloseSessionResult, CloseTransaction, CloseTransactionResult, CommitTransaction,
+    CommitTransactionResult, ResultConsume, ResultConsumeResult, ResultNext, ResultNextResult,
+    ResultSingle, ResultSingleResult, RollbackTransaction, RollbackTransactionResult,
+    TransactionRun, TransactionRunResult,
 };
 
 #[derive(Debug)]
@@ -93,11 +98,65 @@ impl DriverHolder {
         }
     }
 
+    pub(crate) fn begin_transaction(&self, args: BeginTransaction) -> BeginTransactionResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::BeginTransaction(result) => result,
+            res => panic!("expected CommandResult::BeginTransaction, found {:?}", res),
+        }
+    }
+
+    pub(crate) fn transaction_run(&self, args: TransactionRun) -> TransactionRunResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::TransactionRun(result) => result,
+            res => panic!("expected CommandResult::TransactionRun, found {:?}", res),
+        }
+    }
+
+    pub(crate) fn commit_transaction(&self, args: CommitTransaction) -> CommitTransactionResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::CommitTransaction(result) => result,
+            res => panic!("expected CommandResult::CommitTransaction, found {:?}", res),
+        }
+    }
+
+    pub(crate) fn rollback_transaction(
+        &self,
+        args: RollbackTransaction,
+    ) -> RollbackTransactionResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::RollbackTransaction(result) => result,
+            res => panic!(
+                "expected CommandResult::RollbackTransaction, found {:?}",
+                res
+            ),
+        }
+    }
+
+    pub(crate) fn close_transaction(&self, args: CloseTransaction) -> CloseTransactionResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::CloseTransaction(result) => result,
+            res => panic!("expected CommandResult::CloseTransaction, found {:?}", res),
+        }
+    }
+
     pub(crate) fn result_next(&self, args: ResultNext) -> ResultNextResult {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
             CommandResult::ResultNext(result) => result,
             res => panic!("expected CommandResult::ResultNext, found {:?}", res),
+        }
+    }
+
+    pub(crate) fn result_single(&self, args: ResultSingle) -> ResultSingleResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::ResultSingle(result) => result,
+            res => panic!("expected CommandResult::ResultSingle, found {:?}", res),
         }
     }
 
@@ -109,18 +168,25 @@ impl DriverHolder {
         }
     }
 
-    pub(crate) fn close(&mut self) {
+    pub(crate) fn close(&mut self) -> CloseResult {
         let Some(handle) = self.join_handle.take() else {
-            return;
+            return CloseResult{result: Ok(())};
         };
         self.tx_req.send(Command::Close).unwrap();
+        let res = match self.rx_res.recv().unwrap() {
+            CommandResult::Close(result) => result,
+            res => panic!("expected CommandResult::Close, found {:?}", res),
+        };
         handle.join().unwrap();
+        res
     }
 }
 
 impl Drop for DriverHolder {
     fn drop(&mut self) {
-        self.close()
+        if let CloseResult { result: Err(e) } = self.close() {
+            warn!("Ignored driver closure error on drop: {e:?}");
+        }
     }
 }
 
@@ -138,6 +204,7 @@ impl DriverHolderRunner {
     fn run(&self) {
         let mut sessions = HashMap::new();
         let mut result_id_to_session_id = HashMap::new();
+        let mut tx_id_to_session_id = HashMap::new();
         loop {
             let res = match self.rx_req.recv().unwrap() {
                 Command::NewSession(NewSession {
@@ -167,6 +234,57 @@ impl DriverHolderRunner {
                     Some(res.into())
                 }
 
+                Command::BeginTransaction(args) => 'arm: {
+                    let session_id = args.session_id;
+                    let Some(session_holder) = sessions.get(&args.session_id) else {
+                        break 'arm Some(BeginTransactionResult{result: Err(TestKitError::backend_err(format!("Session id {} not found in driver", session_id)))}.into());
+                    };
+                    let res = session_holder.begin_transaction(args);
+                    if let Ok(Ok(tx_id)) = res.result {
+                        tx_id_to_session_id.insert(tx_id, session_id);
+                    }
+                    Some(res.into())
+                }
+
+                Command::TransactionRun(args) => 'arm: {
+                    let Some(session_id) = tx_id_to_session_id.get(&args.transaction_id) else {
+                        break 'arm Some(TransactionRunResult{result: Err(TestKitError::backend_err(format!("Transaction id {} not found in driver", &args.transaction_id)))}.into());
+                    };
+                    let session_holder = sessions.get(session_id).unwrap();
+                    let res = session_holder.transaction_run(args);
+                    if let Ok(Ok((result_id, _))) = res.result {
+                        result_id_to_session_id.insert(result_id, *session_id);
+                    }
+                    Some(res.into())
+                }
+
+                Command::CommitTransaction(args) => 'arm: {
+                    let Some(session_id) = tx_id_to_session_id.get(&args.transaction_id) else {
+                        break 'arm Some(CommitTransactionResult{result: Err(TestKitError::backend_err(format!("Transaction id {} not found in driver", &args.transaction_id)))}.into());
+                    };
+                    let session_holder = sessions.get(session_id).unwrap();
+                    let res = session_holder.commit_transaction(args);
+                    Some(res.into())
+                }
+
+                Command::RollbackTransaction(args) => 'arm: {
+                    let Some(session_id) = tx_id_to_session_id.get(&args.transaction_id) else {
+                        break 'arm Some(RollbackTransactionResult{result: Err(TestKitError::backend_err(format!("Transaction id {} not found in driver", &args.transaction_id)))}.into());
+                    };
+                    let session_holder = sessions.get(session_id).unwrap();
+                    let res = session_holder.rollback_transaction(args);
+                    Some(res.into())
+                }
+
+                Command::CloseTransaction(args) => 'arm: {
+                    let Some(session_id) = tx_id_to_session_id.get(&args.transaction_id) else {
+                        break 'arm Some(CloseTransactionResult{result: Err(TestKitError::backend_err(format!("Transaction id {} not found in driver", &args.transaction_id)))}.into());
+                    };
+                    let session_holder = sessions.get(session_id).unwrap();
+                    let res = session_holder.close_transaction(args);
+                    Some(res.into())
+                }
+
                 Command::ResultNext(args) => 'arm: {
                     let Some(session_id) = result_id_to_session_id.get(&args.result_id) else {
                         break 'arm Some(ResultNextResult{result: Err(TestKitError::backend_err(format!("Result id {} not found in driver", &args.result_id)))}.into());
@@ -175,24 +293,36 @@ impl DriverHolderRunner {
                     Some(session_holder.result_next(args).into())
                 }
 
+                Command::ResultSingle(args) => 'arm: {
+                    let Some(session_id) = result_id_to_session_id.get(&args.result_id) else {
+                        break 'arm Some(ResultSingleResult{result: Err(TestKitError::backend_err(format!("Result id {} not found in driver", &args.result_id)))}.into());
+                    };
+                    let session_holder = sessions.get(session_id).unwrap();
+                    Some(session_holder.result_single(args).into())
+                }
+
                 Command::ResultConsume(args) => 'arm: {
                     let Some(session_id) = result_id_to_session_id.get(&args.result_id) else {
-                        break 'arm Some(ResultNextResult { result: Err(TestKitError::backend_err(format!("Result id {} not found in driver", &args.result_id))) }.into());
+                        break 'arm Some(ResultConsumeResult{ result: Err(TestKitError::backend_err(format!("Result id {} not found in driver", &args.result_id))) }.into());
                     };
                     let session_holder = sessions.get(session_id).unwrap();
                     Some(session_holder.result_consume(args).into())
                 }
 
                 Command::CloseSession(CloseSession { session_id }) => 'arm: {
-                    let Some(_) = sessions.remove(&session_id) else {
-                        break 'arm Some(AutoCommitResult{result: Err(TestKitError::backend_err(format!("Session id {} not found in driver", session_id)))}.into());
+                    let Some(mut session) = sessions.remove(&session_id) else {
+                        break 'arm Some(CloseSessionResult{result: Err(TestKitError::backend_err(format!("Session id {} not found in driver", session_id)))}.into());
                     };
-                    sessions.remove(&session_id);
-                    Some(CloseSessionResult { result: Ok(()) }.into())
+                    Some(session.close().into())
                 }
 
                 Command::Close => {
-                    break;
+                    let result = sessions
+                        .into_iter()
+                        .try_for_each(|(_, mut session)| session.close().result);
+                    let msg = CloseResult { result }.into();
+                    self.tx_res.send(msg).unwrap();
+                    return;
                 }
             };
             if let Some(res) = res {
@@ -207,7 +337,13 @@ enum Command {
     NewSession(NewSession),
     CloseSession(CloseSession),
     AutoCommit(AutoCommit),
+    BeginTransaction(BeginTransaction),
+    TransactionRun(TransactionRun),
+    CommitTransaction(CommitTransaction),
+    RollbackTransaction(RollbackTransaction),
+    CloseTransaction(CloseTransaction),
     ResultNext(ResultNext),
+    ResultSingle(ResultSingle),
     ResultConsume(ResultConsume),
     Close,
 }
@@ -217,8 +353,15 @@ enum CommandResult {
     NewSession(NewSessionResult),
     CloseSession(CloseSessionResult),
     AutoCommit(AutoCommitResult),
+    BeginTransaction(BeginTransactionResult),
+    TransactionRun(TransactionRunResult),
+    CommitTransaction(CommitTransactionResult),
+    RollbackTransaction(RollbackTransactionResult),
+    CloseTransaction(CloseTransactionResult),
     ResultNext(ResultNextResult),
+    ResultSingle(ResultSingleResult),
     ResultConsume(ResultConsumeResult),
+    Close(CloseResult),
 }
 
 #[derive(Debug)]
@@ -256,12 +399,6 @@ impl From<CloseSession> for Command {
     }
 }
 
-#[must_use]
-#[derive(Debug)]
-pub(crate) struct CloseSessionResult {
-    pub(crate) result: Result<(), TestKitError>,
-}
-
 impl From<CloseSessionResult> for CommandResult {
     fn from(r: CloseSessionResult) -> Self {
         CommandResult::CloseSession(r)
@@ -280,6 +417,66 @@ impl From<AutoCommitResult> for CommandResult {
     }
 }
 
+impl From<BeginTransaction> for Command {
+    fn from(c: BeginTransaction) -> Self {
+        Command::BeginTransaction(c)
+    }
+}
+
+impl From<BeginTransactionResult> for CommandResult {
+    fn from(r: BeginTransactionResult) -> Self {
+        CommandResult::BeginTransaction(r)
+    }
+}
+
+impl From<TransactionRun> for Command {
+    fn from(c: TransactionRun) -> Self {
+        Command::TransactionRun(c)
+    }
+}
+
+impl From<TransactionRunResult> for CommandResult {
+    fn from(r: TransactionRunResult) -> Self {
+        CommandResult::TransactionRun(r)
+    }
+}
+
+impl From<CommitTransaction> for Command {
+    fn from(c: CommitTransaction) -> Self {
+        Command::CommitTransaction(c)
+    }
+}
+
+impl From<CommitTransactionResult> for CommandResult {
+    fn from(r: CommitTransactionResult) -> Self {
+        CommandResult::CommitTransaction(r)
+    }
+}
+
+impl From<RollbackTransaction> for Command {
+    fn from(c: RollbackTransaction) -> Self {
+        Command::RollbackTransaction(c)
+    }
+}
+
+impl From<RollbackTransactionResult> for CommandResult {
+    fn from(r: RollbackTransactionResult) -> Self {
+        CommandResult::RollbackTransaction(r)
+    }
+}
+
+impl From<CloseTransaction> for Command {
+    fn from(c: CloseTransaction) -> Self {
+        Command::CloseTransaction(c)
+    }
+}
+
+impl From<CloseTransactionResult> for CommandResult {
+    fn from(r: CloseTransactionResult) -> Self {
+        CommandResult::CloseTransaction(r)
+    }
+}
+
 impl From<ResultNext> for Command {
     fn from(c: ResultNext) -> Self {
         Command::ResultNext(c)
@@ -292,6 +489,18 @@ impl From<ResultNextResult> for CommandResult {
     }
 }
 
+impl From<ResultSingle> for Command {
+    fn from(c: ResultSingle) -> Self {
+        Command::ResultSingle(c)
+    }
+}
+
+impl From<ResultSingleResult> for CommandResult {
+    fn from(r: ResultSingleResult) -> Self {
+        CommandResult::ResultSingle(r)
+    }
+}
+
 impl From<ResultConsume> for Command {
     fn from(c: ResultConsume) -> Self {
         Command::ResultConsume(c)
@@ -301,5 +510,17 @@ impl From<ResultConsume> for Command {
 impl From<ResultConsumeResult> for CommandResult {
     fn from(r: ResultConsumeResult) -> Self {
         CommandResult::ResultConsume(r)
+    }
+}
+
+#[must_use]
+#[derive(Debug)]
+pub(crate) struct CloseResult {
+    pub(crate) result: Result<(), TestKitError>,
+}
+
+impl From<CloseResult> for CommandResult {
+    fn from(r: CloseResult) -> Self {
+        CommandResult::Close(r)
     }
 }

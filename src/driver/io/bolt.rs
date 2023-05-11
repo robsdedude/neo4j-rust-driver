@@ -136,6 +136,7 @@ pub struct Bolt<R: Read, W: Write> {
     meta: Arc<AtomicRefCell<HashMap<String, ValueReceive>>>,
     server_agent: Arc<AtomicRefCell<Arc<String>>>,
     address: Arc<Address>,
+    last_qid: Arc<AtomicRefCell<Option<i64>>>,
 }
 
 pub(crate) type TcpBolt = Bolt<BufReader<TcpStream>, BufWriter<TcpStream>>;
@@ -160,6 +161,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
             meta: Default::default(),
             server_agent: Default::default(),
             address,
+            last_qid: Default::default(),
         }
     }
 
@@ -309,8 +311,23 @@ impl<R: Read, W: Write> Bolt<R, W> {
         RunPreparation::new(query, bookmarks, mode, db, imp_user, self.version)
     }
 
-    pub(crate) fn run_submit(&mut self, run_prep: RunPreparation, callbacks: ResponseCallbacks) {
+    pub(crate) fn run_submit(
+        &mut self,
+        run_prep: RunPreparation,
+        mut callbacks: ResponseCallbacks,
+    ) {
         assert_eq!(run_prep.bolt_version, self.version);
+
+        callbacks = callbacks.with_on_success_pre_hook({
+            let last_qid = Arc::clone(&self.last_qid);
+            move |meta| {
+                if let Some(ValueReceive::Integer(qid)) = meta.get("qid") {
+                    *last_qid.borrow_mut() = Some(*qid);
+                }
+                Ok(())
+            }
+        });
+
         self.message_buff
             .push_back(run_prep.into_message_buff(self));
         self.responses
@@ -341,7 +358,8 @@ impl<R: Read, W: Write> Bolt<R, W> {
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(tag, 1)?;
 
-        let extra_size = 1 + <bool as Into<u64>>::into(qid != -1);
+        let can_omit_qid = self.can_omit_qid(qid);
+        let extra_size = 1 + <bool as Into<u64>>::into(!can_omit_qid);
         serializer.write_dict_header(extra_size)?;
         serializer.write_string("n")?;
         serializer.write_int(n)?;
@@ -351,7 +369,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
             dbg_serializer.write_int(n).unwrap();
             dbg_serializer.flush()
         });
-        if qid != -1 {
+        if !can_omit_qid {
             serializer.write_string("qid")?;
             serializer.write_int(qid)?;
             debug_buf!(log_buf, "{}", {
@@ -366,6 +384,10 @@ impl<R: Read, W: Write> Bolt<R, W> {
             .push_back(BoltResponse::new(response, callbacks));
         debug_buf_end!(self, log_buf);
         Ok(())
+    }
+
+    fn can_omit_qid(&self, qid: i64) -> bool {
+        qid == -1 || Some(qid) == *(self.last_qid.deref().borrow())
     }
 
     pub(crate) fn begin<K: AsRef<str> + Debug, S: PackStreamSerialize>(
@@ -621,9 +643,10 @@ impl<R: Read, W: Write> Bolt<R, W> {
                 self.responses.push_front(response);
                 res
             }
-            BoltMessage { tag, .. } => Err(Neo4jError::ProtocolError {
-                message: format!("unknown response message tag {:02X?}", tag),
-            }),
+            BoltMessage { tag, .. } => Err(Neo4jError::protocol_error(format!(
+                "unknown response message tag {:02X?}",
+                tag
+            ))),
         }
     }
 

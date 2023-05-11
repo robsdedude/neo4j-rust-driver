@@ -27,7 +27,7 @@ pub enum Neo4jError {
     ///  * Experiencing a connectivity error.  
     ///    E.g., not able to connect, a broken socket,
     ///    not able to fetch routing information
-    #[error("connection failed: {message} {during_commit}")]
+    #[error("connection failed: {message} (during commit: {during_commit})")]
     // #[non_exhaustive]
     Disconnect {
         message: String,
@@ -38,7 +38,7 @@ pub enum Neo4jError {
         /// Will be true when connection was lost while the driver cannot be
         /// sure whether the ongoing transaction has been committed or not.
         /// To recover from this situation, business logic is required to check
-        /// whether the transaction should or should't be retried.
+        /// whether the transaction should or shouldn't be retried.
         during_commit: bool,
     },
     /// used when
@@ -48,6 +48,8 @@ pub enum Neo4jError {
     ///    supported over the negotiated protocol version.
     ///  * Non-IO error occurs during serialization (e.g., trying to serialize
     ///    `Value::BrokenValue`)
+    ///  * Can be generated using `GetSingleRecordError::into()`
+    ///    (the driver itself won't perform this conversion)
     #[error("invalid configuration: {message}")]
     // #[non_exhaustive]
     InvalidConfig {

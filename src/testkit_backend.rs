@@ -88,6 +88,7 @@ pub(crate) struct Backend {
     drivers: HashMap<BackendId, DriverHolder>,
     session_id_to_driver_id: HashMap<BackendId, BackendId>,
     result_id_to_driver_id: HashMap<BackendId, BackendId>,
+    tx_id_to_driver_id: HashMap<BackendId, BackendId>,
 }
 
 impl Backend {
@@ -99,6 +100,7 @@ impl Backend {
             drivers: Default::default(),
             session_id_to_driver_id: Default::default(),
             result_id_to_driver_id: Default::default(),
+            tx_id_to_driver_id: Default::default(),
         }
     }
 

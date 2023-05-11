@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::error::ServerError;
 use crate::{Neo4jError, Result, ValueReceive};
 use core::fmt::{Debug, Formatter};
 use std::collections::HashMap;
@@ -41,7 +42,11 @@ impl BoltResponse {
     }
 
     pub(crate) fn from_message(message: ResponseMessage) -> Self {
-        Self::new(message, ResponseCallbacks::new())
+        Self::new(
+            message,
+            ResponseCallbacks::new()
+                .with_on_failure(|meta| Err(ServerError::from_meta(meta).into())),
+        )
     }
 }
 
@@ -73,6 +78,24 @@ impl ResponseCallbacks {
         cb: F,
     ) -> Self {
         self.on_success_cb = Some(Box::new(cb));
+        self
+    }
+
+    pub(crate) fn with_on_success_pre_hook<
+        F: FnMut(&BoltMeta) -> Result<()> + Send + Sync + 'static,
+    >(
+        mut self,
+        mut pre_hook: F,
+    ) -> Self {
+        match self.on_success_cb {
+            None => self.on_success_cb = Some(Box::new(move |meta| pre_hook(&meta))),
+            Some(mut cb) => {
+                self.on_success_cb = Some(Box::new(move |meta| {
+                    pre_hook(&meta)?;
+                    cb(meta)
+                }))
+            }
+        };
         self
     }
 
