@@ -82,15 +82,15 @@ impl<'driver> RecordStream<'driver> {
         assert!(!self.connection.borrow_mut().expects_reply());
 
         self.connection.borrow_mut().run_submit(run_prep, callbacks);
-        let res = self.connection.borrow_mut().write_one();
+        let res = self.connection.borrow_mut().write_one(None);
         if let Err(e) = res.and_then(|_| self.pull(false)) {
             let mut listener = self.listener.borrow_mut();
             listener.state = RecordListenerState::Done;
             return Err(e);
         }
 
-        let res = self.connection.borrow_mut().write_all();
-        if let Err(e) = res.and_then(|_| self.connection.borrow_mut().read_one()) {
+        let res = self.connection.borrow_mut().write_all(None);
+        if let Err(e) = res.and_then(|_| self.connection.borrow_mut().read_one(None)) {
             let mut listener = self.listener.borrow_mut();
             listener.state = RecordListenerState::Done;
             return Err(self.failed_commit(e));
@@ -107,7 +107,7 @@ impl<'driver> RecordStream<'driver> {
                 }
             }
         }
-        if let Err(err) = self.connection.borrow_mut().read_all() {
+        if let Err(err) = self.connection.borrow_mut().read_all(None) {
             self.listener.borrow_mut().state = RecordListenerState::Error(self.failed_commit(err));
         }
 
@@ -197,8 +197,8 @@ impl<'driver> RecordStream<'driver> {
             .borrow_mut()
             .pull(self.fetch_size, self.qid(), callbacks)?;
         if flush {
-            self.connection.borrow_mut().write_all()?;
-            let res = self.connection.borrow_mut().read_all();
+            self.connection.borrow_mut().write_all(None)?;
+            let res = self.connection.borrow_mut().read_all(None);
             self.wrap_commit(res)?;
         }
         Ok(())
@@ -210,8 +210,8 @@ impl<'driver> RecordStream<'driver> {
             .borrow_mut()
             .discard(-1, self.qid(), callbacks)?;
         if flush {
-            self.connection.borrow_mut().write_all()?;
-            let res = self.connection.borrow_mut().read_all();
+            self.connection.borrow_mut().write_all(None)?;
+            let res = self.connection.borrow_mut().read_all(None);
             self.wrap_commit(res)?;
         }
         Ok(())

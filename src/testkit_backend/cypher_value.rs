@@ -245,7 +245,7 @@ fn serialize_cypher_bytes<S>(v: &[u8], s: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    if v.len() == 0 {
+    if v.is_empty() {
         return s.serialize_str("");
     }
     let mut repr = String::with_capacity(v.len() * 3 - 1);

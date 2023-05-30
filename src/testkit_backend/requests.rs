@@ -16,6 +16,7 @@ use crate::bookmarks::Bookmarks;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::time::Duration;
 
 use crate::driver::{ConnectionConfig, DriverConfig, Record, RoutingControl};
 use crate::session::SessionConfig;
@@ -60,7 +61,7 @@ pub(crate) enum Request {
         max_tx_retry_time_ms: Option<u64>,
         liveness_check_timeout_ms: Option<u64>,
         max_connection_pool_size: Option<usize>,
-        connection_acquisition_timeout_ms: Option<usize>,
+        connection_acquisition_timeout_ms: Option<u64>,
         notifications_min_severity: Option<String>,
         notifications_disabled_categories: Option<Vec<String>>,
         encrypted: Option<bool>,
@@ -450,8 +451,9 @@ impl Request {
         if dns_registered.unwrap_or(false) {
             return Err(TestKitError::backend_err("DNS resolver unsupported"));
         }
-        if connection_timeout_ms.is_some() {
-            return Err(TestKitError::backend_err("connection timeout unsupported"));
+        if let Some(connection_timeout_ms) = connection_timeout_ms {
+            driver_config =
+                driver_config.with_connection_timeout(Duration::from_millis(connection_timeout_ms));
         }
         if let Some(fetch_size) = fetch_size {
             if fetch_size == -1 {
@@ -473,10 +475,10 @@ impl Request {
         if let Some(max_connection_pool_size) = max_connection_pool_size {
             driver_config = driver_config.with_max_connection_pool_size(max_connection_pool_size);
         }
-        if connection_acquisition_timeout_ms.is_some() {
-            return Err(TestKitError::backend_err(
-                "connection acquisition timeout unsupported",
-            ));
+        if let Some(connection_acquisition_timeout_ms) = connection_acquisition_timeout_ms {
+            driver_config = driver_config.with_connection_acquisition_timeout(
+                Duration::from_millis(connection_acquisition_timeout_ms),
+            );
         }
         if notifications_min_severity.is_some() {
             return Err(TestKitError::backend_err(

@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::Path;
 use std::result;
+use std::time::Duration;
 
 use openssl::error::ErrorStack;
 #[cfg(not(test))]
@@ -31,6 +32,8 @@ use crate::{Address, Neo4jError, Result, ValueSend};
 
 const DEFAULT_USER_AGENT: &str = env!("NEO4J_DEFAULT_USER_AGENT");
 pub(crate) const DEFAULT_FETCH_SIZE: i64 = 1000;
+pub(crate) const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const DEFAULT_CONNECTION_ACQUISITION_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug)]
 pub struct DriverConfig {
@@ -38,7 +41,8 @@ pub struct DriverConfig {
     pub(crate) auth: HashMap<String, ValueSend>, // max_connection_lifetime
     pub(crate) max_connection_pool_size: usize,
     pub(crate) fetch_size: i64,
-    // connection_timeout
+    pub(crate) connection_timeout: Option<Duration>,
+    pub(crate) connection_acquisition_timeout: Option<Duration>,
     // trust
     // resolver
     // encrypted
@@ -61,6 +65,8 @@ impl Default for DriverConfig {
             auth: HashMap::new(),
             max_connection_pool_size: 100,
             fetch_size: DEFAULT_FETCH_SIZE,
+            connection_timeout: Some(DEFAULT_CONNECTION_TIMEOUT),
+            connection_acquisition_timeout: Some(DEFAULT_CONNECTION_ACQUISITION_TIMEOUT),
         }
     }
 }
@@ -94,6 +100,7 @@ impl DriverConfig {
     }
 
     /// fetch_size must be <= i64::MAX
+    #[allow(clippy::result_large_err)]
     pub fn with_fetch_size(
         mut self,
         fetch_size: u64,
@@ -114,6 +121,36 @@ impl DriverConfig {
 
     pub fn with_default_fetch_size(mut self) -> Self {
         self.fetch_size = DEFAULT_FETCH_SIZE;
+        self
+    }
+
+    pub fn with_connection_timeout(mut self, timeout: Duration) -> Self {
+        self.connection_timeout = Some(timeout);
+        self
+    }
+
+    pub fn without_connection_timeout(mut self) -> Self {
+        self.connection_timeout = None;
+        self
+    }
+
+    pub fn with_default_connection_timeout(mut self) -> Self {
+        self.connection_timeout = Some(DEFAULT_CONNECTION_TIMEOUT);
+        self
+    }
+
+    pub fn with_connection_acquisition_timeout(mut self, timeout: Duration) -> Self {
+        self.connection_acquisition_timeout = Some(timeout);
+        self
+    }
+
+    pub fn without_connection_acquisition_timeout(mut self) -> Self {
+        self.connection_acquisition_timeout = None;
+        self
+    }
+
+    pub fn with_default_connection_acquisition_timeout(mut self) -> Self {
+        self.connection_acquisition_timeout = Some(DEFAULT_CONNECTION_ACQUISITION_TIMEOUT);
         self
     }
 }

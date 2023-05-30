@@ -52,7 +52,7 @@ impl<'driver: 'inner_tx, 'inner_tx> Transaction<'driver, 'inner_tx> {
         &'tx self,
         query: Q,
     ) -> Result<TransactionRecordStream<'driver, 'tx, 'inner_tx>> {
-        Ok(TransactionRecordStream(self.inner.run(query)?, &self))
+        Ok(TransactionRecordStream(self.inner.run(query)?, self))
     }
 
     pub fn run_with_parameters<
@@ -68,7 +68,7 @@ impl<'driver: 'inner_tx, 'inner_tx> Transaction<'driver, 'inner_tx> {
     ) -> Result<TransactionRecordStream<'driver, 'tx, 'inner_tx>> {
         Ok(TransactionRecordStream(
             self.inner.run_with_parameters(query, parameters)?,
-            &self,
+            self,
         ))
     }
 
@@ -156,8 +156,8 @@ impl<'driver> InnerTransaction<'driver> {
             Some(tx_metadata)
         };
         cx.begin(bookmarks, tx_timeout, tx_metadata, mode, db, imp_user)?;
-        cx.write_all()?;
-        cx.read_all()
+        cx.write_all(None)?;
+        cx.read_all(None)
     }
 
     pub(crate) fn commit(&mut self) -> Result<()> {
@@ -165,8 +165,8 @@ impl<'driver> InnerTransaction<'driver> {
         self.check_error()?;
         let mut cx = self.connection.borrow_mut();
         let bookmark = Arc::clone(&self.bookmark);
-        cx.write_all()?;
-        cx.read_all()?;
+        cx.write_all(None)?;
+        cx.read_all(None)?;
         cx.commit(
             ResponseCallbacks::new()
                 .with_on_success(move |mut meta| {
@@ -177,8 +177,8 @@ impl<'driver> InnerTransaction<'driver> {
                 })
                 .with_on_failure(|meta| Err(ServerError::from_meta(meta).into())),
         )?;
-        cx.write_all()?;
-        Neo4jError::wrap_commit(cx.read_all())
+        cx.write_all(None)?;
+        Neo4jError::wrap_commit(cx.read_all(None))
     }
 
     pub(crate) fn rollback(&mut self) -> Result<()> {
@@ -186,8 +186,8 @@ impl<'driver> InnerTransaction<'driver> {
         self.check_error()?;
         let mut cx = self.connection.borrow_mut();
         cx.rollback()?;
-        cx.write_all()?;
-        cx.read_all()
+        cx.write_all(None)?;
+        cx.read_all(None)
     }
 
     pub(crate) fn close(&mut self) -> Result<()> {

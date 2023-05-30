@@ -42,6 +42,8 @@ impl Driver {
             user_agent: config.user_agent,
             auth: config.auth,
             max_connection_pool_size: config.max_connection_pool_size,
+            connection_timeout: config.connection_timeout,
+            connection_acquisition_timeout: config.connection_acquisition_timeout,
         };
         Driver {
             config: ReducedDriverConfig {

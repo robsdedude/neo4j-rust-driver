@@ -17,6 +17,8 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use thiserror::Error;
 
+use log::info;
+
 use crate::driver::io::bolt::BoltMeta;
 use crate::ValueReceive;
 
@@ -61,6 +63,10 @@ pub enum Neo4jError {
     #[error("{error}")]
     // #[non_exhaustive]
     ServerError { error: ServerError },
+    /// used when
+    ///  * `Config::connection_acquisition_timeout` is exceeded
+    #[error("{message}")]
+    Timeout { message: String },
     #[error(
         "the driver encountered a protocol violation, \
         this is likely a bug in the driver or the server: {message}"
@@ -81,14 +87,6 @@ impl Neo4jError {
         }
     }
 
-    pub(crate) fn read_err(err: io::Error) -> Self {
-        Self::Disconnect {
-            message: format!("failed to read: {}", err),
-            source: Some(err),
-            during_commit: false,
-        }
-    }
-
     pub(crate) fn wrap_read<T>(res: io::Result<T>) -> Result<T> {
         match res {
             Ok(t) => Ok(t),
@@ -96,9 +94,10 @@ impl Neo4jError {
         }
     }
 
-    pub(crate) fn write_error(err: io::Error) -> Neo4jError {
+    pub(crate) fn read_err(err: io::Error) -> Self {
+        info!("read error: {}", err);
         Self::Disconnect {
-            message: format!("failed to write: {}", err),
+            message: format!("failed to read: {}", err),
             source: Some(err),
             during_commit: false,
         }
@@ -108,6 +107,15 @@ impl Neo4jError {
         match res {
             Ok(t) => Ok(t),
             Err(err) => Err(Self::write_error(err)),
+        }
+    }
+
+    pub(crate) fn write_error(err: io::Error) -> Neo4jError {
+        info!("write error: {}", err);
+        Self::Disconnect {
+            message: format!("failed to write: {}", err),
+            source: Some(err),
+            during_commit: false,
         }
     }
 
@@ -151,6 +159,12 @@ impl Neo4jError {
         match res {
             Ok(t) => Ok(t),
             Err(err) => Err(err.failed_commit()),
+        }
+    }
+
+    pub(crate) fn connection_acquisition_timeout<S: AsRef<str>>(during: S) -> Self {
+        Self::Timeout {
+            message: format!("connection acquisition timed out while {}", during.as_ref()),
         }
     }
 

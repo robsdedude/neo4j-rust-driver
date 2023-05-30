@@ -108,17 +108,16 @@ impl<'a> Deref for Chunk<'a> {
     }
 }
 
-pub(crate) struct Dechunker<R: Read, F: FnMut(&io::Error)> {
+pub(crate) struct Dechunker<R: Read> {
     reader: R,
     chunk_size: usize,
-    on_error: F,
     broken: bool,
     chunk_log_raw: Option<String>,
     chunk_log: Option<String>,
 }
 
-impl<R: Read, F: FnMut(&io::Error)> Dechunker<R, F> {
-    pub(crate) fn new(reader: R, on_error: F) -> Self {
+impl<R: Read> Dechunker<R> {
+    pub(crate) fn new(reader: R) -> Self {
         let (chunk_log_raw, chunk_log) = if log_enabled!(Level::Trace) {
             (Some(String::new()), Some(String::new()))
         } else {
@@ -127,7 +126,6 @@ impl<R: Read, F: FnMut(&io::Error)> Dechunker<R, F> {
         Self {
             reader,
             chunk_size: 0,
-            on_error,
             broken: false,
             chunk_log_raw,
             chunk_log,
@@ -137,14 +135,13 @@ impl<R: Read, F: FnMut(&io::Error)> Dechunker<R, F> {
     fn error_wrap<T: Debug>(&mut self, res: io::Result<T>) -> io::Result<T> {
         if res.is_err() {
             self.broken = true;
-            (self.on_error)(res.as_ref().unwrap_err());
         }
         res
     }
 }
 
-impl<R: Read, F: FnMut(&io::Error)> Read for Dechunker<R, F> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+impl<R: Read> Read for Dechunker<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.broken {
             panic!("attempted to read from a broken dechunker");
         }
@@ -187,7 +184,7 @@ impl<R: Read, F: FnMut(&io::Error)> Read for Dechunker<R, F> {
     }
 }
 
-impl<R: Read, F: FnMut(&io::Error)> Drop for Dechunker<R, F> {
+impl<R: Read> Drop for Dechunker<R> {
     fn drop(&mut self) {
         if log_enabled!(Level::Trace) {
             let log = self.chunk_log.as_mut().unwrap();

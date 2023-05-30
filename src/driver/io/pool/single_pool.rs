@@ -14,11 +14,15 @@
 
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
+use std::time::Instant;
+
+use parking_lot::lock_api::MutexGuard;
+use parking_lot::{Condvar, Mutex, RawMutex};
 
 use super::super::bolt::{self, TcpBolt};
 use super::PoolConfig;
-use crate::{Address, Result};
+use crate::{Address, Neo4jError, Result};
 
 type PoolElement = TcpBolt;
 
@@ -53,24 +57,28 @@ impl InnerPool {
         }
     }
 
-    fn acquire_new(&self) -> Result<PoolElement> {
-        let connection = self.open_new();
-        let mut sync = self.synced.lock().unwrap();
+    fn acquire_new(&self, deadline: Option<Instant>) -> Result<PoolElement> {
+        let connection = self.open_new(deadline);
+        let mut sync = self.synced.lock();
         sync.reservations -= 1;
         let connection = connection?;
         sync.borrowed += 1;
         Ok(connection)
     }
 
-    fn open_new(&self) -> Result<PoolElement> {
-        let mut connection = bolt::open(Arc::clone(&self.address))?;
+    fn open_new(&self, deadline: Option<Instant>) -> Result<PoolElement> {
+        let mut connection = bolt::open(
+            Arc::clone(&self.address),
+            deadline,
+            self.config.connection_timeout,
+        )?;
         connection.hello(
             self.config.user_agent.as_str(),
             &self.config.auth,
             self.config.routing_context.as_ref(),
         )?;
-        connection.write_all()?;
-        connection.read_all()?;
+        connection.write_all(deadline)?;
+        connection.read_all(deadline)?;
         Ok(connection)
     }
 }
@@ -83,27 +91,52 @@ impl SimplePool {
         Self(Arc::new(InnerPool::new(address, config)))
     }
 
-    pub(crate) fn acquire(&self) -> UnpreparedSinglePooledBolt {
+    pub(crate) fn acquire(&self, deadline: Option<Instant>) -> Result<UnpreparedSinglePooledBolt> {
         {
-            let mut synced = self.synced.lock().unwrap();
+            let mut synced = self.synced.lock();
             loop {
                 if let Some(connection) = self.acquire_existing(&mut synced) {
-                    return UnpreparedSinglePooledBolt::new(Some(connection), Arc::clone(&self.0));
+                    return Ok(UnpreparedSinglePooledBolt::new(
+                        Some(connection),
+                        Arc::clone(&self.0),
+                    ));
                 }
                 if self.has_room(&synced) {
                     synced.reservations += 1;
                     break;
                 } else {
-                    synced = self.made_room_condition.wait(synced).unwrap();
+                    self.wait_for_room(deadline, &mut synced)?;
                 }
             }
         }
-        UnpreparedSinglePooledBolt::new(None, Arc::clone(&self.0))
+        Ok(UnpreparedSinglePooledBolt::new(None, Arc::clone(&self.0)))
+    }
+
+    fn wait_for_room(
+        &self,
+        deadline: Option<Instant>,
+        synced: &mut MutexGuard<RawMutex, InnerPoolSyncedData>,
+    ) -> Result<()> {
+        match deadline {
+            None => self.made_room_condition.wait(synced),
+            Some(deadline) => {
+                if self
+                    .made_room_condition
+                    .wait_until(synced, deadline)
+                    .timed_out()
+                {
+                    return Err(Neo4jError::connection_acquisition_timeout(
+                        "waiting for room in the connection pool",
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn acquire_no_wait(&self) -> Option<UnpreparedSinglePooledBolt> {
         {
-            let mut synced = self.synced.lock().unwrap();
+            let mut synced = self.synced.lock();
             if let Some(connection) = self.acquire_existing(&mut synced) {
                 return Some(UnpreparedSinglePooledBolt::new(
                     Some(connection),
@@ -120,13 +153,13 @@ impl SimplePool {
     }
 
     pub(crate) fn acquire_idle(&self) -> Option<SinglePooledBolt> {
-        let mut synced = self.synced.lock().unwrap();
+        let mut synced = self.synced.lock();
         self.acquire_existing(&mut synced)
             .map(|connection| SinglePooledBolt::new(connection, Arc::clone(&self.0)))
     }
 
     pub(crate) fn in_use(&self) -> usize {
-        let synced = self.synced.lock().unwrap();
+        let synced = self.synced.lock();
         synced.borrowed + synced.reservations
     }
 
@@ -144,13 +177,13 @@ impl SimplePool {
     }
 
     fn release(inner_pool: &Arc<InnerPool>, mut connection: PoolElement) {
-        let mut lock = inner_pool.synced.lock().unwrap();
+        let mut lock = inner_pool.synced.lock();
         lock.borrowed -= 1;
         if connection.needs_reset() {
             let _ = connection
                 .reset()
-                .and_then(|_| connection.write_all())
-                .and_then(|_| connection.read_all());
+                .and_then(|_| connection.write_all(None))
+                .and_then(|_| connection.read_all(None));
         }
         if !connection.closed() {
             lock.raw_pool.push_back(connection);
@@ -178,16 +211,16 @@ impl UnpreparedSinglePooledBolt {
         Self { pool, bolt }
     }
 
-    pub(crate) fn prepare(mut self) -> Result<Option<SinglePooledBolt>> {
+    pub(crate) fn prepare(mut self, deadline: Option<Instant>) -> Result<Option<SinglePooledBolt>> {
         let bolt = self.bolt.take();
         let pool = Arc::clone(&self.pool);
         match bolt {
             None => {
-                let connection = self.pool.acquire_new()?;
+                let connection = self.pool.acquire_new(deadline)?;
                 Ok(Some(SinglePooledBolt::new(connection, pool)))
             }
             Some(_) => {
-                // room for health check etc. (return None of failed health check)
+                // room for health check etc. (return None on failed health check)
                 Ok(Some(SinglePooledBolt { pool, bolt }))
             }
         }

@@ -183,15 +183,12 @@ impl ResponseCallbacks {
 
 impl Debug for ResponseCallbacks {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "ResponseCallbacks {{\n  on_success: {:?}\n  #on_failure: {:?}\n  #on_ignored: {:?}\n  \
-             #on_record: {:?}\n  #on_summary: {:?}\n}}",
-            self.on_success_cb.as_ref().map(|_| "..."),
-            self.on_failure_cb.as_ref().map(|_| "..."),
-            self.on_ignored_cb.as_ref().map(|_| "..."),
-            self.on_record_cb.as_ref().map(|_| "..."),
-            self.on_summary_cb.as_ref().map(|_| "..."),
-        )
+        f.debug_struct("ResponseCallbacks")
+            .field("on_success", &self.on_success_cb.as_ref().map(|_| "..."))
+            .field("on_failure", &self.on_failure_cb.as_ref().map(|_| "..."))
+            .field("on_ignored", &self.on_ignored_cb.as_ref().map(|_| "..."))
+            .field("on_record", &self.on_record_cb.as_ref().map(|_| "..."))
+            .field("on_summary", &self.on_summary_cb.as_ref().map(|_| "..."))
+            .finish()
     }
 }

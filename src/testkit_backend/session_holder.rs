@@ -292,16 +292,16 @@ impl SessionHolderRunner {
                                         )
                                     }
                                     Command::TransactionRun(command) => {
-                                        command.default_response(tx_res, &known_transactions);
+                                        command.default_response(tx_res, known_transactions);
                                     }
                                     Command::CommitTransaction(command) => {
-                                        command.default_response(&self.tx_res, &known_transactions)
+                                        command.default_response(&self.tx_res, known_transactions)
                                     }
                                     Command::RollbackTransaction(command) => {
-                                        command.default_response(&self.tx_res, &known_transactions)
+                                        command.default_response(&self.tx_res, known_transactions)
                                     }
                                     Command::CloseTransaction(command) => {
-                                        command.default_response(&self.tx_res, &known_transactions)
+                                        command.default_response(&self.tx_res, known_transactions)
                                     }
                                     command @ (Command::AutoCommit(_)
                                     | Command::BeginTransaction(_)
@@ -916,7 +916,7 @@ impl From<AutoCommit> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(crate) struct AutoCommitResult {
-    pub(crate) result: Result<(BackendId, Vec<Arc<String>>), TestKitError>,
+    pub(crate) result: Result<(BackendId, RecordKeys), TestKitError>,
 }
 
 impl From<AutoCommitResult> for CommandResult {
@@ -981,7 +981,7 @@ impl TransactionRun {
 #[must_use]
 #[derive(Debug)]
 pub(crate) struct TransactionRunResult {
-    pub(crate) result: Result<Result<(BackendId, Vec<Arc<String>>), Neo4jError>, TestKitError>,
+    pub(crate) result: Result<Result<(BackendId, RecordKeys), Neo4jError>, TestKitError>,
 }
 
 impl From<TransactionRunResult> for CommandResult {
@@ -1201,3 +1201,5 @@ impl From<CloseResult> for CommandResult {
         CommandResult::Close(r)
     }
 }
+
+pub(crate) type RecordKeys = Vec<Arc<String>>;

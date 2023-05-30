@@ -470,7 +470,7 @@ impl Response {
         Self::FeatureList {
             features: [
                 // "Feature:API:BookmarkManager",
-                // "Feature:API:ConnectionAcquisitionTimeout",
+                "Feature:API:ConnectionAcquisitionTimeout",
                 // "Feature:API:Driver.ExecuteQuery",
                 // "Feature:API:Driver:GetServerInfo",
                 // "Feature:API:Driver.IsEncrypted",

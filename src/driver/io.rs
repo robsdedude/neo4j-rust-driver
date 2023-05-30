@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub(crate) mod bolt;
+pub(crate) mod deadline;
 mod pool;
 
 pub(crate) use pool::{AcquireConfig, Pool, PoolConfig, PooledBolt, UpdateRtArgs};

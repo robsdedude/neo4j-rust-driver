@@ -21,9 +21,11 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Condvar, Mutex, RwLockReadGuard};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use log::{debug, info, warn};
+use parking_lot::{Condvar, Mutex, RwLockReadGuard};
 
 use super::bolt::{ResponseCallbacks, TcpBolt};
 use crate::driver::RoutingControl;
@@ -44,9 +46,13 @@ pub(crate) struct PooledBolt<'pool> {
 }
 
 impl<'pool> PooledBolt<'pool> {
-    fn wrap_io(&mut self, io_op: fn(&mut TcpBolt) -> Result<()>) -> Result<()> {
+    fn wrap_io(
+        &mut self,
+        io_op: fn(&mut TcpBolt, deadline: Option<Instant>) -> Result<()>,
+        deadline: Option<Instant>,
+    ) -> Result<()> {
         let was_broken = self.deref().unexpectedly_closed();
-        let res = io_op(self);
+        let res = io_op(self, deadline);
         if !was_broken && self.deref().unexpectedly_closed() {
             self.pool.deactivate_server(&self.deref().address())
         }
@@ -54,23 +60,23 @@ impl<'pool> PooledBolt<'pool> {
     }
 
     #[inline]
-    pub(crate) fn read_one(&mut self) -> Result<()> {
-        self.wrap_io(TcpBolt::read_one)
+    pub(crate) fn read_one(&mut self, deadline: Option<Instant>) -> Result<()> {
+        self.wrap_io(TcpBolt::read_one, deadline)
     }
 
     #[inline]
-    pub(crate) fn read_all(&mut self) -> Result<()> {
-        self.wrap_io(TcpBolt::read_all)
+    pub(crate) fn read_all(&mut self, deadline: Option<Instant>) -> Result<()> {
+        self.wrap_io(TcpBolt::read_all, deadline)
     }
 
     #[inline]
-    pub(crate) fn write_one(&mut self) -> Result<()> {
-        self.wrap_io(TcpBolt::write_one)
+    pub(crate) fn write_one(&mut self, deadline: Option<Instant>) -> Result<()> {
+        self.wrap_io(TcpBolt::write_one, deadline)
     }
 
     #[inline]
-    pub(crate) fn write_all(&mut self) -> Result<()> {
-        self.wrap_io(TcpBolt::write_all)
+    pub(crate) fn write_all(&mut self, deadline: Option<Instant>) -> Result<()> {
+        self.wrap_io(TcpBolt::write_all, deadline)
     }
 }
 
@@ -101,9 +107,9 @@ impl<'pool> Drop for PooledBolt<'pool> {
         match &self.pool.pools {
             Pools::Direct(_) => drop(bolt),
             Pools::Routing(pool) => {
-                let _lock = pool.wait_cond.0.lock().unwrap();
+                let _lock = pool.wait_cond.0.lock();
                 drop(bolt);
-                pool.wait_cond.1.notify_all()
+                pool.wait_cond.1.notify_all();
             }
         }
     }
@@ -117,6 +123,15 @@ pub(crate) struct PoolConfig {
     pub(crate) user_agent: String,
     pub(crate) auth: HashMap<String, ValueSend>,
     pub(crate) max_connection_pool_size: usize,
+    pub(crate) connection_timeout: Option<Duration>,
+    pub(crate) connection_acquisition_timeout: Option<Duration>,
+}
+
+impl PoolConfig {
+    pub(crate) fn connection_acquisition_deadline(&self) -> Option<Instant> {
+        self.connection_acquisition_timeout
+            .map(|t| Instant::now() + t)
+    }
 }
 
 #[derive(Debug)]
@@ -139,6 +154,12 @@ impl Pool {
 
     pub(crate) fn is_routing(&self) -> bool {
         self.config.routing_context.is_some()
+    }
+
+    pub(crate) fn default_acquisition_deadline(&self) -> Option<Instant> {
+        self.config
+            .connection_acquisition_timeout
+            .map(|t| Instant::now() + t)
     }
 
     pub(crate) fn resolve_home_db(&self, args: UpdateRtArgs) -> Result<Option<String>> {
@@ -164,8 +185,9 @@ impl Pool {
             bolt: Some(match &self.pools {
                 Pools::Direct(single_pool) => {
                     let mut connection = None;
+                    let deadline = self.config.connection_acquisition_deadline();
                     while connection.is_none() {
-                        connection = single_pool.acquire().prepare()?;
+                        connection = single_pool.acquire(deadline)?.prepare(deadline)?;
                     }
                     connection.expect("loop above asserts existence")
                 }
@@ -231,9 +253,10 @@ impl RoutingPool {
 
     fn acquire(&self, args: AcquireConfig) -> Result<SinglePooledBolt> {
         let (mut targets, db) = self.choose_addresses_from_fresh_rt(args)?;
+        let deadline = self.config.connection_acquisition_deadline();
         for target in &targets {
             while let Some(connection) = self.acquire_routing_address_no_wait(target) {
-                match connection.prepare() {
+                match connection.prepare(deadline) {
                     Ok(Some(connection)) => return Ok(connection),
                     Ok(None) => continue,
                     Err(Neo4jError::Disconnect { .. }) => {
@@ -246,7 +269,7 @@ impl RoutingPool {
         }
 
         // time to wait for a free connection
-        let mut cond_lock = self.wait_cond.0.lock().unwrap();
+        let mut cond_lock = self.wait_cond.0.lock();
         loop {
             targets = self.choose_addresses(args, &db)?;
             // a connection could've been returned while we didn't hold the lock
@@ -259,21 +282,35 @@ impl RoutingPool {
                 .next();
             if let Some(connection) = connection {
                 drop(cond_lock);
-                match connection.prepare() {
+                match connection.prepare(deadline) {
                     Ok(Some(connection)) => return Ok(connection),
                     Ok(None) => {
-                        cond_lock = self.wait_cond.0.lock().unwrap();
+                        cond_lock = self.wait_cond.0.lock();
                         continue;
                     }
                     Err(Neo4jError::Disconnect { .. }) => {
                         self.deactivate_server(&targets[0]);
-                        cond_lock = self.wait_cond.0.lock().unwrap();
+                        cond_lock = self.wait_cond.0.lock();
                         continue;
                     }
                     Err(e) => return Err(e),
                 }
             }
-            cond_lock = self.wait_cond.1.wait(cond_lock).unwrap();
+            match deadline {
+                None => self.wait_cond.1.wait(&mut cond_lock),
+                Some(timeout) => {
+                    if self
+                        .wait_cond
+                        .1
+                        .wait_until(&mut cond_lock, timeout)
+                        .timed_out()
+                    {
+                        return Err(Neo4jError::connection_acquisition_timeout(
+                            "waiting for room in the connection pool",
+                        ));
+                    }
+                }
+            }
         }
     }
 
@@ -310,12 +347,16 @@ impl RoutingPool {
 
     fn acquire_routing_address(&self, target: &Arc<Address>) -> Result<SinglePooledBolt> {
         let mut connection = None;
+        let deadline = self.config.connection_acquisition_deadline();
         while connection.is_none() {
             connection = {
                 let pools = self.ensure_pool_exists(target);
-                pools.get(target).expect("just created above").acquire()
-            }
-            .prepare()?
+                pools
+                    .get(target)
+                    .expect("just created above")
+                    .acquire(deadline)
+            }?
+            .prepare(deadline)?
         }
         Ok(connection.expect("loop above asserts existence"))
     }
@@ -458,9 +499,9 @@ impl RoutingPool {
                 self.deactivate_server_locked_rts(router, rts);
             } else {
                 let Ok(resolved_addresses) = router.resolve() else {
-                self.deactivate_server_locked_rts(router, rts);
-                continue;
-            };
+                    self.deactivate_server_locked_rts(router, rts);
+                    continue;
+                };
                 for resolved_address in resolved_addresses.into_iter().map(Arc::new) {
                     match Self::wrap_discovery_error(
                         self.acquire_routing_address(&resolved_address)
@@ -509,8 +550,8 @@ impl RoutingPool {
                 })
                 .with_on_failure(|meta| Err(ServerError::from_meta(meta).into())),
         )?;
-        con.write_all()?;
-        con.read_all()?;
+        con.write_all(None)?;
+        con.read_all(None)?;
         let rt = Arc::try_unwrap(rt).expect("read_all flushes all ResponseCallbacks");
         rt.into_inner().ok_or_else(|| {
             Neo4jError::protocol_error("server did not reply with SUCCESS to ROUTE request")

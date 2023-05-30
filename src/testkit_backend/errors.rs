@@ -75,6 +75,11 @@ impl From<Neo4jError> for TestKitError {
                 msg: String::from(error.message()),
                 code: Some(String::from(error.code())),
             },
+            Neo4jError::Timeout { message } => TestKitError::DriverError {
+                error_type: String::from("TimeoutError"),
+                msg: message,
+                code: None,
+            },
             Neo4jError::ProtocolError { message } => TestKitError::DriverError {
                 error_type: String::from("ProtocolError"),
                 msg: message,

@@ -23,16 +23,18 @@ use atomic_refcell::AtomicRefCell;
 use std::borrow::Borrow;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Formatter};
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::mem;
-use std::net::{Shutdown, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::ops::Deref;
 use std::result;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use log::{debug, log_enabled, warn, Level};
 use usize_cast::FromUsize;
 
+use crate::driver::io::deadline::DeadlineIO;
 use crate::{Address, Neo4jError, Result, ValueReceive, ValueSend};
 use bolt5x0::Bolt5x0StructTranslator;
 use bolt_state::{BoltState, BoltStateTracker};
@@ -69,9 +71,9 @@ macro_rules! bolt_debug_extra {
         'a: {
             let meta = $bolt.meta.try_borrow();
             // ugly format because rust-fmt is broken
-            let Ok(meta) = meta else { break 'a dbg_extra($bolt.socket.as_ref(), Some("!!!!")); };
-            let Some(ValueReceive::String(id)) = meta.get("connection_id") else { break 'a dbg_extra($bolt.socket.as_ref(), None); };
-            dbg_extra($bolt.socket.as_ref(), Some(id))
+            let Ok(meta) = meta else { break 'a dbg_extra($bolt.local_port, Some("!!!!")); };
+            let Some(ValueReceive::String(id)) = meta.get("connection_id") else { break 'a dbg_extra($bolt.local_port, None); };
+            dbg_extra($bolt.local_port, Some(id))
         }
     };
 }
@@ -97,21 +99,19 @@ macro_rules! bolt_debug {
 }
 
 macro_rules! socket_debug {
-    ($socket:expr, $($args:tt)+) => {
+    ($local_port:expr, $($args:tt)+) => {
         debug!(
             "{}{}",
-            dbg_extra(Some($socket), None),
+            dbg_extra(Some($local_port), None),
             format!($($args)*)
         );
     };
 }
 
-fn dbg_extra(socket: Option<&TcpStream>, bolt_id: Option<&str>) -> String {
+fn dbg_extra(port: Option<u16>, bolt_id: Option<&str>) -> String {
     format!(
         "[#{:04X} {:<10}] ",
-        socket
-            .map(|s| s.local_addr().map(|addr| addr.port()).unwrap_or(0))
-            .unwrap_or(0),
+        port.unwrap_or(0),
         bolt_id.unwrap_or("")
     )
 }
@@ -130,6 +130,7 @@ pub struct Bolt<R: Read, W: Write> {
     reader: R,
     writer: W,
     socket: Option<TcpStream>,
+    local_port: Option<u16>,
     version: (u8, u8),
     connection_state: ConnectionState,
     bolt_state: BoltStateTracker,
@@ -147,6 +148,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
         reader: R,
         writer: W,
         socket: Option<TcpStream>,
+        local_port: Option<u16>,
         address: Arc<Address>,
     ) -> Self {
         Self {
@@ -155,6 +157,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
             reader,
             writer,
             socket,
+            local_port,
             version,
             connection_state: ConnectionState::Healthy,
             bolt_state: BoltStateTracker::new(version),
@@ -172,12 +175,12 @@ impl<R: Read, W: Write> Bolt<R, W> {
     fn dbg_extra(&self) -> String {
         let meta = self.meta.try_borrow();
         let Ok(meta) = meta else {
-             return dbg_extra(self.socket.as_ref(), Some("!!!!"));
+             return dbg_extra(self.local_port, Some("!!!!"));
         };
         let Some(ValueReceive::String(id)) = meta.get("connection_id") else {
-            return dbg_extra(self.socket.as_ref(), None);
+            return dbg_extra(self.local_port, None);
         };
-        dbg_extra(self.socket.as_ref(), Some(id))
+        dbg_extra(self.local_port, Some(id))
     }
 
     pub(crate) fn closed(&self) -> bool {
@@ -585,23 +588,39 @@ impl<R: Read, W: Write> Bolt<R, W> {
         Ok(())
     }
 
-    pub(crate) fn read_one(&mut self) -> Result<()> {
+    pub(crate) fn read_all(&mut self, deadline: Option<Instant>) -> Result<()> {
+        while self.expects_reply() {
+            self.read_one(deadline)?
+        }
+        Ok(())
+    }
+
+    pub(crate) fn read_one(&mut self, deadline: Option<Instant>) -> Result<()> {
         let mut response = self
             .responses
             .pop_front()
             .expect("called Bolt::read_one with empty response queue");
 
-        let mut dechunker = Dechunker::new(&mut self.reader, |err| {
-            bolt_debug!(self, "read failed: {}", err);
-            self.connection_state = ConnectionState::Broken;
-            self.socket.as_ref().map(|s| s.shutdown(Shutdown::Both));
-        });
+        let mut reader = DeadlineIO::new(
+            &mut self.reader,
+            &mut self.writer,
+            deadline,
+            self.socket.as_ref(),
+            |err| {
+                bolt_debug!(self, "read failed: {}", err);
+                self.connection_state = ConnectionState::Broken;
+                self.socket.as_ref().map(|s| s.shutdown(Shutdown::Both));
+            },
+        );
+        let mut dechunker = Dechunker::new(&mut reader);
         let translator = Bolt5x0StructTranslator {};
-        let message: BoltMessage<ValueReceive> = BoltMessage::load(&mut dechunker, |r| {
-            let mut deserializer = PackStreamDeserializerImpl::new(r);
-            Ok(deserializer.load::<ValueReceive, _>(&translator)?)
-        })?;
+        let message_result: Result<BoltMessage<ValueReceive>> =
+            BoltMessage::load(&mut dechunker, |r| {
+                let mut deserializer = PackStreamDeserializerImpl::new(r);
+                Ok(deserializer.load::<ValueReceive, _>(&translator)?)
+            });
         drop(dechunker);
+        let message = reader.rewrite_error(message_result)?;
         match message {
             BoltMessage {
                 tag: 0x70,
@@ -659,7 +678,7 @@ impl<R: Read, W: Write> Bolt<R, W> {
             Ok(())
         } else {
             Err(Neo4jError::protocol_error(format!(
-                "{} response should have {} field but found {:?}",
+                "{} response should have {} field(s) but found {:?}",
                 name,
                 expected_count,
                 fields.len()
@@ -667,32 +686,33 @@ impl<R: Read, W: Write> Bolt<R, W> {
         }
     }
 
-    pub(crate) fn read_all(&mut self) -> Result<()> {
-        while self.expects_reply() {
-            self.read_one()?
+    pub(crate) fn write_all(&mut self, deadline: Option<Instant>) -> Result<()> {
+        while self.has_buffered_message() {
+            self.write_one(deadline)?
         }
         Ok(())
     }
 
-    pub(crate) fn write_one(&mut self) -> Result<()> {
+    pub(crate) fn write_one(&mut self, deadline: Option<Instant>) -> Result<()> {
         if let Some(message_buff) = self.message_buff.pop_front() {
             let chunker = Chunker::new(&message_buff);
-            for chunk in chunker {
-                if let Err(e) = self.writer.write_all(&chunk) {
-                    bolt_debug!(self, "write failed: {}", e);
+            let mut writer = DeadlineIO::new(
+                &mut self.reader,
+                &mut self.writer,
+                deadline,
+                self.socket.as_ref(),
+                |err| {
+                    bolt_debug!(self, "write failed: {}", err);
                     self.connection_state = ConnectionState::Broken;
                     self.socket.as_ref().map(|s| s.shutdown(Shutdown::Both));
-                    return Err(Neo4jError::write_error(e));
-                }
+                },
+            );
+            for chunk in chunker {
+                let res = Neo4jError::wrap_write(writer.write_all(&chunk));
+                writer.rewrite_error(res)?;
             }
-        }
-        Neo4jError::wrap_write(self.writer.flush())?;
-        Ok(())
-    }
-
-    pub(crate) fn write_all(&mut self) -> Result<()> {
-        while self.has_buffered_message() {
-            self.write_one()?
+            let res = Neo4jError::wrap_write(writer.flush());
+            writer.rewrite_error(res)?;
         }
         Ok(())
     }
@@ -719,8 +739,8 @@ impl<R: Read, W: Write> Debug for Bolt<R, W> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Bolt5x0 {{\n  message_buff: {:?}\n  responses: {:?}\n}}",
-            self.message_buff, self.responses
+            "Bolt{}x{} {{\n  message_buff: {:?}\n  responses: {:?}\n}}",
+            self.version.0, self.version.1, self.message_buff, self.responses
         )
     }
 }
@@ -735,7 +755,7 @@ impl<R: Read, W: Write> Drop for Bolt<R, W> {
         if self.goodbye().is_err() {
             return;
         }
-        let _ = self.write_all();
+        let _ = self.write_all(Some(Instant::now() + Duration::from_millis(100)));
     }
 }
 
@@ -772,28 +792,54 @@ const BOLT_VERSION_OFFER: [u8; 16] = [
     0, 0, 0, 0, // -
 ];
 
-pub(crate) fn open(address: Arc<Address>) -> Result<TcpBolt> {
+pub(crate) fn open(
+    address: Arc<Address>,
+    deadline: Option<Instant>,
+    mut connect_timeout: Option<Duration>,
+) -> Result<TcpBolt> {
     debug!(
         "{}{}",
         dbg_extra(None, None),
         format!("C: <OPEN> {}", address)
     );
-    let stream = Neo4jError::wrap_connect(TcpStream::connect(&*address))?;
+    if let Some(deadline) = deadline {
+        let mut time_left = deadline.saturating_duration_since(Instant::now());
+        if time_left == Duration::from_secs(0) {
+            time_left = Duration::from_nanos(1);
+        }
+        match connect_timeout {
+            None => connect_timeout = Some(time_left),
+            Some(timeout) => connect_timeout = Some(timeout.min(time_left)),
+        }
+    }
+    let stream = Neo4jError::wrap_connect(match connect_timeout {
+        None => TcpStream::connect(&*address),
+        Some(timeout) => each_addr(&*address, |addr| TcpStream::connect_timeout(addr?, timeout)),
+    })?;
+    let local_port = stream
+        .local_addr()
+        .map(|addr| addr.port())
+        .unwrap_or_default();
 
     // TODO: TLS
 
     let mut reader = BufReader::new(Neo4jError::wrap_connect(stream.try_clone())?);
     let mut writer = BufWriter::new(Neo4jError::wrap_connect(stream.try_clone())?);
+    let mut deadline_io =
+        DeadlineIO::new(&mut reader, &mut writer, deadline, Some(&stream), |err| {
+            socket_debug!(local_port, "io failure: {err}");
+            let _ = stream.shutdown(Shutdown::Both);
+        });
 
-    socket_debug!(&stream, "C: <HANDSHAKE> {:02X?}", BOLT_MAGIC_PREAMBLE);
-    Neo4jError::wrap_write(writer.write_all(&BOLT_MAGIC_PREAMBLE))?;
-    socket_debug!(&stream, "C: <BOLT> {:02X?}", BOLT_VERSION_OFFER);
-    Neo4jError::wrap_write(writer.write_all(&BOLT_VERSION_OFFER))?;
-    Neo4jError::wrap_write(writer.flush())?;
+    socket_debug!(local_port, "C: <HANDSHAKE> {:02X?}", BOLT_MAGIC_PREAMBLE);
+    wrap_write_socket(local_port, deadline_io.write_all(&BOLT_MAGIC_PREAMBLE))?;
+    socket_debug!(local_port, "C: <BOLT> {:02X?}", BOLT_VERSION_OFFER);
+    wrap_write_socket(local_port, deadline_io.write_all(&BOLT_VERSION_OFFER))?;
+    wrap_write_socket(local_port, deadline_io.flush())?;
 
     let mut negotiated_version = [0u8; 4];
-    Neo4jError::wrap_read(reader.read_exact(&mut negotiated_version))?;
-    socket_debug!(&stream, "S: <BOLT> {:02X?}", negotiated_version);
+    wrap_read_socket(local_port, deadline_io.read_exact(&mut negotiated_version))?;
+    socket_debug!(local_port, "S: <BOLT> {:02X?}", negotiated_version);
 
     let version = match negotiated_version {
         [0, 0, 0, 0] => Err(Neo4jError::InvalidConfig {
@@ -818,7 +864,58 @@ pub(crate) fn open(address: Arc<Address>) -> Result<TcpBolt> {
         }),
     }?;
 
-    Ok(Bolt::new(version, reader, writer, Some(stream), address))
+    Ok(Bolt::new(
+        version,
+        reader,
+        writer,
+        Some(stream),
+        Some(local_port),
+        address,
+    ))
+}
+
+// copied from std::net
+fn each_addr<A: ToSocketAddrs, F, T>(addr: A, mut f: F) -> io::Result<T>
+where
+    F: FnMut(io::Result<&SocketAddr>) -> io::Result<T>,
+{
+    let addrs = match addr.to_socket_addrs() {
+        Ok(addrs) => addrs,
+        Err(e) => return f(Err(e)),
+    };
+    let mut last_err = None;
+    for addr in addrs {
+        match f(Ok(&addr)) {
+            Ok(l) => return Ok(l),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "could not resolve to any addresses",
+        )
+    }))
+}
+
+fn wrap_write_socket<T>(local_port: u16, res: io::Result<T>) -> Result<T> {
+    match res {
+        Ok(res) => Ok(res),
+        Err(err) => {
+            socket_debug!(local_port, "   write error: {}", err);
+            Neo4jError::wrap_write(Err(err))
+        }
+    }
+}
+
+fn wrap_read_socket<T>(local_port: u16, res: io::Result<T>) -> Result<T> {
+    match res {
+        Ok(res) => Ok(res),
+        Err(err) => {
+            socket_debug!(local_port, "   read error: {}", err);
+            Neo4jError::wrap_read(Err(err))
+        }
+    }
 }
 
 const RUN_PREP_MSG_IDX: usize = 0;
