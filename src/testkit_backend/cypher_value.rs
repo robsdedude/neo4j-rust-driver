@@ -14,13 +14,19 @@
 
 use std::collections::HashMap;
 use std::fmt::Formatter;
+use std::hash::Hash;
 use std::num::FpCategory;
 
 use serde::de::Unexpected;
 use serde::{de::Error as DeError, de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
+use crate::graph::{
+    Node as Neo4jNode, Relationship as Neo4jRelationship,
+    UnboundRelationship as Neo4jUnboundRelationship,
+};
 use crate::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
+use crate::testkit_backend::cypher_value::CypherValue::CypherList;
 use crate::{ValueReceive, ValueSend};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -62,8 +68,8 @@ pub(crate) enum CypherValue {
     Node(Node),
     CypherRelationship(Relationship),
     CypherPath {
-        nodes: Vec<NodeTagged>,
-        relationships: Vec<RelationshipTagged>,
+        nodes: Box<CypherValue>,
+        relationships: Box<CypherValue>,
     },
     CypherPoint {
         system: PointSystem,
@@ -111,10 +117,10 @@ pub(crate) enum NodeTagged {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(crate) struct Node {
-    id: i64,
-    labels: Vec<String>,
-    props: HashMap<String, CypherValue>,
-    element_id: String,
+    id: Box<CypherValue>,
+    labels: Box<CypherValue>,
+    props: Box<CypherValue>,
+    element_id: Box<CypherValue>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -126,15 +132,15 @@ pub(crate) enum RelationshipTagged {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(crate) struct Relationship {
-    id: i64,
-    start_node_id: i64,
-    end_node_id: i64,
+    id: Box<CypherValue>,
+    start_node_id: Box<CypherValue>,
+    end_node_id: Box<CypherValue>,
     #[serde(rename = "type")]
-    type_: String,
-    props: HashMap<String, CypherValue>,
-    element_id: String,
-    start_node_element_id: String,
-    end_node_element_id: String,
+    type_: Box<CypherValue>,
+    props: Box<CypherValue>,
+    element_id: Box<CypherValue>,
+    start_node_element_id: Box<CypherValue>,
+    end_node_element_id: Box<CypherValue>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -379,10 +385,7 @@ impl TryFrom<ValueReceive> for CypherValue {
             ValueReceive::Bytes(v) => CypherValue::CypherBytes { value: v },
             ValueReceive::String(v) => CypherValue::CypherString { value: v },
             ValueReceive::List(v) => CypherValue::CypherList {
-                value: v
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()?,
+                value: try_into_vec(v)?,
             },
             ValueReceive::Map(v) => CypherValue::CypherMap {
                 value: v
@@ -414,7 +417,122 @@ impl TryFrom<ValueReceive> for CypherValue {
                 y: v.latitude(),
                 z: Some(v.altitude()),
             },
-            ValueReceive::BrokenValue { reason } => return Err(Self::Error { reason }),
+            ValueReceive::Node(n) => CypherValue::Node(try_into_node(n)?),
+            ValueReceive::Relationship(r) => {
+                CypherValue::CypherRelationship(try_into_relationship(r)?)
+            }
+            ValueReceive::Path(p) => {
+                let traversal = p.traverse();
+                assert!(!traversal.is_empty());
+                let nodes = [traversal[0].0]
+                    .into_iter()
+                    .chain(traversal.iter().map(|t| t.2))
+                    .map(|n| Ok(CypherValue::Node(try_into_node(n.clone())?)))
+                    .collect::<Result<_, _>>()?;
+                let relationships = traversal
+                    .iter()
+                    .map(|(s, r, e)| {
+                        Ok(CypherValue::CypherRelationship(
+                            try_into_relationship_unbound(s, (*r).clone(), e)?,
+                        ))
+                    })
+                    .collect::<Result<_, _>>()?;
+                CypherValue::CypherPath {
+                    nodes: Box::new(CypherList { value: nodes }),
+                    relationships: Box::new(CypherList {
+                        value: relationships,
+                    }),
+                }
+            }
+            ValueReceive::BrokenValue(v) => {
+                return Err(Self::Error {
+                    reason: v.reason().into(),
+                })
+            }
         })
     }
+}
+
+fn try_into_node(n: Neo4jNode) -> Result<Node, BrokenValueError> {
+    Ok(Node {
+        id: Box::new(CypherValue::CypherInt { value: n.id }),
+        labels: Box::new(CypherValue::CypherList {
+            value: n
+                .labels
+                .into_iter()
+                .map(|l| CypherValue::CypherString { value: l })
+                .collect(),
+        }),
+        props: Box::new(CypherValue::CypherMap {
+            value: try_into_map_values(n.properties)?,
+        }),
+        element_id: Box::new(CypherValue::CypherString {
+            value: n.element_id,
+        }),
+    })
+}
+
+fn try_into_relationship(r: Neo4jRelationship) -> Result<Relationship, BrokenValueError> {
+    Ok(Relationship {
+        id: Box::new(CypherValue::CypherInt { value: r.id }),
+        start_node_id: Box::new(CypherValue::CypherInt {
+            value: r.start_node_id,
+        }),
+        end_node_id: Box::new(CypherValue::CypherInt {
+            value: r.end_node_id,
+        }),
+        type_: Box::new(CypherValue::CypherString { value: r.type_ }),
+        props: Box::new(CypherValue::CypherMap {
+            value: try_into_map_values(r.properties)?,
+        }),
+
+        element_id: Box::new(CypherValue::CypherString {
+            value: r.element_id,
+        }),
+        start_node_element_id: Box::new(CypherValue::CypherString {
+            value: r.start_node_element_id,
+        }),
+        end_node_element_id: Box::new(CypherValue::CypherString {
+            value: r.end_node_element_id,
+        }),
+    })
+}
+
+fn try_into_relationship_unbound(
+    s: &Neo4jNode,
+    r: Neo4jUnboundRelationship,
+    e: &Neo4jNode,
+) -> Result<Relationship, BrokenValueError> {
+    Ok(Relationship {
+        id: Box::new(CypherValue::CypherInt { value: r.id }),
+        start_node_id: Box::new(CypherValue::CypherInt { value: s.id }),
+        end_node_id: Box::new(CypherValue::CypherInt { value: e.id }),
+        type_: Box::new(CypherValue::CypherString { value: r.type_ }),
+        props: Box::new(CypherValue::CypherMap {
+            value: try_into_map_values(r.properties)?,
+        }),
+        element_id: Box::new(CypherValue::CypherString {
+            value: r.element_id,
+        }),
+        start_node_element_id: Box::new(CypherValue::CypherString {
+            value: s.element_id.clone(),
+        }),
+        end_node_element_id: Box::new(CypherValue::CypherString {
+            value: e.element_id.clone(),
+        }),
+    })
+}
+
+fn try_into_vec<T: TryFrom<V, Error = E>, E, V>(v: Vec<V>) -> Result<Vec<T>, E> {
+    v.into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<_, _>>()
+}
+
+fn try_into_map_values<T: TryFrom<V, Error = E>, E, K: Eq + Hash, V>(
+    v: HashMap<K, V>,
+) -> Result<HashMap<K, T>, E> {
+    v.into_iter()
+        .map(|(k, v)| Ok((k, v.try_into()?)))
+        .collect::<Result<_, _>>()
 }

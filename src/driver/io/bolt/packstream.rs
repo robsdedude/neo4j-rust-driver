@@ -17,11 +17,9 @@ mod error;
 mod serialize;
 #[cfg(test)]
 mod tests;
-mod value;
 
-pub use deserialize::{PackStreamDeserialize, PackStreamDeserializer, PackStreamDeserializerImpl};
+pub(crate) use deserialize::{PackStreamDeserializer, PackStreamDeserializerImpl};
 pub use error::PackStreamDeserializeError;
 pub use serialize::{
-    PackStreamSerialize, PackStreamSerializer, PackStreamSerializerDebugImpl,
-    PackStreamSerializerImpl,
+    PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };

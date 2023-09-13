@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use itertools::Itertools;
 
+use super::graph;
 use super::value_send::ValueSend;
 use crate::spatial;
 
@@ -30,11 +31,14 @@ pub enum ValueReceive {
     String(String),
     List(Vec<ValueReceive>),
     Map(HashMap<String, ValueReceive>),
+    Node(graph::Node),
+    Relationship(graph::Relationship),
+    Path(graph::Path),
     Cartesian2D(spatial::Cartesian2D),
     Cartesian3D(spatial::Cartesian3D),
     WGS84_2D(spatial::WGS84_2D),
     WGS84_3D(spatial::WGS84_3D),
-    BrokenValue { reason: String },
+    BrokenValue(BrokenValue),
 }
 
 impl ValueReceive {
@@ -268,6 +272,102 @@ impl ValueReceive {
     }
 }
 
+impl TryFrom<ValueReceive> for graph::Node {
+    type Error = ValueReceive;
+
+    #[inline]
+    fn try_from(value: ValueReceive) -> Result<Self, Self::Error> {
+        match value {
+            ValueReceive::Node(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn is_node(&self) -> bool {
+        matches!(self, ValueReceive::Node(_))
+    }
+
+    #[inline]
+    pub fn as_node(&self) -> Option<&graph::Node> {
+        match self {
+            ValueReceive::Node(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_node(self) -> Result<graph::Node, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<ValueReceive> for graph::Relationship {
+    type Error = ValueReceive;
+
+    #[inline]
+    fn try_from(value: ValueReceive) -> Result<Self, Self::Error> {
+        match value {
+            ValueReceive::Relationship(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn is_relationship(&self) -> bool {
+        matches!(self, ValueReceive::Relationship(_))
+    }
+
+    #[inline]
+    pub fn as_relationship(&self) -> Option<&graph::Relationship> {
+        match self {
+            ValueReceive::Relationship(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_relationship(self) -> Result<graph::Relationship, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<ValueReceive> for graph::Path {
+    type Error = ValueReceive;
+
+    #[inline]
+    fn try_from(value: ValueReceive) -> Result<Self, Self::Error> {
+        match value {
+            ValueReceive::Path(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn is_path(&self) -> bool {
+        matches!(self, ValueReceive::Path(_))
+    }
+
+    #[inline]
+    pub fn as_path(&self) -> Option<&graph::Path> {
+        match self {
+            ValueReceive::Path(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn try_into_path(self) -> Result<graph::Path, Self> {
+        self.try_into()
+    }
+}
+
 impl TryFrom<ValueReceive> for spatial::Cartesian2D {
     type Error = ValueReceive;
 
@@ -396,6 +496,51 @@ impl ValueReceive {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct BrokenValue {
+    pub(crate) inner: BrokenValueInner,
+}
+
+impl PartialEq for BrokenValue {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum BrokenValueInner {
+    Reason(String),
+    UnknownStruct {
+        tag: u8,
+        fields: VecDeque<ValueReceive>,
+    },
+    InvalidStruct {
+        reason: String,
+    },
+}
+
+impl BrokenValue {
+    pub fn reason(&self) -> &str {
+        match &self.inner {
+            BrokenValueInner::Reason(reason) => reason,
+            BrokenValueInner::UnknownStruct { .. } => "received an unknown packstream struct",
+            BrokenValueInner::InvalidStruct { reason, .. } => reason,
+        }
+    }
+}
+
+impl From<BrokenValueInner> for BrokenValue {
+    fn from(inner: BrokenValueInner) -> Self {
+        BrokenValue { inner }
+    }
+}
+
+pub(crate) fn broken_value(reason: impl Into<String>) -> ValueReceive {
+    ValueReceive::BrokenValue(BrokenValue {
+        inner: BrokenValueInner::Reason(reason.into()),
+    })
+}
+
 impl ValueReceive {
     pub(crate) fn dbg_print(&self) -> String {
         match self {
@@ -412,11 +557,16 @@ impl ValueReceive {
                     .map(|(k, e)| format!("{:?}: {}", k, e.dbg_print()))
                     .format(", ")
             ),
+            ValueReceive::Node(node) => format!("{}", node),
+            ValueReceive::Relationship(relationship) => format!("{}", relationship),
+            ValueReceive::Path(path) => format!("{}", path),
             ValueReceive::Cartesian2D(v) => format!("{:?}", v),
             ValueReceive::Cartesian3D(v) => format!("{:?}", v),
             ValueReceive::WGS84_2D(v) => format!("{:?}", v),
             ValueReceive::WGS84_3D(v) => format!("{:?}", v),
-            ValueReceive::BrokenValue { reason } => format!("BrokenValue({:?})", reason),
+            ValueReceive::BrokenValue(broken_value) => {
+                format!("BrokenValue({})", broken_value.reason())
+            }
         }
     }
 }

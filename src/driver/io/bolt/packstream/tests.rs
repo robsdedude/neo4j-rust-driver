@@ -109,8 +109,8 @@ impl BoltStructTranslator for BoltStructTestTranslator {
         fields: Vec<V::Value>,
     ) -> V::Value {
         match tag {
-            TAG_2D => V::load_point_2d(fields),
-            TAG_3D => V::load_point_3d(fields),
+            TAG_2D => V::load_point_2d_v1(fields),
+            TAG_3D => V::load_point_3d_v1(fields),
             _ => V::load_broken(unknown_tag_message(tag)),
         }
     }
@@ -155,14 +155,14 @@ impl PackStreamDeserialize for PackStreamTestValue {
         PackStreamTestValue::Dictionary(d)
     }
 
-    fn load_point_2d(fields: Vec<Self::Value>) -> Self::Value {
+    fn load_point_2d_v1(fields: Vec<Self::Value>) -> Self::Value {
         PackStreamTestValue::Structure(PackStreamTestStructure {
             tag: TAG_2D,
             fields,
         })
     }
 
-    fn load_point_3d(fields: Vec<Self::Value>) -> Self::Value {
+    fn load_point_3d_v1(fields: Vec<Self::Value>) -> Self::Value {
         PackStreamTestValue::Structure(PackStreamTestStructure {
             tag: TAG_3D,
             fields,

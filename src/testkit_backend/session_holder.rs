@@ -317,10 +317,9 @@ impl SessionHolderRunner {
                             }
                         })
                     };
-                    let res = if let Some(params) = params {
-                        auto_commit.run_with_parameters(params)
-                    } else {
-                        auto_commit.run()
+                    let res = match params {
+                        Some(params) => auto_commit.with_parameters(params).run(),
+                        None => auto_commit.run(),
                     };
                     if let Err(e) = res {
                         if started_receiver {
@@ -396,11 +395,10 @@ impl SessionHolderRunner {
                                             continue;
                                         }
                                         let TransactionRun { params, query, .. } = command;
+                                        let query = transaction.query(query);
                                         let result = match params {
-                                            None => transaction.run(query),
-                                            Some(params) => {
-                                                transaction.run_with_parameters(query, params)
-                                            }
+                                            Some(params) => query.with_parameters(params).run(),
+                                            None => query.run(),
                                         };
                                         match result {
                                             Ok(result) => {

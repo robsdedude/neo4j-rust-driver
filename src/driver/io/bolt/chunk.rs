@@ -13,15 +13,17 @@
 // limitations under the License.
 
 use std::cmp;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::io::{self, Read};
 use std::ops::Deref;
+use std::thread::panicking;
 
-use log::{log_enabled, trace, Level};
+use log::{error, log_enabled, trace, Level};
 use usize_cast::IntoUsize;
 
 use crate::util::truncate_string;
 
+#[derive(Debug)]
 pub(crate) struct Chunker<'a, T: Deref<Target = [u8]>> {
     buffers: &'a [T],
     buffer_start: usize,
@@ -97,7 +99,6 @@ impl<'a> Deref for Chunk<'a> {
         match self {
             Chunk::Buffer(buf) => {
                 trace!("C: <RAW> {:02X?}", buf);
-                trace!("C:       {}", String::from_utf8_lossy(buf));
                 buf
             }
             Chunk::Size(size) => {
@@ -113,22 +114,19 @@ pub(crate) struct Dechunker<R: Read> {
     chunk_size: usize,
     broken: bool,
     chunk_log_raw: Option<String>,
-    chunk_log: Option<String>,
 }
 
 impl<R: Read> Dechunker<R> {
     pub(crate) fn new(reader: R) -> Self {
-        let (chunk_log_raw, chunk_log) = if log_enabled!(Level::Trace) {
-            (Some(String::new()), Some(String::new()))
-        } else {
-            (None, None)
+        let chunk_log_raw = match log_enabled!(Level::Trace) {
+            true => Some(String::new()),
+            false => None,
         };
         Self {
             reader,
             chunk_size: 0,
             broken: false,
             chunk_log_raw,
-            chunk_log,
         }
     }
 
@@ -152,20 +150,17 @@ impl<R: Read> Read for Dechunker<R> {
             self.chunk_size = u16::from_be_bytes(size_buf).into_usize();
             if log_enabled!(Level::Trace) {
                 let log_raw = self.chunk_log_raw.as_mut().unwrap();
-                let log = self.chunk_log.as_mut().unwrap();
-                if !log.is_empty() {
+                if !log_raw.is_empty() {
                     trace!("{}]", log_raw);
-                    trace!("{}", log);
                     log_raw.clear();
-                    log.clear();
                 }
-                trace!("S: <RAW> {:02X?}", &size_buf);
                 if self.chunk_size > 0 {
                     log_raw.push_str(&format!(
                         "S: <RAW> [{}",
                         truncate_string(&format!("{:02X?}", &size_buf), 1, 1)
                     ));
-                    log.push_str(&format!("S:       {}", String::from_utf8_lossy(&size_buf)));
+                } else {
+                    trace!("S: <RAW> {:02X?}", &size_buf);
                 }
             }
         }
@@ -174,24 +169,46 @@ impl<R: Read> Read for Dechunker<R> {
         let res = self.reader.read_exact(buf).map(|_| new_buf_size);
         if log_enabled!(Level::Trace) && res.is_ok() {
             let log_raw = self.chunk_log_raw.as_mut().unwrap();
-            let log = self.chunk_log.as_mut().unwrap();
             log_raw.push_str(", ");
             log_raw.push_str(truncate_string(&format!("{:02X?}", buf), 1, 1));
-            log.push_str(&String::from_utf8_lossy(buf));
         }
         self.chunk_size -= new_buf_size;
         self.error_wrap(res)
     }
 }
 
+impl<R: Read> Debug for Dechunker<R> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Dechunker")
+            .field("reader", &"...")
+            .field("chunk_size", &self.chunk_size)
+            .field("broken", &self.broken)
+            .field("chunk_log_raw", &self.chunk_log_raw)
+            .finish()
+    }
+}
+
 impl<R: Read> Drop for Dechunker<R> {
     fn drop(&mut self) {
         if log_enabled!(Level::Trace) {
-            let log = self.chunk_log.as_mut().unwrap();
             let log_raw = self.chunk_log_raw.as_mut().unwrap();
-            if !log.is_empty() {
+            if !log_raw.is_empty() {
                 trace!("{}]", log_raw);
-                trace!("{}", log);
+            }
+        }
+        if self.chunk_size > 0 && !self.broken {
+            match panicking() {
+                false => panic!("attempted to drop a dechunker with an unfinished chunk: {self:?}"),
+                true => {
+                    eprintln!(
+                        "attempted to drop a dechunker with an unfinished chunk \
+                         while panicking: {self:?}"
+                    );
+                    error!(
+                        "attempted to drop a dechunker with an unfinished chunk \
+                         while panicking: {self:?}"
+                    )
+                }
             }
         }
     }

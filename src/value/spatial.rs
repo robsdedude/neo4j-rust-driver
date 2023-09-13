@@ -21,8 +21,8 @@ pub(crate) const SRID_WGS84_3D: i64 = 4979;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Cartesian2D {
-    srid: i64,
-    coordinates: [f64; 2],
+    pub(crate) srid: i64,
+    pub(crate) coordinates: [f64; 2],
 }
 
 impl Cartesian2D {
@@ -55,8 +55,8 @@ impl Display for Cartesian2D {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Cartesian3D {
-    srid: i64,
-    coordinates: [f64; 3],
+    pub(crate) srid: i64,
+    pub(crate) coordinates: [f64; 3],
 }
 
 impl Cartesian3D {
@@ -92,8 +92,8 @@ impl Display for Cartesian3D {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct WGS84_2D {
-    srid: i64,
-    coordinates: [f64; 2],
+    pub(crate) srid: i64,
+    pub(crate) coordinates: [f64; 2],
 }
 
 impl WGS84_2D {
@@ -126,8 +126,8 @@ impl Display for WGS84_2D {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct WGS84_3D {
-    srid: i64,
-    coordinates: [f64; 3],
+    pub(crate) srid: i64,
+    pub(crate) coordinates: [f64; 3],
 }
 
 impl WGS84_3D {

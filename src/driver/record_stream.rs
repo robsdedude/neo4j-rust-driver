@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -25,7 +26,8 @@ use atomic_refcell::AtomicRefCell;
 use duplicate::duplicate_item;
 use thiserror::Error;
 
-use super::io::bolt::{BoltMeta, BoltRecordFields, ResponseCallbacks, RunPreparation};
+use super::io::bolt::message_parameters::RunParameters;
+use super::io::bolt::{BoltMeta, BoltRecordFields, ResponseCallbacks};
 use super::summary::Summary;
 use super::Record;
 use crate::driver::io::PooledBolt;
@@ -48,7 +50,7 @@ impl<'driver> RecordStream<'driver> {
         error_propagator: Option<SharedErrorPropagator>,
     ) -> Self {
         let listener = Arc::new(AtomicRefCell::new(RecordListener::new(
-            &connection.borrow(),
+            &(*connection).borrow(),
             error_propagator.as_ref().map(Arc::clone),
         )));
         if let Some(error_propagator) = error_propagator {
@@ -64,8 +66,11 @@ impl<'driver> RecordStream<'driver> {
         }
     }
 
-    pub(crate) fn run(&mut self, run_prep: RunPreparation) -> Result<()> {
-        if let RecordListenerState::ForeignError(e) = &self.listener.borrow().state {
+    pub(crate) fn run<KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
+        &mut self,
+        parameters: RunParameters<KP, KM>,
+    ) -> Result<()> {
+        if let RecordListenerState::ForeignError(e) = &(*self.listener).borrow().state {
             return Err(ServerError::new(String::from(e.code()), String::from(e.message())).into());
         }
 
@@ -81,8 +86,8 @@ impl<'driver> RecordStream<'driver> {
         assert!(!self.connection.borrow_mut().has_buffered_message());
         assert!(!self.connection.borrow_mut().expects_reply());
 
-        self.connection.borrow_mut().run_submit(run_prep, callbacks);
-        let res = self.connection.borrow_mut().write_one(None);
+        let mut res = self.connection.borrow_mut().run(parameters, callbacks);
+        res = res.and_then(|_| self.connection.borrow_mut().write_one(None));
         if let Err(e) = res.and_then(|_| self.pull(false)) {
             let mut listener = self.listener.borrow_mut();
             listener.state = RecordListenerState::Done;
@@ -130,14 +135,14 @@ impl<'driver> RecordStream<'driver> {
     }
 
     pub fn keys(&self) -> Vec<Arc<String>> {
-        self.listener
+        (*self.listener)
             .borrow()
             .keys
             .as_ref()
             .expect(
                 "keys were not present but should be after RUN's SUCCESS. \
-            Even if they are missing, the SUCCESS handler should've caused a protocol violation \
-            error before the user is handed out the stream object",
+                Even if they are missing, the SUCCESS handler should've caused a protocol \
+                violation error before the user is handed out the stream object",
             )
             .iter()
             .map(Arc::clone)
@@ -179,7 +184,7 @@ impl<'driver> RecordStream<'driver> {
     }
 
     fn exhaust(&mut self) -> Result<()> {
-        if self.listener.borrow().state.is_streaming() {
+        if (*self.listener).borrow().state.is_streaming() {
             let mut listener = self.listener.borrow_mut();
             listener.buffer.clear();
             listener.state = RecordListenerState::Discarding;
@@ -260,7 +265,7 @@ impl<'driver> RecordStream<'driver> {
     }
 
     fn qid(&self) -> i64 {
-        self.listener.borrow().qid.unwrap_or(-1)
+        (*self.listener).borrow().qid.unwrap_or(-1)
     }
 
     fn failed_commit(&self, err: Neo4jError) -> Neo4jError {
@@ -283,12 +288,12 @@ impl<'driver> Iterator for RecordStream<'driver> {
 
     fn next(&mut self) -> Option<Self::Item> {
         fn need_to_pull(listener: &Arc<AtomicRefCell<RecordListener>>) -> bool {
-            let listener = listener.borrow();
+            let listener = (**listener).borrow();
             listener.buffer.is_empty() && listener.state.is_streaming()
         }
 
         fn need_to_discard(listener: &Arc<AtomicRefCell<RecordListener>>) -> bool {
-            let listener = listener.borrow();
+            let listener = (**listener).borrow();
             listener.buffer.is_empty() && listener.state.is_discarding()
         }
 

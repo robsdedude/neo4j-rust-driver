@@ -14,20 +14,19 @@
 
 use std::io::Read;
 
-use super::packstream::PackStreamDeserialize;
 use crate::{Neo4jError, Result};
 
 #[derive(Debug)]
-pub(crate) struct BoltMessage<V: PackStreamDeserialize> {
+pub(crate) struct BoltMessage<V> {
     pub tag: u8,
-    pub fields: Vec<V::Value>,
+    pub fields: Vec<V>,
 }
 
-impl<V: PackStreamDeserialize> BoltMessage<V> {
+impl<V> BoltMessage<V> {
     pub(crate) fn load<R, CB>(reader: &mut R, mut load_value: CB) -> Result<Self>
     where
         R: Read,
-        CB: FnMut(&mut R) -> Result<V::Value>,
+        CB: FnMut(&mut R) -> Result<V>,
     {
         let mut marker = [0; 1];
         Neo4jError::wrap_read(reader.read_exact(&mut marker))?;

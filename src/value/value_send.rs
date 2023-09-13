@@ -110,6 +110,9 @@ impl TryFrom<ValueReceive> for ValueSend {
             ValueReceive::WGS84_2D(v) => Self::WGS84_2D(v),
             ValueReceive::WGS84_3D(v) => Self::WGS84_3D(v),
             ValueReceive::BrokenValue { .. } => return Err("cannot convert BrokenValue".into()),
+            ValueReceive::Node(_) => return Err("cannot convert Node".into()),
+            ValueReceive::Relationship(_) => return Err("cannot convert Relationship".into()),
+            ValueReceive::Path(_) => return Err("cannot convert Path".into()),
         })
     }
 }

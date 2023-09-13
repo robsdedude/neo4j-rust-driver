@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub(crate) mod graph;
 pub(crate) mod spatial;
 pub(crate) mod value_receive;
 pub(crate) mod value_send;
@@ -20,7 +21,6 @@ pub(crate) mod value_send;
 
 use thiserror::Error;
 
-pub use crate::driver::io::bolt::{PackStreamDeserialize, PackStreamSerialize};
 pub use value_receive::ValueReceive;
 pub use value_send::ValueSend;
 
