@@ -254,21 +254,26 @@ impl<R: Read, W: Write> Bolt<R, W> {
             &mut self.data.writer,
             deadline,
             self.data.socket.as_ref(),
-            |err| {
-                bolt_debug!(self.data, "read failed: {}", err);
-                self.data.connection_state = ConnectionState::Broken;
-                self.data
-                    .socket
-                    .as_ref()
-                    .map(|s| s.shutdown(Shutdown::Both));
-            },
         );
         let mut dechunker = Dechunker::new(&mut reader);
         let message_result: Result<BoltMessage<ValueReceive>> =
             BoltMessage::load(&mut dechunker, |r| self.protocol.load_value(r));
         drop(dechunker);
-        let message = reader.rewrite_error(message_result)?;
+        let message_result = reader.rewrite_error(message_result);
+        let message = self.wrap_read_result(message_result)?;
         self.protocol.handle_response(&mut self.data, message)
+    }
+
+    fn wrap_read_result<T>(&mut self, res: Result<T>) -> Result<T> {
+        if let Err(err) = &res {
+            bolt_debug!(self.data, "read failed: {err:?}");
+            self.data.connection_state = ConnectionState::Broken;
+            self.data
+                .socket
+                .as_ref()
+                .map(|s| s.shutdown(Shutdown::Both));
+        }
+        res
     }
 
     pub(crate) fn write_all(&mut self, deadline: Option<Instant>) -> Result<()> {
@@ -319,6 +324,7 @@ trait BoltProtocol: Debug {
         qid: i64,
         callbacks: ResponseCallbacks,
     ) -> Result<()>;
+    #[allow(clippy::too_many_arguments)]
     fn begin<R: Read, W: Write, K: Borrow<str> + Debug>(
         &mut self,
         data: &mut BoltData<R, W>,
@@ -360,7 +366,7 @@ enum BoltProtocolVersion {
     V5x0(Bolt5x0<Bolt5x0StructTranslator>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 enum ConnectionState {
     Healthy,
     Broken,
@@ -483,20 +489,29 @@ impl<R: Read, W: Write> BoltData<R, W> {
                 &mut self.writer,
                 deadline,
                 self.socket.as_ref(),
-                |err| {
-                    bolt_debug!(self, "write failed: {}", err);
-                    self.connection_state = ConnectionState::Broken;
-                    self.socket.as_ref().map(|s| s.shutdown(Shutdown::Both));
-                },
             );
             for chunk in chunker {
                 let res = Neo4jError::wrap_write(writer.write_all(&chunk));
-                writer.rewrite_error(res)?;
+                let res = writer.rewrite_error(res);
+                if let Err(err) = &res {
+                    self.handle_write_error(err);
+                    return res;
+                }
             }
             let res = Neo4jError::wrap_write(writer.flush());
-            writer.rewrite_error(res)?;
+            let res = writer.rewrite_error(res);
+            if let Err(err) = &res {
+                self.handle_write_error(err);
+                return res;
+            }
         }
         Ok(())
+    }
+
+    fn handle_write_error(&mut self, err: &Neo4jError) {
+        bolt_debug!(self, "write failed: {}", err);
+        self.connection_state = ConnectionState::Broken;
+        self.socket.as_ref().map(|s| s.shutdown(Shutdown::Both));
     }
 
     fn has_buffered_message(&self) -> bool {
@@ -512,6 +527,9 @@ impl<R: Read, W: Write> BoltData<R, W> {
             if response.message == ResponseMessage::Reset {
                 return false;
             }
+        }
+        if self.connection_state != ConnectionState::Healthy {
+            return false;
         }
         !(self.bolt_state.state() == BoltState::Ready && self.responses.is_empty())
     }
@@ -610,20 +628,28 @@ pub(crate) fn open(
 
     let mut reader = BufReader::new(Neo4jError::wrap_connect(stream.try_clone())?);
     let mut writer = BufWriter::new(Neo4jError::wrap_connect(stream.try_clone())?);
-    let mut deadline_io =
-        DeadlineIO::new(&mut reader, &mut writer, deadline, Some(&stream), |err| {
-            socket_debug!(local_port, "io failure: {err}");
-            let _ = stream.shutdown(Shutdown::Both);
-        });
+    let mut deadline_io = DeadlineIO::new(&mut reader, &mut writer, deadline, Some(&stream));
 
     socket_debug!(local_port, "C: <HANDSHAKE> {:02X?}", BOLT_MAGIC_PREAMBLE);
-    wrap_write_socket(local_port, deadline_io.write_all(&BOLT_MAGIC_PREAMBLE))?;
+    wrap_write_socket(
+        &stream,
+        local_port,
+        deadline_io.write_all(&BOLT_MAGIC_PREAMBLE),
+    )?;
     socket_debug!(local_port, "C: <BOLT> {:02X?}", BOLT_VERSION_OFFER);
-    wrap_write_socket(local_port, deadline_io.write_all(&BOLT_VERSION_OFFER))?;
-    wrap_write_socket(local_port, deadline_io.flush())?;
+    wrap_write_socket(
+        &stream,
+        local_port,
+        deadline_io.write_all(&BOLT_VERSION_OFFER),
+    )?;
+    wrap_write_socket(&stream, local_port, deadline_io.flush())?;
 
     let mut negotiated_version = [0u8; 4];
-    wrap_read_socket(local_port, deadline_io.read_exact(&mut negotiated_version))?;
+    wrap_read_socket(
+        &stream,
+        local_port,
+        deadline_io.read_exact(&mut negotiated_version),
+    )?;
     socket_debug!(local_port, "S: <BOLT> {:02X?}", negotiated_version);
 
     let version = match negotiated_version {
@@ -683,21 +709,23 @@ where
     }))
 }
 
-fn wrap_write_socket<T>(local_port: u16, res: io::Result<T>) -> Result<T> {
+fn wrap_write_socket<T>(stream: &TcpStream, local_port: u16, res: io::Result<T>) -> Result<T> {
     match res {
         Ok(res) => Ok(res),
         Err(err) => {
             socket_debug!(local_port, "   write error: {}", err);
+            let _ = stream.shutdown(Shutdown::Both);
             Neo4jError::wrap_write(Err(err))
         }
     }
 }
 
-fn wrap_read_socket<T>(local_port: u16, res: io::Result<T>) -> Result<T> {
+fn wrap_read_socket<T>(stream: &TcpStream, local_port: u16, res: io::Result<T>) -> Result<T> {
     match res {
         Ok(res) => Ok(res),
         Err(err) => {
             socket_debug!(local_port, "   read error: {}", err);
+            let _ = stream.shutdown(Shutdown::Both);
             Neo4jError::wrap_read(Err(err))
         }
     }

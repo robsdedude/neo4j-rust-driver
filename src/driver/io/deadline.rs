@@ -71,37 +71,33 @@ enum ReaderErrorDuring {
     IO,
 }
 
-pub(crate) struct DeadlineIO<'tcp, R, W, OnErr> {
+pub(crate) struct DeadlineIO<'tcp, R, W> {
     reader: R,
     writer: W,
     deadline: Option<Instant>,
     socket: Option<&'tcp TcpStream>,
-    on_error: OnErr,
     error_during: Option<ReaderErrorDuring>,
 }
 
-impl<'tcp, R: Read, W: Write, OnErr: FnMut(&io::Error)> DeadlineIO<'tcp, R, W, OnErr> {
+impl<'tcp, R: Read, W: Write> DeadlineIO<'tcp, R, W> {
     pub(crate) fn new(
         reader: R,
         writer: W,
         deadline: Option<Instant>,
         socket: Option<&'tcp TcpStream>,
-        on_error: OnErr,
     ) -> Self {
         Self {
             reader,
             writer,
             deadline,
             socket,
-            on_error,
             error_during: None,
         }
     }
 
     fn wrap_io_error<T>(&mut self, res: io::Result<T>, during: ReaderErrorDuring) -> io::Result<T> {
-        if let Err(err) = &res {
+        if res.is_err() {
             self.error_during = Some(during);
-            (self.on_error)(err);
         }
         res
     }
@@ -140,13 +136,13 @@ impl<'tcp, R: Read, W: Write, OnErr: FnMut(&io::Error)> DeadlineIO<'tcp, R, W, O
     }
 
     pub(crate) fn rewrite_error<T>(&self, res: Result<T>) -> Result<T> {
-        let Err(err) = res else {
-            return res
-        };
+        if res.is_ok() {
+            return res;
+        }
         match self.error_during {
-            Some(ReaderErrorDuring::GetTimeout) => wrap_get_timeout_error(Err(err)),
-            Some(ReaderErrorDuring::SetTimeout) => wrap_set_timeout_error(Err(err)),
-            Some(ReaderErrorDuring::IO) | None => Err(err),
+            Some(ReaderErrorDuring::GetTimeout) => wrap_get_timeout_error(res),
+            Some(ReaderErrorDuring::SetTimeout) => wrap_set_timeout_error(res),
+            Some(ReaderErrorDuring::IO) | None => res,
         }
     }
 }
@@ -160,7 +156,7 @@ fn set_socket_timeout(socket: &TcpStream, timeout: Option<Duration>) -> io::Resu
     socket.set_write_timeout(timeout)
 }
 
-impl<'tcp, R, W, OnErr> Debug for DeadlineIO<'tcp, R, W, OnErr> {
+impl<'tcp, R, W> Debug for DeadlineIO<'tcp, R, W> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DeadlineIO")
             .field("deadline", &self.deadline)
@@ -169,13 +165,13 @@ impl<'tcp, R, W, OnErr> Debug for DeadlineIO<'tcp, R, W, OnErr> {
     }
 }
 
-impl<'tcp, R: Read, W: Write, OnErr: FnMut(&io::Error)> Read for DeadlineIO<'tcp, R, W, OnErr> {
+impl<'tcp, R: Read, W: Write> Read for DeadlineIO<'tcp, R, W> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.with_deadline(|self_| self_.reader.read(buf))
     }
 }
 
-impl<'tcp, R: Read, W: Write, OnErr: FnMut(&io::Error)> Write for DeadlineIO<'tcp, R, W, OnErr> {
+impl<'tcp, R: Read, W: Write> Write for DeadlineIO<'tcp, R, W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.with_deadline(|self_| self_.writer.write(buf))
     }

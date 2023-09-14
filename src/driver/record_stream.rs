@@ -18,7 +18,6 @@ use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::iter::FusedIterator;
 use std::mem;
-use std::ops::Deref;
 use std::rc::Rc;
 use std::result;
 use std::sync::{Arc, Weak};
@@ -117,7 +116,6 @@ impl<'driver> RecordStream<'driver> {
         if let Err(err) = connection_borrow.read_all(None) {
             self.listener.borrow_mut().state = RecordListenerState::Error(self.failed_commit(err));
         } else {
-            dbg!(connection_borrow.deref());
             assert!(!connection_borrow.has_buffered_message());
             assert!(!connection_borrow.expects_reply());
         }
