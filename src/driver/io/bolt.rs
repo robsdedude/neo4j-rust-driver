@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod bolt4x4;
 mod bolt5x0;
 mod bolt_state;
 mod chunk;
@@ -37,7 +38,8 @@ use usize_cast::FromUsize;
 
 use super::deadline::DeadlineIO;
 use crate::{Address, Neo4jError, Result, ValueReceive, ValueSend};
-use bolt5x0::Bolt5x0;
+use bolt4x4::{Bolt4x4, Bolt4x4StructTranslator};
+use bolt5x0::{Bolt5x0, Bolt5x0StructTranslator};
 use bolt_state::{BoltState, BoltStateTracker};
 use chunk::{Chunker, Dechunker};
 use message::BoltMessage;
@@ -140,7 +142,8 @@ impl<R: Read, W: Write> Bolt<R, W> {
         Self {
             data: BoltData::new(version, reader, writer, socket, local_port, address),
             protocol: match version {
-                (5, 0) => Bolt5x0::new().into(),
+                (5, 0) => Bolt5x0::<Bolt5x0StructTranslator>::default().into(),
+                (4, 4) => Bolt4x4::<Bolt4x4StructTranslator>::default().into(),
                 _ => panic!("implement protocol for version {:?}", version),
             },
         }
@@ -353,7 +356,8 @@ trait BoltProtocol: Debug {
 #[enum_dispatch(BoltProtocol)]
 #[derive(Debug)]
 enum BoltProtocolVersion {
-    V5x0(Bolt5x0),
+    V4x4(Bolt4x4<Bolt4x4StructTranslator>),
+    V5x0(Bolt5x0<Bolt5x0StructTranslator>),
 }
 
 #[derive(Debug)]
@@ -538,8 +542,7 @@ impl<R: Read, W: Write> Drop for Bolt<R, W> {
     }
 }
 
-#[enum_dispatch]
-pub(crate) trait BoltStructTranslator {
+pub(crate) trait BoltStructTranslator: Debug + Default {
     fn serialize<S: PackStreamSerializer>(
         &self,
         serializer: &mut S,
@@ -547,6 +550,10 @@ pub(crate) trait BoltStructTranslator {
     ) -> result::Result<(), S::Error>;
 
     fn deserialize_struct(&self, tag: u8, fields: Vec<ValueReceive>) -> ValueReceive;
+}
+
+pub(crate) trait BoltStructTranslatorWithUtcPatch: BoltStructTranslator {
+    fn enable_utc_patch(&mut self);
 }
 
 fn assert_response_field_count<T>(name: &str, fields: &[T], expected_count: usize) -> Result<()> {

@@ -30,26 +30,19 @@ use super::super::packstream::{
 };
 use super::super::{
     assert_response_field_count, bolt_debug, bolt_debug_extra, dbg_extra, debug_buf, debug_buf_end,
-    debug_buf_start, BoltData, BoltProtocol, BoltResponse, ConnectionState, ResponseCallbacks,
-    ResponseMessage,
+    debug_buf_start, BoltData, BoltProtocol, BoltResponse, BoltStructTranslator, ConnectionState,
+    ResponseCallbacks, ResponseMessage,
 };
-use super::translator::Bolt5x0StructTranslator;
 use crate::{Neo4jError, Result, ValueReceive, ValueSend};
 
 const SERVER_AGENT_KEY: &str = "server";
 
-#[derive(Debug)]
-pub(crate) struct Bolt5x0 {
-    translator: Bolt5x0StructTranslator,
+#[derive(Debug, Default)]
+pub(crate) struct Bolt5x0<T: BoltStructTranslator> {
+    translator: T,
 }
 
-impl Bolt5x0 {
-    pub(crate) fn new() -> Bolt5x0 {
-        Bolt5x0 {
-            translator: Bolt5x0StructTranslator {},
-        }
-    }
-
+impl<T: BoltStructTranslator> Bolt5x0<T> {
     fn pull_or_discard<R: Read, W: Write>(
         &mut self,
         data: &mut BoltData<R, W>,
@@ -96,7 +89,7 @@ impl Bolt5x0 {
     }
 }
 
-impl BoltProtocol for Bolt5x0 {
+impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
     fn hello<R: Read, W: Write>(
         &mut self,
         data: &mut BoltData<R, W>,

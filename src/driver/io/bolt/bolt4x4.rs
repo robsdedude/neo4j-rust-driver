@@ -15,5 +15,5 @@
 mod protocol;
 mod translator;
 
-pub(crate) use protocol::Bolt5x0;
-pub(crate) use translator::Bolt5x0StructTranslator;
+pub(crate) use protocol::Bolt4x4;
+pub(crate) use translator::Bolt4x4StructTranslator;

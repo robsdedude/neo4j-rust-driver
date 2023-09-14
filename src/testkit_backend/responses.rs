@@ -493,7 +493,7 @@ impl Response {
                 // "Feature:Bolt:4.1",
                 // "Feature:Bolt:4.2",
                 // "Feature:Bolt:4.3",
-                // "Feature:Bolt:4.4",
+                "Feature:Bolt:4.4",
                 "Feature:Bolt:5.0",
                 // "Feature:Bolt:5.1",
                 // "Feature:Bolt:5.2",
