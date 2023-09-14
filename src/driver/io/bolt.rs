@@ -24,7 +24,6 @@ use std::borrow::Borrow;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Formatter};
 use std::io::{self, BufReader, BufWriter, Read, Write};
-use std::mem;
 use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::ops::Deref;
 use std::result;
@@ -32,20 +31,18 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use atomic_refcell::AtomicRefCell;
-use log::{debug, log_enabled, warn, Level};
+use enum_dispatch::enum_dispatch;
+use log::debug;
 use usize_cast::FromUsize;
 
-use crate::driver::io::deadline::DeadlineIO;
+use super::deadline::DeadlineIO;
 use crate::{Address, Neo4jError, Result, ValueReceive, ValueSend};
-use bolt5x0::Bolt5x0StructTranslator;
+use bolt5x0::Bolt5x0;
 use bolt_state::{BoltState, BoltStateTracker};
 use chunk::{Chunker, Dechunker};
 use message::BoltMessage;
 use message_parameters::RunParameters;
-pub(crate) use packstream::{
-    PackStreamDeserializer, PackStreamDeserializerImpl, PackStreamSerializer,
-    PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
-};
+use packstream::PackStreamSerializer;
 pub(crate) use response::{
     BoltMeta, BoltRecordFields, BoltResponse, ResponseCallbacks, ResponseMessage,
 };
@@ -58,6 +55,7 @@ macro_rules! debug_buf_start {
         };
     };
 }
+pub(crate) use debug_buf_start;
 
 macro_rules! debug_buf {
     ($name:ident, $($args:tt)+) => {
@@ -66,6 +64,7 @@ macro_rules! debug_buf {
         };
     }
 }
+pub(crate) use debug_buf;
 
 macro_rules! bolt_debug_extra {
     ($bolt:expr) => {
@@ -78,6 +77,7 @@ macro_rules! bolt_debug_extra {
         }
     };
 }
+pub(crate) use bolt_debug_extra;
 
 macro_rules! debug_buf_end {
     ($bolt:expr, $name:ident) => {
@@ -88,6 +88,7 @@ macro_rules! debug_buf_end {
         );
     };
 }
+pub(crate) use debug_buf_end;
 
 macro_rules! bolt_debug {
     ($bolt:expr, $($args:tt)+) => {
@@ -98,6 +99,7 @@ macro_rules! bolt_debug {
         );
     };
 }
+pub(crate) use bolt_debug;
 
 macro_rules! socket_debug {
     ($local_port:expr, $($args:tt)+) => {
@@ -108,6 +110,7 @@ macro_rules! socket_debug {
         );
     };
 }
+pub(crate) use socket_debug;
 
 fn dbg_extra(port: Option<u16>, bolt_id: Option<&str>) -> String {
     format!(
@@ -117,15 +120,250 @@ fn dbg_extra(port: Option<u16>, bolt_id: Option<&str>) -> String {
     )
 }
 
-const SERVER_AGENT_KEY: &str = "server";
+pub(crate) type TcpBolt = Bolt<BufReader<TcpStream>, BufWriter<TcpStream>>;
 
-pub enum ConnectionState {
+#[derive(Debug)]
+pub(crate) struct Bolt<R: Read, W: Write> {
+    data: BoltData<R, W>,
+    protocol: BoltProtocolVersion,
+}
+
+impl<R: Read, W: Write> Bolt<R, W> {
+    fn new(
+        version: (u8, u8),
+        reader: R,
+        writer: W,
+        socket: Option<TcpStream>,
+        local_port: Option<u16>,
+        address: Arc<Address>,
+    ) -> Self {
+        Self {
+            data: BoltData::new(version, reader, writer, socket, local_port, address),
+            protocol: match version {
+                (5, 0) => Bolt5x0::new().into(),
+                _ => panic!("implement protocol for version {:?}", version),
+            },
+        }
+    }
+
+    pub(crate) fn closed(&self) -> bool {
+        self.data.closed()
+    }
+
+    pub(crate) fn unexpectedly_closed(&self) -> bool {
+        self.data.unexpectedly_closed()
+    }
+
+    pub(crate) fn protocol_version(&self) -> (u8, u8) {
+        self.data.version
+    }
+
+    pub(crate) fn address(&self) -> Arc<Address> {
+        Arc::clone(&self.data.address)
+    }
+
+    pub(crate) fn server_agent(&self) -> Arc<String> {
+        Arc::clone(self.data.server_agent.deref().borrow().deref())
+    }
+
+    pub(crate) fn hello(
+        &mut self,
+        user_agent: &str,
+        auth: &HashMap<String, ValueSend>,
+        routing_context: Option<&HashMap<String, ValueSend>>,
+    ) -> Result<()> {
+        self.protocol
+            .hello(&mut self.data, user_agent, auth, routing_context)
+    }
+
+    pub(crate) fn goodbye(&mut self) -> Result<()> {
+        self.protocol.goodbye(&mut self.data)
+    }
+    pub(crate) fn reset(&mut self) -> Result<()> {
+        self.protocol.reset(&mut self.data)
+    }
+    pub(crate) fn run<KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
+        &mut self,
+        parameters: RunParameters<KP, KM>,
+        callbacks: ResponseCallbacks,
+    ) -> Result<()> {
+        self.protocol.run(&mut self.data, parameters, callbacks)
+    }
+    pub(crate) fn discard(&mut self, n: i64, qid: i64, callbacks: ResponseCallbacks) -> Result<()> {
+        self.protocol.discard(&mut self.data, n, qid, callbacks)
+    }
+    pub(crate) fn pull(&mut self, n: i64, qid: i64, callbacks: ResponseCallbacks) -> Result<()> {
+        self.protocol.pull(&mut self.data, n, qid, callbacks)
+    }
+    pub(crate) fn begin<K: Borrow<str> + Debug>(
+        &mut self,
+        bookmarks: Option<&[String]>,
+        tx_timeout: Option<i64>,
+        tx_metadata: Option<&HashMap<K, ValueSend>>,
+        mode: Option<&str>,
+        db: Option<&str>,
+        imp_user: Option<&str>,
+    ) -> Result<()> {
+        self.protocol.begin(
+            &mut self.data,
+            bookmarks,
+            tx_timeout,
+            tx_metadata,
+            mode,
+            db,
+            imp_user,
+        )
+    }
+    pub(crate) fn commit(&mut self, callbacks: ResponseCallbacks) -> Result<()> {
+        self.protocol.commit(&mut self.data, callbacks)
+    }
+    pub(crate) fn rollback(&mut self) -> Result<()> {
+        self.protocol.rollback(&mut self.data)
+    }
+    pub(crate) fn route(
+        &mut self,
+        routing_context: &HashMap<String, ValueSend>,
+        bookmarks: Option<&[String]>,
+        db: Option<&str>,
+        imp_user: Option<&str>,
+        callbacks: ResponseCallbacks,
+    ) -> Result<()> {
+        self.protocol.route(
+            &mut self.data,
+            routing_context,
+            bookmarks,
+            db,
+            imp_user,
+            callbacks,
+        )
+    }
+
+    pub(crate) fn read_all(&mut self, deadline: Option<Instant>) -> Result<()> {
+        while self.expects_reply() {
+            self.read_one(deadline)?
+        }
+        Ok(())
+    }
+
+    pub(crate) fn read_one(&mut self, deadline: Option<Instant>) -> Result<()> {
+        let mut reader = DeadlineIO::new(
+            &mut self.data.reader,
+            &mut self.data.writer,
+            deadline,
+            self.data.socket.as_ref(),
+            |err| {
+                bolt_debug!(self.data, "read failed: {}", err);
+                self.data.connection_state = ConnectionState::Broken;
+                self.data
+                    .socket
+                    .as_ref()
+                    .map(|s| s.shutdown(Shutdown::Both));
+            },
+        );
+        let mut dechunker = Dechunker::new(&mut reader);
+        let message_result: Result<BoltMessage<ValueReceive>> =
+            BoltMessage::load(&mut dechunker, |r| self.protocol.load_value(r));
+        drop(dechunker);
+        let message = reader.rewrite_error(message_result)?;
+        self.protocol.handle_response(&mut self.data, message)
+    }
+
+    pub(crate) fn write_all(&mut self, deadline: Option<Instant>) -> Result<()> {
+        self.data.write_all(deadline)
+    }
+    pub(crate) fn write_one(&mut self, deadline: Option<Instant>) -> Result<()> {
+        self.data.write_one(deadline)
+    }
+    pub(crate) fn has_buffered_message(&self) -> bool {
+        self.data.has_buffered_message()
+    }
+    pub(crate) fn expects_reply(&self) -> bool {
+        self.data.expects_reply()
+    }
+    pub(crate) fn needs_reset(&self) -> bool {
+        self.data.needs_reset()
+    }
+}
+
+#[enum_dispatch]
+trait BoltProtocol: Debug {
+    fn hello<R: Read, W: Write>(
+        &mut self,
+        data: &mut BoltData<R, W>,
+        user_agent: &str,
+        auth: &HashMap<String, ValueSend>,
+        routing_context: Option<&HashMap<String, ValueSend>>,
+    ) -> Result<()>;
+    fn goodbye<R: Read, W: Write>(&mut self, data: &mut BoltData<R, W>) -> Result<()>;
+    fn reset<R: Read, W: Write>(&mut self, data: &mut BoltData<R, W>) -> Result<()>;
+    fn run<R: Read, W: Write, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
+        &mut self,
+        data: &mut BoltData<R, W>,
+        parameters: RunParameters<KP, KM>,
+        callbacks: ResponseCallbacks,
+    ) -> Result<()>;
+    fn discard<R: Read, W: Write>(
+        &mut self,
+        data: &mut BoltData<R, W>,
+        n: i64,
+        qid: i64,
+        callbacks: ResponseCallbacks,
+    ) -> Result<()>;
+    fn pull<R: Read, W: Write>(
+        &mut self,
+        data: &mut BoltData<R, W>,
+        n: i64,
+        qid: i64,
+        callbacks: ResponseCallbacks,
+    ) -> Result<()>;
+    fn begin<R: Read, W: Write, K: Borrow<str> + Debug>(
+        &mut self,
+        data: &mut BoltData<R, W>,
+        bookmarks: Option<&[String]>,
+        tx_timeout: Option<i64>,
+        tx_metadata: Option<&HashMap<K, ValueSend>>,
+        mode: Option<&str>,
+        db: Option<&str>,
+        imp_user: Option<&str>,
+    ) -> Result<()>;
+    fn commit<R: Read, W: Write>(
+        &mut self,
+        data: &mut BoltData<R, W>,
+        callbacks: ResponseCallbacks,
+    ) -> Result<()>;
+    fn rollback<R: Read, W: Write>(&mut self, data: &mut BoltData<R, W>) -> Result<()>;
+    fn route<R: Read, W: Write>(
+        &mut self,
+        data: &mut BoltData<R, W>,
+        routing_context: &HashMap<String, ValueSend>,
+        bookmarks: Option<&[String]>,
+        db: Option<&str>,
+        imp_user: Option<&str>,
+        callbacks: ResponseCallbacks,
+    ) -> Result<()>;
+
+    fn load_value<R: Read>(&mut self, reader: &mut R) -> Result<ValueReceive>;
+    fn handle_response<R: Read, W: Write>(
+        &mut self,
+        data: &mut BoltData<R, W>,
+        message: BoltMessage<ValueReceive>,
+    ) -> Result<()>;
+}
+
+#[enum_dispatch(BoltProtocol)]
+#[derive(Debug)]
+enum BoltProtocolVersion {
+    V5x0(Bolt5x0),
+}
+
+#[derive(Debug)]
+enum ConnectionState {
     Healthy,
     Broken,
     Closed,
 }
 
-pub struct Bolt<R: Read, W: Write> {
+struct BoltData<R: Read, W: Write> {
     message_buff: VecDeque<Vec<Vec<u8>>>,
     responses: VecDeque<BoltResponse>,
     reader: R,
@@ -141,9 +379,7 @@ pub struct Bolt<R: Read, W: Write> {
     last_qid: Arc<AtomicRefCell<Option<i64>>>,
 }
 
-pub(crate) type TcpBolt = Bolt<BufReader<TcpStream>, BufWriter<TcpStream>>;
-
-impl<R: Read, W: Write> Bolt<R, W> {
+impl<R: Read, W: Write> BoltData<R, W> {
     fn new(
         version: (u8, u8),
         reader: R,
@@ -180,547 +416,17 @@ impl<R: Read, W: Write> Bolt<R, W> {
         dbg_extra(self.local_port, Some(id))
     }
 
-    pub(crate) fn closed(&self) -> bool {
+    fn closed(&self) -> bool {
         !matches!(self.connection_state, ConnectionState::Healthy)
     }
 
-    pub(crate) fn unexpectedly_closed(&self) -> bool {
+    fn unexpectedly_closed(&self) -> bool {
         matches!(self.connection_state, ConnectionState::Broken)
             && matches!(self.bolt_state.state(), BoltState::Failed)
     }
 
-    pub(crate) fn protocol_version(&self) -> (u8, u8) {
-        self.version
-    }
-
-    pub(crate) fn address(&self) -> Arc<Address> {
-        Arc::clone(&self.address)
-    }
-
-    pub(crate) fn server_agent(&self) -> Arc<String> {
-        Arc::clone(self.server_agent.deref().borrow().deref())
-    }
-
-    pub(crate) fn hello(
-        &mut self,
-        user_agent: &str,
-        auth: &HashMap<String, ValueSend>,
-        routing_context: Option<&HashMap<String, ValueSend>>,
-    ) -> Result<()> {
-        debug_buf_start!(log_buf);
-        debug_buf!(log_buf, "C: HELLO");
-        let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
-        let mut message_buff = Vec::new();
-        let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
-        let translator = Bolt5x0StructTranslator {};
-        serializer.write_struct_header(0x01, 1)?;
-
-        let extra_size =
-            1 + <bool as Into<u64>>::into(routing_context.is_some()) + u64::from_usize(auth.len());
-        serializer.write_dict_header(extra_size)?;
-        serializer.write_string("user_agent")?;
-        serializer.write_string(user_agent)?;
-        debug_buf!(log_buf, " {}", {
-            dbg_serializer.write_dict_header(extra_size).unwrap();
-            dbg_serializer.write_string("user_agent").unwrap();
-            dbg_serializer.write_string(user_agent).unwrap();
-            dbg_serializer.flush()
-        });
-
-        if let Some(routing_context) = routing_context {
-            serializer.write_string("routing")?;
-            self.serialize_dict(&mut serializer, &translator, routing_context)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("routing").unwrap();
-                self.serialize_dict(&mut dbg_serializer, &translator, routing_context)
-                    .unwrap();
-                dbg_serializer.flush()
-            });
-        }
-
-        for (k, v) in auth {
-            serializer.write_string(k)?;
-            self.serialize_value(&mut serializer, &translator, v)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string(k).unwrap();
-                if k == "credentials" {
-                    dbg_serializer.write_string("**********").unwrap();
-                } else {
-                    self.serialize_value(&mut dbg_serializer, &translator, v)
-                        .unwrap();
-                }
-                dbg_serializer.flush()
-            });
-        }
-
-        self.message_buff.push_back(vec![message_buff]);
-        debug_buf_end!(self, log_buf);
-
-        let self_meta = Arc::clone(&self.meta);
-        let self_server_agent = Arc::clone(&self.server_agent);
-        self.responses.push_back(BoltResponse::new(
-            ResponseMessage::Hello,
-            ResponseCallbacks::new().with_on_success(move |mut meta| {
-                if let Some((key, value)) = meta.remove_entry(SERVER_AGENT_KEY) {
-                    match value {
-                        ValueReceive::String(value) => {
-                            mem::swap(&mut *self_server_agent.borrow_mut(), &mut Arc::new(value));
-                        }
-                        _ => {
-                            warn!("Server sent unexpected server_agent type {:?}", &value);
-                            meta.insert(key, value);
-                        }
-                    }
-                }
-                mem::swap(&mut *self_meta.borrow_mut(), &mut meta);
-                Ok(())
-            }),
-        ));
-        Ok(())
-    }
-
-    pub(crate) fn goodbye(&mut self) -> Result<()> {
-        let mut message_buff = Vec::new();
-        let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
-        serializer.write_struct_header(0x02, 0)?;
-        self.message_buff.push_back(vec![message_buff]);
-        self.connection_state = ConnectionState::Closed;
-        bolt_debug!(self, "C: GOODBYE");
-        Ok(())
-    }
-
-    pub(crate) fn reset(&mut self) -> Result<()> {
-        let mut message_buff = Vec::new();
-        let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
-        serializer.write_struct_header(0x0F, 0)?;
-        self.message_buff.push_back(vec![message_buff]);
-        self.responses
-            .push_back(BoltResponse::from_message(ResponseMessage::Reset));
-        bolt_debug!(self, "C: RESET");
-        Ok(())
-    }
-
-    pub(crate) fn run<KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
-        &mut self,
-        parameters: RunParameters<KP, KM>,
-        mut callbacks: ResponseCallbacks,
-    ) -> Result<()> {
-        let RunParameters {
-            query,
-            parameters,
-            bookmarks,
-            tx_timeout,
-            tx_metadata,
-            mode,
-            db,
-            imp_user,
-        } = parameters;
-
-        debug_buf_start!(log_buf);
-        debug_buf!(log_buf, "C: RUN");
-        let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
-        let mut message_buff = Vec::new();
-        let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
-        let translator = Bolt5x0StructTranslator {};
-        serializer.write_struct_header(0x10, 3)?;
-
-        serializer.write_string(query)?;
-        debug_buf!(log_buf, " {}", {
-            dbg_serializer.write_string(query).unwrap();
-            dbg_serializer.flush()
-        });
-
-        match parameters {
-            Some(parameters) => {
-                self.serialize_dict(&mut serializer, &translator, parameters)?;
-                debug_buf!(log_buf, " {}", {
-                    self.serialize_dict(&mut dbg_serializer, &translator, parameters)
-                        .unwrap();
-                    dbg_serializer.flush()
-                });
-            }
-            None => {
-                serializer.write_dict_header(0)?;
-                debug_buf!(log_buf, " {}", {
-                    dbg_serializer.write_dict_header(0).unwrap();
-                    dbg_serializer.flush()
-                });
-            }
-        }
-
-        let extra_size = [
-            bookmarks.is_some() && !bookmarks.unwrap().is_empty(),
-            tx_timeout.is_some(),
-            tx_metadata.is_some() && !tx_metadata.unwrap().is_empty(),
-            mode.is_some() && mode.unwrap() != "w",
-            db.is_some(),
-            imp_user.is_some(),
-        ]
-        .into_iter()
-        .map(<bool as Into<u64>>::into)
-        .sum();
-
-        serializer.write_dict_header(extra_size)?;
-        debug_buf!(log_buf, " {}", {
-            dbg_serializer.write_dict_header(extra_size).unwrap();
-            dbg_serializer.flush()
-        });
-
-        if let Some(bookmarks) = bookmarks {
-            if !bookmarks.is_empty() {
-                serializer.write_string("bookmarks")?;
-                self.serialize_str_slice(&mut serializer, bookmarks)?;
-                debug_buf!(log_buf, "{}", {
-                    dbg_serializer.write_string("bookmarks").unwrap();
-                    self.serialize_str_slice(&mut dbg_serializer, bookmarks)
-                        .unwrap();
-                    dbg_serializer.flush()
-                });
-            }
-        }
-
-        if let Some(tx_timeout) = tx_timeout {
-            serializer.write_string("tx_timeout")?;
-            serializer.write_int(tx_timeout)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("tx_timeout").unwrap();
-                dbg_serializer.write_int(tx_timeout).unwrap();
-                dbg_serializer.flush()
-            });
-        }
-
-        if let Some(tx_metadata) = tx_metadata {
-            if !tx_metadata.is_empty() {
-                serializer.write_string("tx_metadata")?;
-                self.serialize_dict(&mut serializer, &translator, tx_metadata)?;
-                debug_buf!(log_buf, "{}", {
-                    dbg_serializer.write_string("tx_metadata").unwrap();
-                    self.serialize_dict(&mut dbg_serializer, &translator, tx_metadata)
-                        .unwrap();
-                    dbg_serializer.flush()
-                });
-            }
-        }
-
-        if let Some(mode) = mode {
-            if mode != "w" {
-                serializer.write_string("mode")?;
-                serializer.write_string(mode)?;
-                debug_buf!(log_buf, "{}", {
-                    dbg_serializer.write_string("mode").unwrap();
-                    dbg_serializer.write_string(mode).unwrap();
-                    dbg_serializer.flush()
-                });
-            }
-        }
-
-        if let Some(db) = db {
-            serializer.write_string("db")?;
-            serializer.write_string(db)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("db").unwrap();
-                dbg_serializer.write_string(db).unwrap();
-                dbg_serializer.flush()
-            });
-        }
-
-        if let Some(imp_user) = imp_user {
-            serializer.write_string("imp_user")?;
-            serializer.write_string(imp_user)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("imp_user").unwrap();
-                dbg_serializer.write_string(imp_user).unwrap();
-                dbg_serializer.flush()
-            });
-        }
-
-        callbacks = callbacks.with_on_success_pre_hook({
-            let last_qid = Arc::clone(&self.last_qid);
-            move |meta| match meta.get("qid") {
-                Some(ValueReceive::Integer(qid)) => {
-                    *last_qid.borrow_mut() = Some(*qid);
-                    Ok(())
-                }
-                None => {
-                    *last_qid.borrow_mut() = None;
-                    Ok(())
-                }
-                Some(v) => Err(Neo4jError::protocol_error(format!(
-                    "server send non-int qid: {:?}",
-                    v
-                ))),
-            }
-        });
-
-        self.message_buff.push_back(vec![message_buff]);
-        self.responses
-            .push_back(BoltResponse::new(ResponseMessage::Run, callbacks));
-        debug_buf_end!(self, log_buf);
-        Ok(())
-    }
-
-    pub(crate) fn discard(&mut self, n: i64, qid: i64, callbacks: ResponseCallbacks) -> Result<()> {
-        self.pull_or_discard(n, qid, callbacks, "DISCARD", 0x2F, ResponseMessage::Discard)
-    }
-
-    pub(crate) fn pull(&mut self, n: i64, qid: i64, callbacks: ResponseCallbacks) -> Result<()> {
-        self.pull_or_discard(n, qid, callbacks, "PULL", 0x3F, ResponseMessage::Pull)
-    }
-
-    fn pull_or_discard(
-        &mut self,
-        n: i64,
-        qid: i64,
-        callbacks: ResponseCallbacks,
-        name: &str,
-        tag: u8,
-        response: ResponseMessage,
-    ) -> Result<()> {
-        debug_buf_start!(log_buf);
-        debug_buf!(log_buf, "C: {}", name);
-        let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
-        let mut message_buff = Vec::new();
-        let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
-        serializer.write_struct_header(tag, 1)?;
-
-        let can_omit_qid = self.can_omit_qid(qid);
-        let extra_size = 1 + <bool as Into<u64>>::into(!can_omit_qid);
-        debug_buf!(log_buf, " {}", {
-            dbg_serializer.write_dict_header(extra_size).unwrap();
-            dbg_serializer.write_string("n").unwrap();
-            dbg_serializer.write_int(n).unwrap();
-            dbg_serializer.flush()
-        });
-        serializer.write_dict_header(extra_size)?;
-        serializer.write_string("n")?;
-        serializer.write_int(n)?;
-        if !can_omit_qid {
-            serializer.write_string("qid")?;
-            serializer.write_int(qid)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("qid").unwrap();
-                dbg_serializer.write_int(qid).unwrap();
-                dbg_serializer.flush()
-            });
-        }
-
-        self.message_buff.push_back(vec![message_buff]);
-        self.responses
-            .push_back(BoltResponse::new(response, callbacks));
-        debug_buf_end!(self, log_buf);
-        Ok(())
-    }
-
     fn can_omit_qid(&self, qid: i64) -> bool {
         qid == -1 || Some(qid) == *(self.last_qid.deref().borrow())
-    }
-
-    pub(crate) fn begin<K: Borrow<str> + Debug>(
-        &mut self,
-        bookmarks: Option<&[String]>,
-        tx_timeout: Option<i64>,
-        tx_metadata: Option<&HashMap<K, ValueSend>>,
-        mode: Option<&str>,
-        db: Option<&str>,
-        imp_user: Option<&str>,
-    ) -> Result<()> {
-        debug_buf_start!(log_buf);
-        debug_buf!(log_buf, "C: BEGIN");
-        let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
-        let mut message_buff = Vec::new();
-        let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
-        let translator = Bolt5x0StructTranslator {};
-        serializer.write_struct_header(0x11, 1)?;
-
-        let extra_size = [
-            bookmarks.is_some() && !bookmarks.unwrap().is_empty(),
-            tx_timeout.is_some(),
-            tx_metadata.is_some() && !tx_metadata.unwrap().is_empty(),
-            mode.is_some() && mode.unwrap() != "w",
-            db.is_some(),
-            imp_user.is_some(),
-        ]
-        .into_iter()
-        .map(<bool as Into<u64>>::into)
-        .sum();
-
-        debug_buf!(log_buf, " {}", {
-            dbg_serializer.write_dict_header(extra_size).unwrap();
-            dbg_serializer.flush()
-        });
-        serializer.write_dict_header(extra_size)?;
-
-        if let Some(bookmarks) = bookmarks {
-            if !bookmarks.is_empty() {
-                debug_buf!(log_buf, "{}", {
-                    dbg_serializer.write_string("bookmarks").unwrap();
-                    self.serialize_str_slice(&mut dbg_serializer, bookmarks)
-                        .unwrap();
-                    dbg_serializer.flush()
-                });
-                serializer.write_string("bookmarks").unwrap();
-                self.serialize_str_slice(&mut serializer, bookmarks)?;
-            }
-        }
-
-        if let Some(tx_timeout) = tx_timeout {
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("tx_timeout").unwrap();
-                dbg_serializer.write_int(tx_timeout).unwrap();
-                dbg_serializer.flush()
-            });
-            serializer.write_string("tx_timeout")?;
-            serializer.write_int(tx_timeout)?;
-        }
-
-        if let Some(tx_metadata) = tx_metadata {
-            if !tx_metadata.is_empty() {
-                debug_buf!(log_buf, "{}", {
-                    dbg_serializer.write_string("tx_metadata").unwrap();
-                    self.serialize_dict(&mut dbg_serializer, &translator, tx_metadata)
-                        .unwrap();
-                    dbg_serializer.flush()
-                });
-                serializer.write_string("tx_metadata")?;
-                self.serialize_dict(&mut serializer, &translator, tx_metadata)?;
-            }
-        }
-
-        if let Some(mode) = mode {
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("mode").unwrap();
-                dbg_serializer.write_string(mode).unwrap();
-                dbg_serializer.flush()
-            });
-            serializer.write_string("mode")?;
-            serializer.write_string(mode)?;
-        }
-
-        if let Some(db) = db {
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("db").unwrap();
-                dbg_serializer.write_string(db).unwrap();
-                dbg_serializer.flush()
-            });
-            serializer.write_string("db")?;
-            serializer.write_string(db)?;
-        }
-
-        if let Some(imp_user) = imp_user {
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("imp_user").unwrap();
-                dbg_serializer.write_string(imp_user).unwrap();
-                dbg_serializer.flush()
-            });
-            serializer.write_string("imp_user")?;
-            serializer.write_string(imp_user)?;
-        }
-
-        self.message_buff.push_back(vec![message_buff]);
-        self.responses
-            .push_back(BoltResponse::from_message(ResponseMessage::Begin));
-        debug_buf_end!(self, log_buf);
-        Ok(())
-    }
-
-    pub(crate) fn commit(&mut self, callbacks: ResponseCallbacks) -> Result<()> {
-        let mut message_buff = Vec::new();
-        let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
-        serializer.write_struct_header(0x12, 0)?;
-
-        self.message_buff.push_back(vec![message_buff]);
-        self.responses
-            .push_back(BoltResponse::new(ResponseMessage::Commit, callbacks));
-        bolt_debug!(self, "C: COMMIT");
-        Ok(())
-    }
-
-    pub(crate) fn rollback(&mut self) -> Result<()> {
-        let mut message_buff = Vec::new();
-        let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
-        serializer.write_struct_header(0x13, 0)?;
-
-        self.message_buff.push_back(vec![message_buff]);
-        self.responses
-            .push_back(BoltResponse::from_message(ResponseMessage::Rollback));
-        bolt_debug!(self, "C: ROLLBACK");
-        Ok(())
-    }
-
-    pub(crate) fn route(
-        &mut self,
-        routing_context: &HashMap<String, ValueSend>,
-        bookmarks: Option<&[String]>,
-        db: Option<&str>,
-        imp_user: Option<&str>,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()> {
-        debug_buf_start!(log_buf);
-        debug_buf!(log_buf, "C: ROUTE");
-        let translator = Bolt5x0StructTranslator {};
-        let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
-        let mut message_buff = Vec::new();
-        let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
-        serializer.write_struct_header(0x66, 3)?;
-
-        debug_buf!(log_buf, " {}", {
-            self.serialize_dict(&mut dbg_serializer, &translator, routing_context)
-                .unwrap();
-            dbg_serializer.flush()
-        });
-        self.serialize_dict(&mut serializer, &translator, routing_context)?;
-        match bookmarks {
-            None => {
-                debug_buf!(log_buf, " {}", {
-                    dbg_serializer.write_list_header(0).unwrap();
-                    dbg_serializer.flush()
-                });
-                serializer.write_list_header(0)?;
-            }
-            Some(bms) => {
-                debug_buf!(log_buf, " {}", {
-                    self.serialize_str_slice(&mut dbg_serializer, bms).unwrap();
-                    dbg_serializer.flush()
-                });
-                self.serialize_str_slice(&mut serializer, bms)?;
-            }
-        }
-
-        let extra_size = <bool as Into<usize>>::into(db.is_some())
-            + <bool as Into<usize>>::into(imp_user.is_some());
-        serializer.write_dict_header(u64::from_usize(extra_size))?;
-        debug_buf!(log_buf, " {}", {
-            dbg_serializer
-                .write_dict_header(u64::from_usize(extra_size))
-                .unwrap();
-            dbg_serializer.flush()
-        });
-
-        if let Some(db) = db {
-            serializer.write_string("db")?;
-            serializer.write_string(db)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("db").unwrap();
-                dbg_serializer.write_string(db).unwrap();
-                dbg_serializer.flush()
-            });
-        }
-
-        if let Some(imp_user) = imp_user {
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("imp_user").unwrap();
-                dbg_serializer.write_string(imp_user).unwrap();
-                dbg_serializer.flush()
-            });
-            serializer.write_string("imp_user")?;
-            serializer.write_string(imp_user)?;
-        }
-
-        self.message_buff.push_back(vec![message_buff]);
-        self.responses
-            .push_back(BoltResponse::new(ResponseMessage::Route, callbacks));
-        debug_buf_end!(self, log_buf);
-        Ok(())
     }
 
     fn serialize_dict<S: PackStreamSerializer, T: BoltStructTranslator, K: Borrow<str>>(
@@ -758,112 +464,14 @@ impl<R: Read, W: Write> Bolt<R, W> {
         translator.serialize(serializer, v).map_err(Into::into)
     }
 
-    pub(crate) fn read_all(&mut self, deadline: Option<Instant>) -> Result<()> {
-        while self.expects_reply() {
-            self.read_one(deadline)?
-        }
-        Ok(())
-    }
-
-    pub(crate) fn read_one(&mut self, deadline: Option<Instant>) -> Result<()> {
-        let mut response = self
-            .responses
-            .pop_front()
-            .expect("called Bolt::read_one with empty response queue");
-
-        let mut reader = DeadlineIO::new(
-            &mut self.reader,
-            &mut self.writer,
-            deadline,
-            self.socket.as_ref(),
-            |err| {
-                bolt_debug!(self, "read failed: {}", err);
-                self.connection_state = ConnectionState::Broken;
-                self.socket.as_ref().map(|s| s.shutdown(Shutdown::Both));
-            },
-        );
-        let mut dechunker = Dechunker::new(&mut reader);
-        let translator = Bolt5x0StructTranslator {};
-        let message_result: Result<BoltMessage<ValueReceive>> =
-            BoltMessage::load(&mut dechunker, |r| {
-                let mut deserializer = PackStreamDeserializerImpl::new(r);
-                deserializer.load(&translator).map_err(Into::into)
-            });
-        drop(dechunker);
-        let message = reader.rewrite_error(message_result)?;
-        match message {
-            BoltMessage {
-                tag: 0x70,
-                mut fields,
-            } => {
-                // SUCCESS
-                Self::assert_response_field_count("SUCCESS", &fields, 1)?;
-                let meta = fields.pop().unwrap();
-                bolt_debug!(self, "S: SUCCESS {}", meta.dbg_print());
-                self.bolt_state.success(response.message, &meta);
-                response.callbacks.on_success(meta)
-            }
-            BoltMessage { tag: 0x7E, fields } => {
-                // IGNORED
-                Self::assert_response_field_count("IGNORED", &fields, 0)?;
-                bolt_debug!(self, "S: IGNORED");
-                response.callbacks.on_ignored()
-            }
-            BoltMessage {
-                tag: 0x7F,
-                mut fields,
-            } => {
-                // FAILURE
-                Self::assert_response_field_count("FAILURE", &fields, 1)?;
-                let meta = fields.pop().unwrap();
-                bolt_debug!(self, "S: FAILURE {}", meta.dbg_print());
-                self.bolt_state.failure();
-                response.callbacks.on_failure(meta)
-            }
-            BoltMessage {
-                tag: 0x71,
-                mut fields,
-            } => {
-                // RECORD
-                Self::assert_response_field_count("RECORD", &fields, 1)?;
-                let data = fields.pop().unwrap();
-                bolt_debug!(self, "S: RECORD [...]");
-                let res = response.callbacks.on_record(data);
-                self.responses.push_front(response);
-                res
-            }
-            BoltMessage { tag, .. } => Err(Neo4jError::protocol_error(format!(
-                "unknown response message tag {:02X?}",
-                tag
-            ))),
-        }
-    }
-
-    fn assert_response_field_count<T>(
-        name: &str,
-        fields: &[T],
-        expected_count: usize,
-    ) -> Result<()> {
-        if fields.len() == expected_count {
-            Ok(())
-        } else {
-            Err(Neo4jError::protocol_error(format!(
-                "{} response should have {} field(s) but found {:?}",
-                name,
-                expected_count,
-                fields.len()
-            )))
-        }
-    }
-
-    pub(crate) fn write_all(&mut self, deadline: Option<Instant>) -> Result<()> {
+    fn write_all(&mut self, deadline: Option<Instant>) -> Result<()> {
         while self.has_buffered_message() {
             self.write_one(deadline)?
         }
         Ok(())
     }
 
-    pub(crate) fn write_one(&mut self, deadline: Option<Instant>) -> Result<()> {
+    fn write_one(&mut self, deadline: Option<Instant>) -> Result<()> {
         if let Some(message_buff) = self.message_buff.pop_front() {
             let chunker = Chunker::new(&message_buff);
             let mut writer = DeadlineIO::new(
@@ -887,15 +495,15 @@ impl<R: Read, W: Write> Bolt<R, W> {
         Ok(())
     }
 
-    pub(crate) fn has_buffered_message(&self) -> bool {
+    fn has_buffered_message(&self) -> bool {
         !self.message_buff.is_empty()
     }
 
-    pub(crate) fn expects_reply(&self) -> bool {
+    fn expects_reply(&self) -> bool {
         !self.responses.is_empty()
     }
 
-    pub(crate) fn needs_reset(&self) -> bool {
+    fn needs_reset(&self) -> bool {
         if let Some(response) = self.responses.iter().last() {
             if response.message == ResponseMessage::Reset {
                 return false;
@@ -905,30 +513,32 @@ impl<R: Read, W: Write> Bolt<R, W> {
     }
 }
 
-impl<R: Read, W: Write> Debug for Bolt<R, W> {
+impl<R: Read, W: Write> Debug for BoltData<R, W> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Bolt{}x{} {{\n  message_buff: {:?}\n  responses: {:?}\n}}",
-            self.version.0, self.version.1, self.message_buff, self.responses
-        )
+        f.debug_struct("BoltData")
+            .field("message_buff", &self.message_buff)
+            .field("responses", &self.responses)
+            .finish()
     }
 }
 
 impl<R: Read, W: Write> Drop for Bolt<R, W> {
     fn drop(&mut self) {
-        if self.closed() {
+        if self.data.closed() {
             return;
         }
-        self.message_buff.clear();
-        self.responses.clear();
+        self.data.message_buff.clear();
+        self.data.responses.clear();
         if self.goodbye().is_err() {
             return;
         }
-        let _ = self.write_all(Some(Instant::now() + Duration::from_millis(100)));
+        let _ = self
+            .data
+            .write_all(Some(Instant::now() + Duration::from_millis(100)));
     }
 }
 
+#[enum_dispatch]
 pub(crate) trait BoltStructTranslator {
     fn serialize<S: PackStreamSerializer>(
         &self,
@@ -937,6 +547,19 @@ pub(crate) trait BoltStructTranslator {
     ) -> result::Result<(), S::Error>;
 
     fn deserialize_struct(&self, tag: u8, fields: Vec<ValueReceive>) -> ValueReceive;
+}
+
+fn assert_response_field_count<T>(name: &str, fields: &[T], expected_count: usize) -> Result<()> {
+    if fields.len() == expected_count {
+        Ok(())
+    } else {
+        Err(Neo4jError::protocol_error(format!(
+            "{} response should have {} field(s) but found {:?}",
+            name,
+            expected_count,
+            fields.len()
+        )))
+    }
 }
 
 const BOLT_MAGIC_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
