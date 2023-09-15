@@ -248,7 +248,9 @@ impl SessionHolderRunner {
                                         self.tx_res
                                             .send(
                                                 ResultNextResult {
-                                                    result: Ok(stream.next()),
+                                                    result: Ok(stream
+                                                        .next()
+                                                        .map(|r| r.map_err(Arc::new))),
                                                 }
                                                 .into(),
                                             )
@@ -270,7 +272,8 @@ impl SessionHolderRunner {
                                                     result: Ok(stream
                                                         .single()
                                                         .map_err(Into::into)
-                                                        .and_then(Into::into)),
+                                                        .and_then(|f| f)
+                                                        .map_err(Arc::new)),
                                                 }
                                                 .into(),
                                             )
@@ -289,7 +292,7 @@ impl SessionHolderRunner {
                                         record_holders
                                             .get_mut(&id)
                                             .unwrap()
-                                            .buffer_record_stream(stream);
+                                            .consume_record_stream(stream);
                                         Self::send_summary_from_holders(record_holders, id, tx_res);
                                         return Ok(());
                                     }
@@ -314,13 +317,20 @@ impl SessionHolderRunner {
                                     }
                                     command @ (Command::AutoCommit(_)
                                     | Command::BeginTransaction(_)
-                                    | Command::LastBookmarks(_)
-                                    | Command::Close) => {
+                                    | Command::LastBookmarks(_)) => {
                                         let _ = buffered_command.insert(command);
                                         record_holders
                                             .get_mut(&id)
                                             .unwrap()
                                             .buffer_record_stream(stream);
+                                        return Ok(());
+                                    }
+                                    command @ Command::Close => {
+                                        let _ = buffered_command.insert(command);
+                                        record_holders
+                                            .get_mut(&id)
+                                            .unwrap()
+                                            .consume_record_stream(stream);
                                         return Ok(());
                                     }
                                 }
@@ -396,7 +406,8 @@ impl SessionHolderRunner {
 
                             let mut streams: HashMap<BackendId, Option<TransactionRecordStream>> =
                                 Default::default();
-                            let mut summaries: HashMap<BackendId, Summary> = Default::default();
+                            let mut summaries: HashMap<BackendId, Arc<Summary>> =
+                                Default::default();
                             loop {
                                 match Self::next_command(&self.rx_req, &mut buffered_command) {
                                     Command::TransactionRun(command) => {
@@ -446,7 +457,7 @@ impl SessionHolderRunner {
                                                             known_transactions
                                                                 .insert(id, TxFailState::Failed);
                                                         }
-                                                        res
+                                                        res.map(|r| r.map_err(Arc::new))
                                                     }),
                                                 };
                                                 let msg = ResultNextResult { result };
@@ -475,7 +486,8 @@ impl SessionHolderRunner {
                                                                 );
                                                             }
                                                             r
-                                                        })),
+                                                        })
+                                                        .map_err(Arc::new)),
                                                 };
                                                 let msg = ResultSingleResult { result };
                                                 tx_res.send(msg.into()).unwrap();
@@ -489,9 +501,9 @@ impl SessionHolderRunner {
                                                     Ok(summary) => {
                                                         summaries.insert(
                                                             result_id,
-                                                            summary.expect(
+                                                            Arc::new(summary.expect(
                                                                 "will only ever fetch summary once",
-                                                            ),
+                                                            )),
                                                         );
                                                     }
                                                     Err(err) => {
@@ -500,7 +512,7 @@ impl SessionHolderRunner {
                                                         tx_res
                                                             .send(
                                                                 ResultConsumeResult {
-                                                                    result: Ok(Err(err)),
+                                                                    result: Ok(Err(Arc::new(err))),
                                                                 }
                                                                 .into(),
                                                             )
@@ -512,7 +524,7 @@ impl SessionHolderRunner {
                                         }
                                         if let Some(summary) = summaries.get(&result_id) {
                                             let msg = ResultConsumeResult {
-                                                result: Ok(Ok(summary.clone())),
+                                                result: Ok(Ok(Arc::clone(summary))),
                                             };
                                             tx_res.send(msg.into()).unwrap();
                                         } else {
@@ -729,7 +741,7 @@ fn result_out_of_scope_error() -> TestKitError {
 fn result_consumed_error() -> TestKitError {
     TestKitError::DriverError {
         error_type: String::from("ResultConsumed"),
-        msg: String::from("The record stream's has been consumed"),
+        msg: String::from("The record stream has been consumed"),
         code: None,
     }
 }
@@ -745,8 +757,8 @@ fn transaction_out_of_scope_error() -> TestKitError {
 #[derive(Debug)]
 enum RecordBuffer {
     AutoCommit {
-        records: VecDeque<Result<Record, Neo4jError>>,
-        summary: Option<Summary>,
+        records: VecDeque<Result<Record, Arc<Neo4jError>>>,
+        summary: Option<Arc<Summary>>,
         consumed: bool,
     },
     Transaction,
@@ -776,10 +788,11 @@ impl RecordBuffer {
             RecordBuffer::AutoCommit {
                 records, summary, ..
             } => {
-                stream.for_each(|rec| records.push_back(rec));
+                stream.for_each(|rec| records.push_back(rec.map_err(Arc::new)));
                 *summary = stream
                     .consume()
-                    .expect("result stream exhausted above => cannot fail on consume");
+                    .expect("result stream exhausted above => cannot fail on consume")
+                    .map(Arc::new);
             }
             RecordBuffer::Transaction { .. } => {
                 panic!("cannot buffer record stream in transaction")
@@ -787,7 +800,29 @@ impl RecordBuffer {
         }
     }
 
-    fn next(&mut self) -> Result<Option<Result<Record, Neo4jError>>, TestKitError> {
+    fn consume_record_stream(&mut self, stream: &mut RecordStream) {
+        match self {
+            RecordBuffer::AutoCommit {
+                records,
+                summary: buffer_summary,
+                ..
+            } => {
+                let dropped_records = Self::drop_buffered_records(records);
+                if dropped_records.is_err() {
+                    return;
+                }
+                match stream.consume() {
+                    Ok(summary) => *buffer_summary = summary.map(Arc::new),
+                    Err(e) => records.push_back(Err(Arc::new(e))),
+                }
+            }
+            RecordBuffer::Transaction { .. } => {
+                panic!("cannot consume record stream in transaction")
+            }
+        }
+    }
+
+    fn next(&mut self) -> Result<Option<Result<Record, Arc<Neo4jError>>>, TestKitError> {
         match self {
             RecordBuffer::AutoCommit {
                 records, consumed, ..
@@ -802,7 +837,7 @@ impl RecordBuffer {
         }
     }
 
-    fn single(&mut self) -> Result<Result<Record, Neo4jError>, TestKitError> {
+    fn single(&mut self) -> Result<Result<Record, Arc<Neo4jError>>, TestKitError> {
         match self {
             RecordBuffer::AutoCommit {
                 records, consumed, ..
@@ -810,14 +845,24 @@ impl RecordBuffer {
                 if *consumed {
                     Err(result_consumed_error())
                 } else {
+                    *consumed = true;
                     match records.pop_front() {
-                        None => Ok(Err(GetSingleRecordError::NoRecords.into())),
-                        Some(result) => {
-                            if result.is_ok() {
-                                self.consume().unwrap()?;
+                        None => Ok(Err(Arc::new(GetSingleRecordError::NoRecords.into()))),
+                        Some(result) => match result {
+                            Ok(record) => {
+                                if !records.is_empty() {
+                                    match Self::drop_buffered_records(records) {
+                                        Err(e) => Ok(Err(e)),
+                                        Ok(()) => Ok(Err(Arc::new(
+                                            GetSingleRecordError::TooManyRecords.into(),
+                                        ))),
+                                    }
+                                } else {
+                                    Ok(Ok(record))
+                                }
                             }
-                            Ok(result)
-                        }
+                            Err(_) => Ok(result),
+                        },
                     }
                 }
             }
@@ -825,7 +870,7 @@ impl RecordBuffer {
         }
     }
 
-    fn consume(&mut self) -> Result<Result<Summary, Neo4jError>, TestKitError> {
+    fn consume(&mut self) -> Result<Result<Arc<Summary>, Arc<Neo4jError>>, TestKitError> {
         match self {
             RecordBuffer::AutoCommit {
                 records,
@@ -833,15 +878,9 @@ impl RecordBuffer {
                 consumed,
             } => {
                 *consumed = true;
-                let mut swapped_records = Default::default();
-                mem::swap(records, &mut swapped_records);
-                if let Err(e) = swapped_records.into_iter().try_for_each(|r| {
-                    drop(r?);
-                    Ok(())
-                }) {
+                let dropped_records = Self::drop_buffered_records(records);
+                if let Err(e) = dropped_records {
                     return Ok(Err(e));
-                } else {
-                    assert!(summary.is_some());
                 }
                 match summary {
                     None => Err(TestKitError::backend_err(
@@ -852,6 +891,25 @@ impl RecordBuffer {
             }
             RecordBuffer::Transaction => Err(result_out_of_scope_error()),
         }
+    }
+
+    fn drop_buffered_records(
+        records: &mut VecDeque<Result<Record, Arc<Neo4jError>>>,
+    ) -> Result<(), Arc<Neo4jError>> {
+        let mut swapped_records = Default::default();
+        mem::swap(records, &mut swapped_records);
+        let dropped_records = swapped_records.into_iter().try_for_each(|r| {
+            match r {
+                Ok(r) => drop(r),
+                Err(e) => return Err(e),
+            }
+            Ok(())
+        });
+        if let Err(e) = dropped_records {
+            records.push_back(Err(Arc::clone(&e)));
+            return Err(e);
+        }
+        Ok(())
     }
 }
 
@@ -1149,7 +1207,7 @@ impl From<ResultNext> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(crate) struct ResultNextResult {
-    pub(crate) result: Result<Option<Result<Record, Neo4jError>>, TestKitError>,
+    pub(crate) result: Result<Option<Result<Record, Arc<Neo4jError>>>, TestKitError>,
 }
 
 impl From<ResultNextResult> for CommandResult {
@@ -1172,7 +1230,7 @@ impl From<ResultSingle> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(crate) struct ResultSingleResult {
-    pub(crate) result: Result<Result<Record, Neo4jError>, TestKitError>,
+    pub(crate) result: Result<Result<Record, Arc<Neo4jError>>, TestKitError>,
 }
 
 impl From<ResultSingleResult> for CommandResult {
@@ -1195,7 +1253,7 @@ impl From<ResultConsume> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(crate) struct ResultConsumeResult {
-    pub(crate) result: Result<Result<Summary, Neo4jError>, TestKitError>,
+    pub(crate) result: Result<Result<Arc<Summary>, Arc<Neo4jError>>, TestKitError>,
 }
 
 impl From<ResultConsumeResult> for CommandResult {

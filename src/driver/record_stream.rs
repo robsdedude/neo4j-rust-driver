@@ -162,16 +162,14 @@ impl<'driver> RecordStream<'driver> {
     pub fn single(&mut self) -> result::Result<Result<Record>, GetSingleRecordError> {
         let next = self.next();
         match next {
-            Some(Ok(record)) => {
-                if self.next().is_some() {
-                    match self.consume() {
-                        Ok(_) => Err(GetSingleRecordError::TooManyRecords),
-                        Err(e) => Ok(Err(e)),
-                    }
-                } else {
-                    Ok(Ok(record))
-                }
-            }
+            Some(Ok(record)) => match self.next() {
+                None => Ok(Ok(record)),
+                Some(Err(e)) => Ok(Err(e)),
+                Some(Ok(_)) => match self.exhaust() {
+                    Ok(()) => Err(GetSingleRecordError::TooManyRecords),
+                    Err(e) => Ok(Err(e)),
+                },
+            },
             Some(Err(e)) => Ok(Err(e)),
             None => Err(GetSingleRecordError::NoRecords),
         }

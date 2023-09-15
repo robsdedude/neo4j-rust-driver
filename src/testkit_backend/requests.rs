@@ -782,7 +782,7 @@ impl Request {
             .unwrap()
             .result_consume(ResultConsume { result_id })
             .result??;
-        backend.send(&Response::Summary(summary.try_into()?))
+        backend.send(&Response::Summary((*summary).clone().try_into()?))
     }
 }
 

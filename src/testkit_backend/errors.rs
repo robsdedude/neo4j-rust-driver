@@ -14,6 +14,7 @@
 
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
+use std::sync::Arc;
 
 use crate::driver::ConfigureFetchSizeError;
 use crate::session::ConfigureTimeoutError;
@@ -22,7 +23,7 @@ use crate::Neo4jError;
 use super::cypher_value::{BrokenValueError, NotADriverValueError};
 
 #[derive(Debug)]
-#[allow(clippy::enum_variant_names)]
+#[allow(clippy::enum_variant_names)] // names are reflecting TestKit protocol
 pub(crate) enum TestKitError {
     DriverError {
         error_type: String,
@@ -83,6 +84,49 @@ impl From<Neo4jError> for TestKitError {
             Neo4jError::ProtocolError { message } => TestKitError::DriverError {
                 error_type: String::from("ProtocolError"),
                 msg: message,
+                code: None,
+            },
+        }
+    }
+}
+
+impl From<Arc<Neo4jError>> for TestKitError {
+    fn from(err: Arc<Neo4jError>) -> Self {
+        match &*err {
+            Neo4jError::Disconnect {
+                message,
+                source,
+                during_commit,
+            } => TestKitError::DriverError {
+                error_type: String::from(if *during_commit {
+                    "IncompleteCommitError"
+                } else {
+                    "DriverError"
+                }),
+                msg: match source {
+                    None => message.clone(),
+                    Some(source) => format!("{}: {}", message, source),
+                },
+                code: None,
+            },
+            Neo4jError::InvalidConfig { message } => TestKitError::DriverError {
+                error_type: String::from("ConfigError"),
+                msg: message.clone(),
+                code: None,
+            },
+            Neo4jError::ServerError { error } => TestKitError::DriverError {
+                error_type: String::from("ServerError"),
+                msg: String::from(error.message()),
+                code: Some(String::from(error.code())),
+            },
+            Neo4jError::Timeout { message } => TestKitError::DriverError {
+                error_type: String::from("TimeoutError"),
+                msg: message.clone(),
+                code: None,
+            },
+            Neo4jError::ProtocolError { message } => TestKitError::DriverError {
+                error_type: String::from("ProtocolError"),
+                msg: message.clone(),
                 code: None,
             },
         }
