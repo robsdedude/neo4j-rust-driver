@@ -506,7 +506,7 @@ impl Request {
             connection_config,
             driver_config,
         );
-        backend.drivers.insert(id, driver_holder);
+        backend.drivers.insert(id, Some(driver_holder));
         backend.send(&Response::Driver { id })
     }
 
@@ -516,8 +516,11 @@ impl Request {
         } = self else {
             panic!("expected Request::DriverClose");
         };
-        let Some(driver_holder) = backend.drivers.remove(&driver_id) else {
-            return Err(TestKitError::backend_err(format!("No driver with id {driver_id} found")));
+        let Some(driver_holder) = backend.drivers.get_mut(&driver_id) else {
+            return Err(missing_driver_error(&driver_id));
+        };
+        let Some(driver_holder) = driver_holder.take() else {
+            return Err(closed_driver_error())
         };
         drop(driver_holder);
         backend.send(&Response::Driver { id: driver_id })
@@ -529,9 +532,7 @@ impl Request {
         } = self else {
             panic!("expected Request::NewDriver");
         };
-        let Some(driver_holder) = backend.drivers.get(&driver_id) else {
-            return Err(TestKitError::backend_err(format!("No driver with id {driver_id} found")));
-        };
+        let driver_holder = get_driver(backend, &driver_id)?;
         let mut config = SessionConfig::new();
         if let Some(bookmarks) = bookmarks {
             config = config.with_bookmarks(Bookmarks::from_raw(bookmarks));
@@ -570,7 +571,7 @@ impl Request {
                 config,
             })
             .session_id;
-        backend.session_id_to_driver_id.insert(id, driver_id);
+        backend.session_id_to_driver_id.insert(id, Some(driver_id));
         backend.send(&Response::Session { id })
     }
 
@@ -578,15 +579,16 @@ impl Request {
         let Request::SessionClose { session_id } = self else {
             panic!("expected Request::SessionClose");
         };
-        let Some(driver_id) = backend.session_id_to_driver_id.remove(&session_id) else {
-            return Err(TestKitError::backend_err(format!("Unknown session id {} in backend", session_id)));
+        let Some(driver_id) = backend.session_id_to_driver_id.get_mut(&session_id) else {
+            return Err(missing_session_error(&session_id));
         };
-        backend
-            .drivers
-            .get(&driver_id)
+        driver_id
+            .take()
+            .and_then(|driver_id| backend.drivers.get(&driver_id))
             .unwrap()
-            .session_close(CloseSession { session_id })
-            .result?;
+            .as_ref()
+            .map(|driver| driver.session_close(CloseSession { session_id }).result)
+            .transpose()?;
         backend.send(&Response::Session { id: session_id })
     }
 
@@ -594,17 +596,12 @@ impl Request {
         let Request::SessionRun { session_id, query, params, tx_meta, timeout } = self else {
             panic!("expected Request::SessionRun");
         };
-        let Some(&driver_id) = backend.session_id_to_driver_id.get(&session_id) else {
-            return Err(TestKitError::backend_err(format!("Unknown session id {} in backend", session_id)));
-        };
+        let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
         let params = params.map(cypher_value_map_to_value_send_map).transpose()?;
         let tx_meta = tx_meta
             .map(cypher_value_map_to_value_send_map)
             .transpose()?;
-        let (result_id, keys) = backend
-            .drivers
-            .get(&driver_id)
-            .unwrap()
+        let (result_id, keys) = driver_holder
             .auto_commit(AutoCommit {
                 session_id,
                 query,
@@ -624,16 +621,11 @@ impl Request {
         let Request::SessionBeginTransaction { session_id, tx_meta, timeout } = self else {
             panic!("expected Request::SessionBeginTransaction");
         };
-        let Some(&driver_id) = backend.session_id_to_driver_id.get(&session_id) else {
-            return Err(TestKitError::backend_err(format!("Unknown session id {} in backend", session_id)));
-        };
+        let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
         let tx_meta = tx_meta
             .map(cypher_value_map_to_value_send_map)
             .transpose()?;
-        let tx_id = backend
-            .drivers
-            .get(&driver_id)
-            .unwrap()
+        let tx_id = driver_holder
             .begin_transaction(BeginTransaction {
                 session_id,
                 tx_meta,
@@ -648,13 +640,8 @@ impl Request {
         let Request::SessionLastBookmarks { session_id } = self else {
             panic!("expected Request::SessionLastBookmarks");
         };
-        let Some(&driver_id) = backend.session_id_to_driver_id.get(&session_id) else {
-            return Err(TestKitError::backend_err(format!("Unknown session id {} in backend", session_id)));
-        };
-        let bookmarks = backend
-            .drivers
-            .get(&driver_id)
-            .unwrap()
+        let (driver_holder, _) = get_driver_for_session(backend, &session_id)?;
+        let bookmarks = driver_holder
             .last_bookmarks(LastBookmarks { session_id })
             .result?;
         backend.send(&Response::Bookmarks {
@@ -670,10 +657,7 @@ impl Request {
             return Err(TestKitError::backend_err(format!("Unknown transaction id {} in backend", transaction_id)));
         };
         let params = params.map(cypher_value_map_to_value_send_map).transpose()?;
-        let (result_id, keys) = backend
-            .drivers
-            .get(&driver_id)
-            .unwrap()
+        let (result_id, keys) = get_driver(backend, &driver_id)?
             .transaction_run(TransactionRun {
                 transaction_id,
                 query,
@@ -694,10 +678,7 @@ impl Request {
         let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
             return Err(TestKitError::backend_err(format!("Unknown transaction id {} in backend", transaction_id)));
         };
-        backend
-            .drivers
-            .get(&driver_id)
-            .unwrap()
+        get_driver(backend, &driver_id)?
             .commit_transaction(CommitTransaction { transaction_id })
             .result??;
         backend.send(&Response::Transaction { id: transaction_id })
@@ -710,10 +691,7 @@ impl Request {
         let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
             return Err(TestKitError::backend_err(format!("Unknown transaction id {} in backend", transaction_id)));
         };
-        backend
-            .drivers
-            .get(&driver_id)
-            .unwrap()
+        get_driver(backend, &driver_id)?
             .rollback_transaction(RollbackTransaction { transaction_id })
             .result??;
         backend.send(&Response::Transaction { id: transaction_id })
@@ -726,10 +704,7 @@ impl Request {
         let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
             return Err(TestKitError::backend_err(format!("Unknown transaction id {} in backend", transaction_id)));
         };
-        backend
-            .drivers
-            .get(&driver_id)
-            .unwrap()
+        get_driver(backend, &driver_id)?
             .close_transaction(CloseTransaction { transaction_id })
             .result??;
         backend.send(&Response::Transaction { id: transaction_id })
@@ -742,10 +717,7 @@ impl Request {
         let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
             return Err(TestKitError::backend_err(format!("Unknown result id {result_id} in backend")));
         };
-        let record = backend
-            .drivers
-            .get(&driver_id)
-            .unwrap()
+        let record = get_driver(backend, &driver_id)?
             .result_next(ResultNext { result_id })
             .result?
             .transpose()?;
@@ -760,10 +732,7 @@ impl Request {
         let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
             return Err(TestKitError::backend_err(format!("Unknown result id {result_id} in backend")));
         };
-        let record = backend
-            .drivers
-            .get(&driver_id)
-            .unwrap()
+        let record = get_driver(backend, &driver_id)?
             .result_single(ResultSingle { result_id })
             .result??;
         let response = write_record(Some(record))?;
@@ -777,14 +746,66 @@ impl Request {
         let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
             return Err(TestKitError::backend_err(format!("Unknown result id {result_id} in backend")));
         };
-        let summary = backend
-            .drivers
-            .get(&driver_id)
-            .unwrap()
+        let summary = get_driver(backend, &driver_id)?
             .result_consume(ResultConsume { result_id })
             .result??;
         backend.send(&Response::Summary((*summary).clone().try_into()?))
     }
+}
+
+fn get_driver<'a, 'b>(
+    backend: &'a Backend,
+    driver_id: &'b BackendId,
+) -> Result<&'a DriverHolder, TestKitError> {
+    backend
+        .drivers
+        .get(&driver_id)
+        .ok_or_else(|| missing_driver_error(driver_id))?
+        .as_ref()
+        .ok_or_else(closed_driver_error)
+}
+
+fn get_driver_for_session<'a, 'b>(
+    backend: &'a Backend,
+    session_id: &'b BackendId,
+) -> Result<(&'a DriverHolder, BackendId), TestKitError> {
+    let driver_id = backend
+        .session_id_to_driver_id
+        .get(&session_id)
+        .ok_or_else(|| missing_session_error(session_id))?
+        .as_ref()
+        .ok_or_else(closed_session_error)?;
+    backend
+        .drivers
+        .get(driver_id)
+        .unwrap()
+        .as_ref()
+        .ok_or_else(closed_driver_error)
+        .map(|driver| (driver, *driver_id))
+}
+
+fn closed_driver_error() -> TestKitError {
+    TestKitError::DriverError {
+        error_type: String::from("DriverClosed"),
+        msg: String::from("The driver has been closed"),
+        code: None,
+    }
+}
+
+fn missing_driver_error(driver_id: &BackendId) -> TestKitError {
+    TestKitError::backend_err(format!("No driver with id {driver_id} found"))
+}
+
+fn closed_session_error() -> TestKitError {
+    TestKitError::DriverError {
+        error_type: String::from("SessionClosed"),
+        msg: String::from("The session  has been closed"),
+        code: None,
+    }
+}
+
+fn missing_session_error(session_id: &BackendId) -> TestKitError {
+    TestKitError::backend_err(format!("No session with id {session_id} found"))
 }
 
 fn set_auth(mut config: DriverConfig, auth: TestKitAuth) -> Result<DriverConfig, TestKitError> {

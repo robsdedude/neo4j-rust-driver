@@ -85,8 +85,8 @@ pub(crate) struct Backend {
     writer: BufWriter<TcpStream>,
 
     id_generator: Generator,
-    drivers: HashMap<BackendId, DriverHolder>,
-    session_id_to_driver_id: HashMap<BackendId, BackendId>,
+    drivers: HashMap<BackendId, Option<DriverHolder>>,
+    session_id_to_driver_id: HashMap<BackendId, Option<BackendId>>,
     result_id_to_driver_id: HashMap<BackendId, BackendId>,
     tx_id_to_driver_id: HashMap<BackendId, BackendId>,
 }
