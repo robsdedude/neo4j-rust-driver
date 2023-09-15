@@ -27,8 +27,8 @@ use super::driver_holder::{CloseSession, DriverHolder, NewSession};
 use super::errors::TestKitError;
 use super::responses::Response;
 use super::session_holder::{
-    AutoCommit, BeginTransaction, CloseTransaction, CommitTransaction, ResultConsume, ResultNext,
-    ResultSingle, RollbackTransaction, TransactionRun,
+    AutoCommit, BeginTransaction, CloseTransaction, CommitTransaction, LastBookmarks,
+    ResultConsume, ResultNext, ResultSingle, RollbackTransaction, TransactionRun,
 };
 use super::{Backend, BackendId, TestKitResult};
 
@@ -385,7 +385,7 @@ impl Request {
             // Request::SessionReadTransaction { .. } => {},
             // Request::SessionWriteTransaction { .. } => {},
             Request::SessionBeginTransaction { .. } => self.session_begin_transaction(backend)?,
-            // Request::SessionLastBookmarks { .. } => {},
+            Request::SessionLastBookmarks { .. } => self.session_last_bookmarks(backend)?,
             Request::TransactionRun { .. } => self.transaction_run(backend)?,
             Request::TransactionCommit { .. } => self.transaction_commit(backend)?,
             Request::TransactionRollback { .. } => self.transaction_rollback(backend)?,
@@ -641,6 +641,24 @@ impl Request {
             .result??;
         backend.tx_id_to_driver_id.insert(tx_id, driver_id);
         backend.send(&Response::Transaction { id: tx_id })
+    }
+
+    fn session_last_bookmarks(self, backend: &mut Backend) -> TestKitResult {
+        let Request::SessionLastBookmarks { session_id } = self else {
+            panic!("expected Request::SessionLastBookmarks");
+        };
+        let Some(&driver_id) = backend.session_id_to_driver_id.get(&session_id) else {
+            return Err(TestKitError::backend_err(format!("Unknown session id {} in backend", session_id)));
+        };
+        let bookmarks = backend
+            .drivers
+            .get(&driver_id)
+            .unwrap()
+            .last_bookmarks(LastBookmarks { session_id })
+            .result?;
+        backend.send(&Response::Bookmarks {
+            bookmarks: bookmarks.into_raw().collect(),
+        })
     }
 
     fn transaction_run(self, backend: &mut Backend) -> TestKitResult {

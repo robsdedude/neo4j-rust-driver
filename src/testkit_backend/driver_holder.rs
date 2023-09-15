@@ -29,9 +29,9 @@ use super::session_holder::SessionHolder;
 use super::session_holder::{
     AutoCommit, AutoCommitResult, BeginTransaction, BeginTransactionResult,
     CloseResult as CloseSessionResult, CloseTransaction, CloseTransactionResult, CommitTransaction,
-    CommitTransactionResult, ResultConsume, ResultConsumeResult, ResultNext, ResultNextResult,
-    ResultSingle, ResultSingleResult, RollbackTransaction, RollbackTransactionResult,
-    TransactionRun, TransactionRunResult,
+    CommitTransactionResult, LastBookmarks, LastBookmarksResult, ResultConsume,
+    ResultConsumeResult, ResultNext, ResultNextResult, ResultSingle, ResultSingleResult,
+    RollbackTransaction, RollbackTransactionResult, TransactionRun, TransactionRunResult,
 };
 
 #[derive(Debug)]
@@ -165,6 +165,14 @@ impl DriverHolder {
         match self.rx_res.recv().unwrap() {
             CommandResult::ResultConsume(result) => result,
             res => panic!("expected CommandResult::ResultConsume, found {:?}", res),
+        }
+    }
+
+    pub(crate) fn last_bookmarks(&self, args: LastBookmarks) -> LastBookmarksResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::LastBookmarks(result) => result,
+            res => panic!("expected CommandResult::LastBookmarks, found {:?}", res),
         }
     }
 
@@ -309,6 +317,14 @@ impl DriverHolderRunner {
                     Some(session_holder.result_consume(args).into())
                 }
 
+                Command::LastBookmarks(args) => 'arm: {
+                    let session_id = args.session_id;
+                    let Some(session_holder) = sessions.get(&args.session_id) else {
+                        break 'arm Some(BeginTransactionResult{result: Err(TestKitError::backend_err(format!("Session id {} not found in driver", session_id)))}.into());
+                    };
+                    Some(session_holder.last_bookmarks(args).into())
+                }
+
                 Command::CloseSession(CloseSession { session_id }) => 'arm: {
                     let Some(mut session) = sessions.remove(&session_id) else {
                         break 'arm Some(CloseSessionResult{result: Err(TestKitError::backend_err(format!("Session id {} not found in driver", session_id)))}.into());
@@ -345,6 +361,7 @@ enum Command {
     ResultNext(ResultNext),
     ResultSingle(ResultSingle),
     ResultConsume(ResultConsume),
+    LastBookmarks(LastBookmarks),
     Close,
 }
 
@@ -361,6 +378,7 @@ enum CommandResult {
     ResultNext(ResultNextResult),
     ResultSingle(ResultSingleResult),
     ResultConsume(ResultConsumeResult),
+    LastBookmarks(LastBookmarksResult),
     Close(CloseResult),
 }
 
@@ -504,6 +522,18 @@ impl From<ResultSingleResult> for CommandResult {
 impl From<ResultConsume> for Command {
     fn from(c: ResultConsume) -> Self {
         Command::ResultConsume(c)
+    }
+}
+
+impl From<LastBookmarks> for Command {
+    fn from(c: LastBookmarks) -> Self {
+        Command::LastBookmarks(c)
+    }
+}
+
+impl From<LastBookmarksResult> for CommandResult {
+    fn from(r: LastBookmarksResult) -> Self {
+        CommandResult::LastBookmarks(r)
     }
 }
 

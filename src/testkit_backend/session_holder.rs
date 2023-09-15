@@ -21,10 +21,11 @@ use flume;
 use flume::{Receiver, Sender};
 use log::warn;
 
+use crate::bookmarks::Bookmarks;
 use crate::driver::record_stream::{GetSingleRecordError, RecordStream};
 use crate::driver::transaction::TransactionRecordStream;
 use crate::driver::{Driver, Record, RoutingControl};
-use crate::session::SessionConfig;
+use crate::session::{Session, SessionConfig};
 use crate::summary::Summary;
 use crate::{Neo4jError, ValueSend};
 
@@ -141,6 +142,14 @@ impl SessionHolder {
         match self.rx_res.recv().unwrap() {
             CommandResult::ResultConsume(result) => result,
             res => panic!("expected CommandResult::ResultConsume, found {:?}", res),
+        }
+    }
+
+    pub(crate) fn last_bookmarks(&self, args: LastBookmarks) -> LastBookmarksResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::LastBookmarks(result) => result,
+            res => panic!("expected CommandResult::LastBookmarks, found {:?}", res),
         }
     }
 
@@ -305,6 +314,7 @@ impl SessionHolderRunner {
                                     }
                                     command @ (Command::AutoCommit(_)
                                     | Command::BeginTransaction(_)
+                                    | Command::LastBookmarks(_)
                                     | Command::Close) => {
                                         let _ = buffered_command.insert(command);
                                         record_holders
@@ -563,6 +573,7 @@ impl SessionHolderRunner {
                                     }
                                     command @ (Command::BeginTransaction(_)
                                     | Command::AutoCommit(_)
+                                    | Command::LastBookmarks(_)
                                     | Command::Close) => {
                                         let _ = buffered_command.insert(command);
                                         break;
@@ -628,6 +639,8 @@ impl SessionHolderRunner {
                 Command::ResultConsume(ResultConsume { result_id }) => {
                     Self::send_summary_from_holders(&mut record_holders, result_id, &self.tx_res)
                 }
+
+                Command::LastBookmarks(command) => command.real_response(&self.tx_res, &session),
 
                 Command::Close => {
                     self.tx_res
@@ -859,6 +872,7 @@ pub(crate) enum Command {
     ResultNext(ResultNext),
     ResultSingle(ResultSingle),
     ResultConsume(ResultConsume),
+    LastBookmarks(LastBookmarks),
     Close,
 }
 
@@ -873,6 +887,7 @@ pub(crate) enum CommandResult {
     ResultNext(ResultNextResult),
     ResultSingle(ResultSingleResult),
     ResultConsume(ResultConsumeResult),
+    LastBookmarks(LastBookmarksResult),
     Close(CloseResult),
 }
 
@@ -890,6 +905,7 @@ impl Command {
             Command::ResultNext(_) => ResultNextResult { result: Err(err) }.into(),
             Command::ResultSingle(_) => ResultSingleResult { result: Err(err) }.into(),
             Command::ResultConsume(_) => ResultConsumeResult { result: Err(err) }.into(),
+            Command::LastBookmarks(_) => LastBookmarksResult { result: Err(err) }.into(),
             Command::Close => CloseResult { result: Err(err) }.into(),
         };
         tx_res.send(msg).unwrap();
@@ -1185,6 +1201,43 @@ pub(crate) struct ResultConsumeResult {
 impl From<ResultConsumeResult> for CommandResult {
     fn from(r: ResultConsumeResult) -> Self {
         CommandResult::ResultConsume(r)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct LastBookmarks {
+    pub(crate) session_id: BackendId,
+}
+
+impl From<LastBookmarks> for Command {
+    fn from(c: LastBookmarks) -> Self {
+        Command::LastBookmarks(c)
+    }
+}
+
+impl LastBookmarks {
+    fn real_response<'driver, C: AsRef<SessionConfig>>(
+        &self,
+        tx_res: &Sender<CommandResult>,
+        session: &Session<'driver, C>,
+    ) {
+        let bookmarks = session.last_bookmarks();
+        let msg = LastBookmarksResult {
+            result: Ok(bookmarks),
+        };
+        tx_res.send(msg.into()).unwrap();
+    }
+}
+
+#[must_use]
+#[derive(Debug)]
+pub(crate) struct LastBookmarksResult {
+    pub(crate) result: Result<Bookmarks, TestKitError>,
+}
+
+impl From<LastBookmarksResult> for CommandResult {
+    fn from(r: LastBookmarksResult) -> Self {
+        CommandResult::LastBookmarks(r)
     }
 }
 
