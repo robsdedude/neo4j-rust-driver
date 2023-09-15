@@ -42,6 +42,7 @@ pub(crate) struct SessionHolder {
 
 impl SessionHolder {
     pub(crate) fn new(
+        id: &BackendId,
         id_generator: Generator,
         driver: Arc<Driver>,
         auto_commit_access_mode: RoutingControl,
@@ -49,17 +50,20 @@ impl SessionHolder {
     ) -> Self {
         let (tx_req, rx_req) = flume::unbounded();
         let (tx_res, rx_res) = flume::unbounded();
-        let handle = thread::spawn(move || {
-            let mut runner = SessionHolderRunner {
-                id_generator,
-                auto_commit_access_mode,
-                config,
-                rx_req,
-                tx_res,
-                driver,
-            };
-            runner.run();
-        });
+        let handle = thread::Builder::new()
+            .name(format!("s-{id}"))
+            .spawn(move || {
+                let mut runner = SessionHolderRunner {
+                    id_generator,
+                    auto_commit_access_mode,
+                    config,
+                    rx_req,
+                    tx_res,
+                    driver,
+                };
+                runner.run();
+            })
+            .unwrap();
         Self {
             tx_req,
             rx_res,

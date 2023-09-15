@@ -43,6 +43,7 @@ pub(crate) struct DriverHolder {
 
 impl DriverHolder {
     pub(crate) fn new(
+        id: &BackendId,
         id_generator: Generator,
         connection_config: ConnectionConfig,
         config: DriverConfig,
@@ -55,17 +56,20 @@ impl DriverHolder {
         let handle = {
             // let session_ids = Arc::clone(&session_ids);
             // let result_ids = Arc::clone(&result_ids);
-            thread::spawn(move || {
-                let runner = DriverHolderRunner {
-                    id_generator,
-                    // session_ids,
-                    // result_ids,
-                    rx_req,
-                    tx_res,
-                    driver,
-                };
-                runner.run();
-            })
+            thread::Builder::new()
+                .name(format!("d-{id}"))
+                .spawn(move || {
+                    let runner = DriverHolderRunner {
+                        id_generator,
+                        // session_ids,
+                        // result_ids,
+                        rx_req,
+                        tx_res,
+                        driver,
+                    };
+                    runner.run();
+                })
+                .expect("Failed to spawn DriverHolderRunner thread")
         };
         Self {
             tx_req,
@@ -219,13 +223,14 @@ impl DriverHolderRunner {
                     auto_commit_access_mode,
                     config,
                 }) => {
+                    let session_id = self.id_generator.next_id();
                     let session_holder = SessionHolder::new(
+                        &session_id,
                         self.id_generator.clone(),
                         Arc::clone(&self.driver),
                         auto_commit_access_mode,
                         config,
                     );
-                    let session_id = self.id_generator.next_id();
                     sessions.insert(session_id, session_holder);
                     Some(NewSessionResult { session_id }.into())
                 }

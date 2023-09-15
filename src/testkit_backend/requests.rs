@@ -499,12 +499,13 @@ impl Request {
             return Err(TestKitError::backend_err("CA config unsupported"));
         }
         // let driver = Driver::new(connection_config, driver_config);
+        let id = backend.next_id();
         let driver_holder = DriverHolder::new(
+            &id,
             backend.id_generator.clone(),
             connection_config,
             driver_config,
         );
-        let id = backend.next_id();
         backend.drivers.insert(id, driver_holder);
         backend.send(&Response::Driver { id })
     }

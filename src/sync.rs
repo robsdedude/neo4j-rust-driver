@@ -119,8 +119,8 @@ impl<T: Debug> MostlyRLock<T> {
             let already_updating = self.updating.swap(true, Ordering::SeqCst);
             if !already_updating {
                 let w_lock = self.inner.write();
-                updater(w_lock)?;
                 self.updating.store(false, Ordering::SeqCst);
+                updater(w_lock)?;
                 return Ok(self.inner.read());
             }
         }
@@ -153,11 +153,12 @@ impl<T: Debug> MostlyRLock<T> {
             }
             let already_updating = self.updating.swap(true, Ordering::SeqCst);
             if !already_updating {
-                let Some(w_lock) = self.inner.try_write_until(timeout) else {
+                let maybe_w_lock = self.inner.try_write_until(timeout);
+                self.updating.store(false, Ordering::SeqCst);
+                let Some(w_lock) = maybe_w_lock else {
                     return Err(Neo4jError::connection_acquisition_timeout(during));
                 };
                 updater(w_lock)?;
-                self.updating.store(false, Ordering::SeqCst);
                 return Ok(self.inner.read());
             }
         }
