@@ -92,10 +92,10 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
 
         if let Some(routing_context) = routing_context {
             serializer.write_string("routing")?;
-            data.serialize_dict(&mut serializer, translator, routing_context)?;
+            data.serialize_routing_context(&mut serializer, translator, routing_context)?;
             debug_buf!(log_buf, "{}", {
                 dbg_serializer.write_string("routing").unwrap();
-                data.serialize_dict(&mut dbg_serializer, translator, routing_context)
+                data.serialize_routing_context(&mut dbg_serializer, translator, routing_context)
                     .unwrap();
                 dbg_serializer.flush()
             });

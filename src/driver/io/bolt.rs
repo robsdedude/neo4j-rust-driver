@@ -386,6 +386,7 @@ struct BoltData<R: Read, W: Write> {
     meta: Arc<AtomicRefCell<HashMap<String, ValueReceive>>>,
     server_agent: Arc<AtomicRefCell<Arc<String>>>,
     address: Arc<Address>,
+    address_str: String,
     last_qid: Arc<AtomicRefCell<Option<i64>>>,
 }
 
@@ -398,6 +399,7 @@ impl<R: Read, W: Write> BoltData<R, W> {
         local_port: Option<u16>,
         address: Arc<Address>,
     ) -> Self {
+        let address_str = address.to_string();
         Self {
             message_buff: VecDeque::with_capacity(2048),
             responses: VecDeque::with_capacity(10),
@@ -411,6 +413,7 @@ impl<R: Read, W: Write> BoltData<R, W> {
             meta: Default::default(),
             server_agent: Default::default(),
             address,
+            address_str,
             last_qid: Default::default(),
         }
     }
@@ -472,6 +475,27 @@ impl<R: Read, W: Write> BoltData<R, W> {
         v: &ValueSend,
     ) -> result::Result<(), S::Error> {
         translator.serialize(serializer, v).map_err(Into::into)
+    }
+
+    fn serialize_routing_context<S: PackStreamSerializer, T: BoltStructTranslator>(
+        &self,
+        serializer: &mut S,
+        translator: &T,
+        routing_context: &HashMap<String, ValueSend>,
+    ) -> result::Result<(), S::Error> {
+        serializer.write_dict_header(u64::from_usize(
+            routing_context
+                .len()
+                .checked_add(1)
+                .expect("user cannot create a usize::MAX large map"),
+        ))?;
+        serializer.write_string("address")?;
+        serializer.write_string(&self.address_str)?;
+        for (k, v) in routing_context {
+            serializer.write_string(k.borrow())?;
+            self.serialize_value(serializer, translator, v)?;
+        }
+        Ok(())
     }
 
     fn write_all(&mut self, deadline: Option<Instant>) -> Result<()> {

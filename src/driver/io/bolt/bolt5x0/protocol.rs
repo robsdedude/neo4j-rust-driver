@@ -118,11 +118,15 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
 
         if let Some(routing_context) = routing_context {
             serializer.write_string("routing")?;
-            data.serialize_dict(&mut serializer, &self.translator, routing_context)?;
+            data.serialize_routing_context(&mut serializer, &self.translator, routing_context)?;
             debug_buf!(log_buf, "{}", {
                 dbg_serializer.write_string("routing").unwrap();
-                data.serialize_dict(&mut dbg_serializer, &self.translator, routing_context)
-                    .unwrap();
+                data.serialize_routing_context(
+                    &mut dbg_serializer,
+                    &self.translator,
+                    routing_context,
+                )
+                .unwrap();
                 dbg_serializer.flush()
             });
         }
@@ -528,12 +532,13 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(0x66, 3)?;
 
+        data.serialize_routing_context(&mut serializer, &self.translator, routing_context)?;
         debug_buf!(log_buf, " {}", {
-            data.serialize_dict(&mut dbg_serializer, &self.translator, routing_context)
+            data.serialize_routing_context(&mut dbg_serializer, &self.translator, routing_context)
                 .unwrap();
             dbg_serializer.flush()
         });
-        data.serialize_dict(&mut serializer, &self.translator, routing_context)?;
+
         match bookmarks {
             None => {
                 debug_buf!(log_buf, " {}", {
