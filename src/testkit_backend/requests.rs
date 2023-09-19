@@ -433,7 +433,8 @@ impl Request {
             notifications_disabled_categories,
             encrypted,
             trusted_certificates,
-        } = self else {
+        } = self
+        else {
             panic!("expected Request::NewDriver");
         };
         let connection_config: ConnectionConfig = uri.as_str().try_into()?;
@@ -511,16 +512,14 @@ impl Request {
     }
 
     fn driver_close(self, backend: &mut Backend) -> TestKitResult {
-        let Request::DriverClose {
-            driver_id
-        } = self else {
+        let Request::DriverClose { driver_id } = self else {
             panic!("expected Request::DriverClose");
         };
         let Some(driver_holder) = backend.drivers.get_mut(&driver_id) else {
             return Err(missing_driver_error(&driver_id));
         };
         let Some(driver_holder) = driver_holder.take() else {
-            return Err(closed_driver_error())
+            return Err(closed_driver_error());
         };
         drop(driver_holder);
         backend.send(&Response::Driver { id: driver_id })
@@ -528,8 +527,17 @@ impl Request {
 
     fn new_session(self, backend: &mut Backend) -> TestKitResult {
         let Request::NewSession {
-            driver_id, access_mode, bookmarks, database, fetch_size, impersonated_user, notifications_min_severity, notifications_disabled_categories, bookmark_manager_id,
-        } = self else {
+            driver_id,
+            access_mode,
+            bookmarks,
+            database,
+            fetch_size,
+            impersonated_user,
+            notifications_min_severity,
+            notifications_disabled_categories,
+            bookmark_manager_id,
+        } = self
+        else {
             panic!("expected Request::NewDriver");
         };
         let driver_holder = get_driver(backend, &driver_id)?;
@@ -593,7 +601,14 @@ impl Request {
     }
 
     fn session_auto_commit(self, backend: &mut Backend) -> TestKitResult {
-        let Request::SessionRun { session_id, query, params, tx_meta, timeout } = self else {
+        let Request::SessionRun {
+            session_id,
+            query,
+            params,
+            tx_meta,
+            timeout,
+        } = self
+        else {
             panic!("expected Request::SessionRun");
         };
         let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
@@ -618,7 +633,12 @@ impl Request {
     }
 
     fn session_begin_transaction(self, backend: &mut Backend) -> TestKitResult {
-        let Request::SessionBeginTransaction { session_id, tx_meta, timeout } = self else {
+        let Request::SessionBeginTransaction {
+            session_id,
+            tx_meta,
+            timeout,
+        } = self
+        else {
             panic!("expected Request::SessionBeginTransaction");
         };
         let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
@@ -650,11 +670,19 @@ impl Request {
     }
 
     fn transaction_run(self, backend: &mut Backend) -> TestKitResult {
-        let Request::TransactionRun { transaction_id, query, params } = self else {
+        let Request::TransactionRun {
+            transaction_id,
+            query,
+            params,
+        } = self
+        else {
             panic!("expected Request::TransactionRun");
         };
         let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
-            return Err(TestKitError::backend_err(format!("Unknown transaction id {} in backend", transaction_id)));
+            return Err(TestKitError::backend_err(format!(
+                "Unknown transaction id {} in backend",
+                transaction_id
+            )));
         };
         let params = params.map(cypher_value_map_to_value_send_map).transpose()?;
         let (result_id, keys) = get_driver(backend, &driver_id)?
@@ -676,7 +704,10 @@ impl Request {
             panic!("expected Request::TransactionCommit");
         };
         let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
-            return Err(TestKitError::backend_err(format!("Unknown transaction id {} in backend", transaction_id)));
+            return Err(TestKitError::backend_err(format!(
+                "Unknown transaction id {} in backend",
+                transaction_id
+            )));
         };
         get_driver(backend, &driver_id)?
             .commit_transaction(CommitTransaction { transaction_id })
@@ -689,7 +720,10 @@ impl Request {
             panic!("expected Request::TransactionRollback");
         };
         let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
-            return Err(TestKitError::backend_err(format!("Unknown transaction id {} in backend", transaction_id)));
+            return Err(TestKitError::backend_err(format!(
+                "Unknown transaction id {} in backend",
+                transaction_id
+            )));
         };
         get_driver(backend, &driver_id)?
             .rollback_transaction(RollbackTransaction { transaction_id })
@@ -702,7 +736,10 @@ impl Request {
             panic!("expected Request::TransactionClose");
         };
         let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
-            return Err(TestKitError::backend_err(format!("Unknown transaction id {} in backend", transaction_id)));
+            return Err(TestKitError::backend_err(format!(
+                "Unknown transaction id {} in backend",
+                transaction_id
+            )));
         };
         get_driver(backend, &driver_id)?
             .close_transaction(CloseTransaction { transaction_id })
@@ -715,7 +752,9 @@ impl Request {
             panic!("expected Request::ResultNext");
         };
         let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
-            return Err(TestKitError::backend_err(format!("Unknown result id {result_id} in backend")));
+            return Err(TestKitError::backend_err(format!(
+                "Unknown result id {result_id} in backend"
+            )));
         };
         let record = get_driver(backend, &driver_id)?
             .result_next(ResultNext { result_id })
@@ -730,7 +769,9 @@ impl Request {
             panic!("expected Request::ResultSingle");
         };
         let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
-            return Err(TestKitError::backend_err(format!("Unknown result id {result_id} in backend")));
+            return Err(TestKitError::backend_err(format!(
+                "Unknown result id {result_id} in backend"
+            )));
         };
         let record = get_driver(backend, &driver_id)?
             .result_single(ResultSingle { result_id })
@@ -744,12 +785,14 @@ impl Request {
             panic!("expected Request::ResultConsume");
         };
         let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
-            return Err(TestKitError::backend_err(format!("Unknown result id {result_id} in backend")));
+            return Err(TestKitError::backend_err(format!(
+                "Unknown result id {result_id} in backend"
+            )));
         };
         let summary = get_driver(backend, &driver_id)?
             .result_consume(ResultConsume { result_id })
             .result??;
-        backend.send(&Response::Summary((*summary).clone().try_into()?))
+        backend.send(&Response::Summary(summary.try_into()?))
     }
 }
 
@@ -814,13 +857,19 @@ fn set_auth(mut config: DriverConfig, auth: TestKitAuth) -> Result<DriverConfig,
         "basic" => {
             let Value::String(principal) = data.remove("principal").ok_or_else(|| {
                 TestKitError::backend_err("auth: basic scheme required principal")
-            })? else {
-                return Err(TestKitError::backend_err("auth: principal needs to be string"));
+            })?
+            else {
+                return Err(TestKitError::backend_err(
+                    "auth: principal needs to be string",
+                ));
             };
             let Value::String(credentials) = data.remove("credentials").ok_or_else(|| {
                 TestKitError::backend_err("auth: basic scheme required credentials")
-            })? else {
-                return Err(TestKitError::backend_err("auth: credentials needs to be string"));
+            })?
+            else {
+                return Err(TestKitError::backend_err(
+                    "auth: credentials needs to be string",
+                ));
             };
             let realm = data
                 .remove("realm")

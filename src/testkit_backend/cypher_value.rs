@@ -18,6 +18,7 @@ use std::hash::Hash;
 use std::num::FpCategory;
 
 use serde::de::Unexpected;
+use serde::ser::SerializeMap;
 use serde::{de::Error as DeError, de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
@@ -26,7 +27,6 @@ use crate::graph::{
     UnboundRelationship as Neo4jUnboundRelationship,
 };
 use crate::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
-use crate::testkit_backend::cypher_value::CypherValue::CypherList;
 use crate::{ValueReceive, ValueSend};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -195,17 +195,20 @@ where
     S: Serializer,
 {
     let v = *v;
+    let mut s = s.serialize_map(Some(1))?;
+    s.serialize_key("value")?;
     match v.classify() {
-        FpCategory::Nan => s.serialize_str("NaN"),
+        FpCategory::Nan => s.serialize_value("NaN"),
         FpCategory::Infinite => {
             if v < 0.0 {
-                s.serialize_str("-Infinity")
+                s.serialize_value("-Infinity")
             } else {
-                s.serialize_str("+Infinity")
+                s.serialize_value("+Infinity")
             }
         }
-        _ => s.serialize_f64(v),
-    }
+        _ => s.serialize_value(&v),
+    }?;
+    s.end()
 }
 
 fn deserialize_cypher_float<'de, D>(d: D) -> Result<f64, D::Error>
@@ -367,6 +370,49 @@ impl TryFrom<CypherValue> for ValueSend {
     }
 }
 
+impl From<ValueSend> for CypherValue {
+    fn from(v: ValueSend) -> Self {
+        match v {
+            ValueSend::Null => CypherValue::CypherNull { value: None },
+            ValueSend::Boolean(value) => CypherValue::CypherBool { value },
+            ValueSend::Integer(value) => CypherValue::CypherInt { value },
+            ValueSend::Float(value) => CypherValue::CypherFloat { value },
+            ValueSend::Bytes(value) => CypherValue::CypherBytes { value },
+            ValueSend::String(value) => CypherValue::CypherString { value },
+            ValueSend::List(value) => CypherValue::CypherList {
+                value: value.into_iter().map(Into::into).collect(),
+            },
+            ValueSend::Map(value) => CypherValue::CypherMap {
+                value: value.into_iter().map(|(k, v)| (k, v.into())).collect(),
+            },
+            ValueSend::Cartesian2D(value) => CypherValue::CypherPoint {
+                system: PointSystem::Cartesian,
+                x: value.x(),
+                y: value.y(),
+                z: None,
+            },
+            ValueSend::Cartesian3D(value) => CypherValue::CypherPoint {
+                system: PointSystem::Cartesian,
+                x: value.x(),
+                y: value.y(),
+                z: Some(value.z()),
+            },
+            ValueSend::WGS84_2D(value) => CypherValue::CypherPoint {
+                system: PointSystem::WGS84,
+                x: value.longitude(),
+                y: value.longitude(),
+                z: None,
+            },
+            ValueSend::WGS84_3D(value) => CypherValue::CypherPoint {
+                system: PointSystem::WGS84,
+                x: value.longitude(),
+                y: value.longitude(),
+                z: Some(value.altitude()),
+            },
+        }
+    }
+}
+
 #[derive(Error, Debug)]
 #[error("Record contains a broken value: {reason}")]
 pub(crate) struct BrokenValueError {
@@ -438,8 +484,8 @@ impl TryFrom<ValueReceive> for CypherValue {
                     })
                     .collect::<Result<_, _>>()?;
                 CypherValue::CypherPath {
-                    nodes: Box::new(CypherList { value: nodes }),
-                    relationships: Box::new(CypherList {
+                    nodes: Box::new(CypherValue::CypherList { value: nodes }),
+                    relationships: Box::new(CypherValue::CypherList {
                         value: relationships,
                     }),
                 }

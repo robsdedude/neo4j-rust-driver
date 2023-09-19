@@ -21,6 +21,7 @@ use super::backend_id::Generator;
 use super::cypher_value::{BrokenValueError, CypherValue};
 use super::errors::TestKitError;
 use super::requests::TestKitAuth;
+use super::session_holder::SummaryWithQuery;
 use super::BackendId;
 
 #[derive(Serialize, Debug)]
@@ -175,9 +176,29 @@ pub(crate) struct Summary {
     profile: Option<Profile>,
     query: SummaryQuery,
     query_type: QueryType,
-    result_available_after: i64,
-    result_consumed_after: i64,
+    result_available_after: Option<i64>,
+    result_consumed_after: Option<i64>,
     server_info: ServerInfo,
+}
+
+impl TryFrom<SummaryWithQuery> for Summary {
+    type Error = BrokenValueError;
+    fn try_from(summary: SummaryWithQuery) -> Result<Self, Self::Error> {
+        let SummaryWithQuery {
+            summary,
+            query,
+            parameters,
+        } = summary;
+        let mut summary: Self = (*summary).clone().try_into()?;
+        summary.query.text = (*query).clone();
+        summary.query.parameters = (*parameters)
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(k, v)| (k, v.into()))
+            .collect();
+        Ok(summary)
+    }
 }
 
 impl TryFrom<crate::summary::Summary> for Summary {
@@ -200,8 +221,16 @@ impl TryFrom<crate::summary::Summary> for Summary {
                 parameters: Default::default(),
             },
             query_type: QueryType::Read,
-            result_available_after: 0,
-            result_consumed_after: 0,
+            result_available_after: summary.result_available_after.map(|d| {
+                d.as_millis()
+                    .try_into()
+                    .expect("Server can only send i64::MAX milliseconds")
+            }),
+            result_consumed_after: summary.result_consumed_after.map(|d| {
+                d.as_millis()
+                    .try_into()
+                    .expect("Server can only send i64::MAX milliseconds")
+            }),
             server_info: summary.server_info.into(),
         })
     }
@@ -248,13 +277,17 @@ impl From<crate::summary::Counters> for SummaryCounters {
 }
 
 #[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Notification {
     description: String,
     code: String,
     title: String,
-    position: Position,
-    severity: Severity,
-    raw_severity: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    position: Option<Position>,
+    // severity for backwards compatibility
+    severity: String,
+    severity_level: Severity,
+    raw_severity_level: String,
     category: Category,
     raw_category: String,
 }
@@ -265,9 +298,10 @@ impl From<crate::summary::Notification> for Notification {
             description: notification.description,
             code: notification.code,
             title: notification.title,
-            position: notification.position.into(),
-            severity: notification.severity.into(),
-            raw_severity: notification.raw_severity,
+            position: notification.position.map(Into::into),
+            severity: notification.raw_severity.clone(),
+            severity_level: notification.severity.into(),
+            raw_severity_level: notification.raw_severity,
             category: notification.category.into(),
             raw_category: notification.raw_category,
         }
@@ -474,7 +508,7 @@ impl Response {
                 // "Feature:API:Driver.ExecuteQuery",
                 // "Feature:API:Driver:GetServerInfo",
                 // "Feature:API:Driver.IsEncrypted",
-                // "Feature:API:Driver:NotificationsConfig",
+                "Feature:API:Driver:NotificationsConfig",
                 // "Feature:API:Driver.VerifyConnectivity",
                 // "Feature:API:Liveness.Check",
                 // "Feature:API:Result.List",

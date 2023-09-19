@@ -159,7 +159,7 @@ impl SessionHolder {
 
     pub(crate) fn close(&mut self) -> CloseResult {
         let Some(handle) = self.join_handle.take() else {
-            return CloseResult{result: Ok(())};
+            return CloseResult { result: Ok(()) };
         };
         self.tx_req.send(Command::Close).unwrap();
         let res = match self.rx_res.recv().unwrap() {
@@ -204,7 +204,9 @@ impl SessionHolderRunner {
                     tx_meta,
                     timeout,
                 }) => {
-                    let mut auto_commit = session.auto_commit(query);
+                    let query = Arc::new(query);
+                    let params = Arc::new(params);
+                    let mut auto_commit = session.auto_commit(&*query);
                     auto_commit = auto_commit.with_routing_control(self.auto_commit_access_mode);
                     if let Some(timeout) = timeout {
                         if timeout == 0 {
@@ -228,6 +230,8 @@ impl SessionHolderRunner {
                     let mut started_receiver = false;
                     let known_transactions = &known_transactions;
                     let auto_commit = {
+                        let query = Arc::clone(&query);
+                        let params = Arc::clone(&params);
                         let started_receiver = &mut started_receiver;
                         let record_holders = &mut record_holders;
                         let tx_res = &self.tx_res;
@@ -235,7 +239,7 @@ impl SessionHolderRunner {
                             *started_receiver = true;
                             let keys = stream.keys();
                             let id = self.id_generator.next_id();
-                            record_holders.insert(id, RecordBuffer::new_auto_commit());
+                            record_holders.insert(id, RecordBuffer::new_auto_commit(query, params));
                             tx_res
                                 .send(
                                     AutoCommitResult {
@@ -341,7 +345,7 @@ impl SessionHolderRunner {
                             }
                         })
                     };
-                    let res = match params {
+                    let res = match &*params {
                         Some(params) => auto_commit.with_parameters(params).run(),
                         None => auto_commit.run(),
                     };
@@ -412,6 +416,11 @@ impl SessionHolderRunner {
                                 Default::default();
                             let mut summaries: HashMap<BackendId, Arc<Summary>> =
                                 Default::default();
+                            let mut queries: HashMap<BackendId, Arc<String>> = Default::default();
+                            let mut query_params: HashMap<
+                                BackendId,
+                                Arc<Option<HashMap<String, ValueSend>>>,
+                            > = Default::default();
                             loop {
                                 match Self::next_command(&self.rx_req, &mut buffered_command) {
                                     Command::TransactionRun(command) => {
@@ -420,8 +429,10 @@ impl SessionHolderRunner {
                                             continue;
                                         }
                                         let TransactionRun { params, query, .. } = command;
-                                        let query = transaction.query(query);
-                                        let result = match params {
+                                        let query_str = Arc::new(query);
+                                        let params = Arc::new(params);
+                                        let query = transaction.query(&*query_str);
+                                        let result = match &*params {
                                             Some(params) => query.with_parameters(params).run(),
                                             None => query.run(),
                                         };
@@ -430,6 +441,8 @@ impl SessionHolderRunner {
                                                 let keys = result.keys();
                                                 let result_id = self.id_generator.next_id();
                                                 streams.insert(result_id, Some(result));
+                                                queries.insert(result_id, query_str);
+                                                query_params.insert(result_id, params);
                                                 let msg = TransactionRunResult {
                                                     result: Ok(Ok((result_id, keys))),
                                                 };
@@ -528,7 +541,15 @@ impl SessionHolderRunner {
                                         }
                                         if let Some(summary) = summaries.get(&result_id) {
                                             let msg = ResultConsumeResult {
-                                                result: Ok(Ok(Arc::clone(summary))),
+                                                result: Ok(Ok(SummaryWithQuery {
+                                                    summary: Arc::clone(summary),
+                                                    query: Arc::clone(
+                                                        queries.get(&result_id).unwrap(),
+                                                    ),
+                                                    parameters: Arc::clone(
+                                                        query_params.get(&result_id).unwrap(),
+                                                    ),
+                                                })),
                                             };
                                             tx_res.send(msg.into()).unwrap();
                                         } else {
@@ -763,16 +784,23 @@ enum RecordBuffer {
     AutoCommit {
         records: VecDeque<Result<Record, Arc<Neo4jError>>>,
         summary: Option<Arc<Summary>>,
+        query: Arc<String>,
+        params: Arc<Option<HashMap<String, ValueSend>>>,
         consumed: bool,
     },
     Transaction,
 }
 
 impl RecordBuffer {
-    fn new_auto_commit() -> Self {
+    fn new_auto_commit(
+        query: Arc<String>,
+        params: Arc<Option<HashMap<String, ValueSend>>>,
+    ) -> Self {
         RecordBuffer::AutoCommit {
             records: Default::default(),
             summary: Default::default(),
+            query,
+            params,
             consumed: false,
         }
     }
@@ -781,8 +809,12 @@ impl RecordBuffer {
         RecordBuffer::Transaction
     }
 
-    fn from_record_stream(stream: &mut RecordStream) -> Self {
-        let mut buffer = Self::new_auto_commit();
+    fn from_record_stream(
+        query: Arc<String>,
+        params: Arc<Option<HashMap<String, ValueSend>>>,
+        stream: &mut RecordStream,
+    ) -> Self {
+        let mut buffer = Self::new_auto_commit(query, params);
         buffer.buffer_record_stream(stream);
         buffer
     }
@@ -874,12 +906,14 @@ impl RecordBuffer {
         }
     }
 
-    fn consume(&mut self) -> Result<Result<Arc<Summary>, Arc<Neo4jError>>, TestKitError> {
+    fn consume(&mut self) -> Result<Result<SummaryWithQuery, Arc<Neo4jError>>, TestKitError> {
         match self {
             RecordBuffer::AutoCommit {
                 records,
                 summary,
                 consumed,
+                query,
+                params,
             } => {
                 *consumed = true;
                 let dropped_records = Self::drop_buffered_records(records);
@@ -890,7 +924,11 @@ impl RecordBuffer {
                     None => Err(TestKitError::backend_err(
                         "cannot receive summary of a failed record stream",
                     )),
-                    Some(summary) => Ok(Ok(summary.clone())),
+                    Some(summary) => Ok(Ok(SummaryWithQuery {
+                        summary: Arc::clone(summary),
+                        query: Arc::clone(query),
+                        parameters: Arc::clone(params),
+                    })),
                 }
             }
             RecordBuffer::Transaction => Err(result_out_of_scope_error()),
@@ -1257,7 +1295,14 @@ impl From<ResultConsume> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(crate) struct ResultConsumeResult {
-    pub(crate) result: Result<Result<Arc<Summary>, Arc<Neo4jError>>, TestKitError>,
+    pub(crate) result: Result<Result<SummaryWithQuery, Arc<Neo4jError>>, TestKitError>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SummaryWithQuery {
+    pub(crate) summary: Arc<Summary>,
+    pub(crate) query: Arc<String>,
+    pub(crate) parameters: Arc<Option<HashMap<String, ValueSend>>>,
 }
 
 impl From<ResultConsumeResult> for CommandResult {

@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::io::bolt::BoltMeta;
 use super::io::PooledBolt;
@@ -23,8 +24,8 @@ use crate::{Address, Neo4jError, Result, ValueReceive};
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Summary {
-    pub result_available_after: i64,
-    pub result_consumed_after: i64,
+    pub result_available_after: Option<Duration>,
+    pub result_consumed_after: Option<Duration>,
     pub counters: Counters,
     pub notifications: Option<Vec<Notification>>,
     pub profile: Option<Profile>,
@@ -54,28 +55,49 @@ impl Summary {
     }
 
     pub(crate) fn load_run_meta(&mut self, meta: &mut BoltMeta) -> Result<()> {
-        if let Some(t_first) = meta.remove("t_first") {
-            let ValueReceive::Integer(t_first) = t_first else {
-                return Err(Neo4jError::protocol_error(format!("t_first in summary was not integer but {:?}", t_first)))
-            };
-            self.result_available_after = t_first;
-        }
+        self.result_available_after = meta
+            .remove("t_first")
+            .map(|t_first| {
+                let ValueReceive::Integer(t_first) = t_first else {
+                    return Err(Neo4jError::protocol_error(format!(
+                        "t_first in summary was not integer but {t_first:?}"
+                    )));
+                };
+                Ok(Duration::from_millis(t_first.try_into().map_err(|e| {
+                    Neo4jError::protocol_error(format!(
+                        "t_first ({t_first}) in summary was not i64: {e}"
+                    ))
+                })?))
+            })
+            .transpose()?;
         Ok(())
     }
     pub(crate) fn load_pull_meta(&mut self, meta: &mut BoltMeta) -> Result<()> {
-        if let Some(t_last) = meta.remove("t_last") {
-            let ValueReceive::Integer(t_last) = t_last else {
-                return Err(Neo4jError::protocol_error(format!("t_last in summary was not integer but {:?}", t_last)))
-            };
-            self.result_consumed_after = t_last;
-        }
+        self.result_consumed_after = meta
+            .remove("t_last")
+            .map(|t_last| {
+                let ValueReceive::Integer(t_last) = t_last else {
+                    return Err(Neo4jError::protocol_error(format!(
+                        "t_last in summary was not integer but {t_last:?}"
+                    )));
+                };
+                Ok(Duration::from_millis(t_last.try_into().map_err(|e| {
+                    Neo4jError::protocol_error(format!(
+                        "t_last ({t_last}) in summary was not i64: {e}"
+                    ))
+                })?))
+            })
+            .transpose()?;
         self.counters = Counters::load_meta(meta)?;
         self.notifications = Notification::load_meta(meta)?;
         self.profile = Profile::load_meta(meta)?;
         self.plan = Plan::load_meta(meta)?;
         if let Some(query_type) = meta.remove("type") {
             let ValueReceive::String(query_type) = query_type else {
-                return Err(Neo4jError::protocol_error(format!("type in summary was not string but {:?}", query_type)))
+                return Err(Neo4jError::protocol_error(format!(
+                    "type in summary was not string but {:?}",
+                    query_type
+                )));
             };
             self.query_type = Some(match query_type.as_str() {
                 "r" => SummaryQueryType::Read,
@@ -92,7 +114,10 @@ impl Summary {
         }
         if let Some(db) = meta.remove("db") {
             let ValueReceive::String(db) = db else {
-                return Err(Neo4jError::protocol_error(format!("db in summary was not string but {:?}", db)))
+                return Err(Neo4jError::protocol_error(format!(
+                    "db in summary was not string but {:?}",
+                    db
+                )));
             };
             self.database = Some(db);
         }
@@ -137,7 +162,7 @@ impl Counters {
                 system_updates: 0,
                 contains_updates: false,
                 contains_system_updates: false,
-            })
+            });
         };
         let mut meta = try_into_map(meta, "stats")?;
         let nodes_created = meta
@@ -243,7 +268,7 @@ pub struct Notification {
     pub description: String,
     pub code: String,
     pub title: String,
-    pub position: Position,
+    pub position: Option<Position>,
     pub severity: Severity,
     pub raw_severity: String,
     pub category: Category,
@@ -253,7 +278,7 @@ pub struct Notification {
 impl Notification {
     fn load_meta(meta: &mut BoltMeta) -> Result<Option<Vec<Self>>> {
         let Some(notifications) = meta.remove("notifications") else {
-            return Ok(None)
+            return Ok(None);
         };
         Ok(Some(
             try_into_list(notifications, "notifications")?
@@ -280,15 +305,9 @@ impl Notification {
             .remove("position")
             .map(|c| {
                 let mut meta = try_into_map(c, "position in notification")?;
-                Position::load_meta(&mut meta)
+                Position::load_meta(&mut meta).map(Some)
             })
-            .unwrap_or_else(|| {
-                Ok(Position {
-                    column: 0,
-                    offset: 0,
-                    line: 0,
-                })
-            })?;
+            .unwrap_or_else(|| Ok(None))?;
         let raw_severity = meta
             .remove("severity")
             .map(|c| try_into_string(c, "severity in notification"))
