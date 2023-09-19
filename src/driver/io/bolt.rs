@@ -439,7 +439,7 @@ impl<R: Read, W: Write> BoltData<R, W> {
 
     fn unexpectedly_closed(&self) -> bool {
         matches!(self.connection_state, ConnectionState::Broken)
-            && matches!(self.bolt_state.state(), BoltState::Failed)
+            && !matches!(self.bolt_state.state(), BoltState::Failed)
     }
 
     fn can_omit_qid(&self, qid: i64) -> bool {

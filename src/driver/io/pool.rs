@@ -254,14 +254,14 @@ impl RoutingPool {
     fn acquire(&self, args: AcquireConfig) -> Result<SinglePooledBolt> {
         let (mut targets, db) = self.choose_addresses_from_fresh_rt(args)?;
         let deadline = self.config.connection_acquisition_deadline();
-        for target in &targets {
+        'target: for target in &targets {
             while let Some(connection) = self.acquire_routing_address_no_wait(target) {
                 match connection.prepare(deadline) {
                     Ok(Some(connection)) => return Ok(connection),
                     Ok(None) => continue,
                     Err(Neo4jError::Disconnect { .. }) => {
-                        self.deactivate_server(&targets[0]);
-                        continue;
+                        self.deactivate_server(target);
+                        continue 'target;
                     }
                     Err(e) => return Err(e),
                 }
