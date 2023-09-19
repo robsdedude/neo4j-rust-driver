@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use log::debug;
+use std::collections::HashMap;
+
 use super::response::ResponseMessage;
+use super::{bolt_debug_extra, dbg_extra};
 use crate::ValueReceive;
-use log::{debug, log_enabled, Level};
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub(crate) enum BoltState {
@@ -49,7 +52,13 @@ impl BoltStateTracker {
         self.state
     }
 
-    pub(crate) fn success(&mut self, message: ResponseMessage, meta: &ValueReceive) {
+    pub(crate) fn success<E>(
+        &mut self,
+        message: ResponseMessage,
+        meta: &ValueReceive,
+        bolt_local_port: Option<u16>,
+        bolt_meta: Result<&HashMap<String, ValueReceive>, E>,
+    ) {
         if let ValueReceive::Map(meta) = meta {
             if let Some(ValueReceive::Boolean(true)) = meta.get("has_more") {
                 // nothing to do
@@ -71,8 +80,14 @@ impl BoltStateTracker {
             ResponseMessage::Route => self.update_route(),
         }
 
-        if log_enabled!(Level::Debug) && self.state != pre_state {
-            debug!("{:?}: {:?} > {:?}", message, pre_state, self.state);
+        if self.state != pre_state {
+            debug!(
+                "{}{:?}: {:?} > {:?}",
+                bolt_debug_extra!(bolt_meta, bolt_local_port),
+                message,
+                pre_state,
+                self.state
+            );
         }
     }
 

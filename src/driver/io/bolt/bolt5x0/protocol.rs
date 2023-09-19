@@ -616,7 +616,12 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
                 assert_response_field_count("SUCCESS", &fields, 1)?;
                 let meta = fields.pop().unwrap();
                 bolt_debug!(bolt_data, "S: SUCCESS {}", meta.dbg_print());
-                bolt_data.bolt_state.success(response.message, &meta);
+                bolt_data.bolt_state.success(
+                    response.message,
+                    &meta,
+                    bolt_data.local_port,
+                    bolt_data.meta.try_borrow().as_deref(),
+                );
                 response.callbacks.on_success(meta)
             }
             BoltMessage { tag: 0x7E, fields } => {

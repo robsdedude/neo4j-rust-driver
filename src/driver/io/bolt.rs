@@ -69,13 +69,17 @@ macro_rules! debug_buf {
 pub(crate) use debug_buf;
 
 macro_rules! bolt_debug_extra {
-    ($bolt:expr) => {
+    ($meta:expr, $local_port:expr) => {
         'a: {
-            let meta = $bolt.meta.try_borrow();
+            let meta = $meta;
             // ugly format because rust-fmt is broken
-            let Ok(meta) = meta else { break 'a dbg_extra($bolt.local_port, Some("!!!!")); };
-            let Some(ValueReceive::String(id)) = meta.get("connection_id") else { break 'a dbg_extra($bolt.local_port, None); };
-            dbg_extra($bolt.local_port, Some(id))
+            let Ok(meta) = meta else {
+                break 'a dbg_extra($local_port, Some("!!!!"));
+            };
+            let Some(ValueReceive::String(id)) = meta.get("connection_id") else {
+                break 'a dbg_extra($local_port, None);
+            };
+            dbg_extra($local_port, Some(id))
         }
     };
 }
@@ -85,7 +89,7 @@ macro_rules! debug_buf_end {
     ($bolt:expr, $name:ident) => {
         debug!(
             "{}{}",
-            bolt_debug_extra!($bolt),
+            bolt_debug_extra!($bolt.meta.try_borrow(), $bolt.local_port),
             $name.as_ref().map(|s| s.as_str()).unwrap_or("")
         );
     };
@@ -96,7 +100,7 @@ macro_rules! bolt_debug {
     ($bolt:expr, $($args:tt)+) => {
         debug!(
             "{}{}",
-            bolt_debug_extra!($bolt),
+            bolt_debug_extra!($bolt.meta.try_borrow(), $bolt.local_port),
             format!($($args)*)
         );
     };
@@ -421,7 +425,7 @@ impl<R: Read, W: Write> BoltData<R, W> {
     fn dbg_extra(&self) -> String {
         let meta = self.meta.try_borrow();
         let Ok(meta) = meta else {
-             return dbg_extra(self.local_port, Some("!!!!"));
+            return dbg_extra(self.local_port, Some("!!!!"));
         };
         let Some(ValueReceive::String(id)) = meta.get("connection_id") else {
             return dbg_extra(self.local_port, None);
