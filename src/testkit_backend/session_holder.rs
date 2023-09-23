@@ -376,6 +376,7 @@ impl SessionHolderRunner {
                     tx_meta,
                     timeout,
                 }) => {
+                    let last_bookmarks = session.last_bookmarks();
                     let mut transaction = session.transaction();
                     transaction = transaction.with_routing_control(self.auto_commit_access_mode);
                     if let Some(timeout) = timeout {
@@ -608,9 +609,11 @@ impl SessionHolderRunner {
                                         command.real_response(result, tx_res);
                                         return Ok(());
                                     }
+                                    Command::LastBookmarks(command) => {
+                                        command.buffered_response(tx_res, last_bookmarks.clone());
+                                    }
                                     command @ (Command::BeginTransaction(_)
                                     | Command::AutoCommit(_)
-                                    | Command::LastBookmarks(_)
                                     | Command::Close) => {
                                         let _ = buffered_command.insert(command);
                                         break;
@@ -1328,7 +1331,10 @@ impl LastBookmarks {
         tx_res: &Sender<CommandResult>,
         session: &Session<'driver, C>,
     ) {
-        let bookmarks = session.last_bookmarks();
+        self.buffered_response(tx_res, session.last_bookmarks())
+    }
+
+    fn buffered_response(&self, tx_res: &Sender<CommandResult>, bookmarks: Bookmarks) {
         let msg = LastBookmarksResult {
             result: Ok(bookmarks),
         };
