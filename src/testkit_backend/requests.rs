@@ -23,18 +23,19 @@ use crate::session::SessionConfig;
 use crate::ValueSend;
 
 use super::cypher_value::CypherValue;
-use super::driver_holder::{CloseSession, DriverHolder, NewSession};
+use super::driver_holder::{CloseSession, DriverHolder, EmulatedDriverConfig, NewSession};
 use super::errors::TestKitError;
 use super::responses::Response;
 use super::session_holder::{
     AutoCommit, BeginTransaction, CloseTransaction, CommitTransaction, LastBookmarks,
-    ResultConsume, ResultNext, ResultSingle, RollbackTransaction, TransactionRun,
+    ResultConsume, ResultNext, ResultSingle, RetryableNegative, RetryablePositive,
+    RollbackTransaction, TransactionFunction, TransactionRun,
 };
 use super::{Backend, BackendId, TestKitResult};
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "name", content = "data", deny_unknown_fields)]
-pub(crate) enum Request {
+pub(super) enum Request {
     #[serde(rename_all = "camelCase")]
     StartTest {
         test_name: String,
@@ -257,7 +258,7 @@ pub(crate) enum Request {
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(tag = "name", content = "data")]
-pub(crate) enum TestKitAuth {
+pub(super) enum TestKitAuth {
     AuthorizationToken {
         scheme: String,
         #[serde(flatten)]
@@ -267,14 +268,14 @@ pub(crate) enum TestKitAuth {
 
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
-pub(crate) enum RequestTrustedCertificates {
+pub(super) enum RequestTrustedCertificates {
     Const(String),
     Paths(Vec<String>),
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Copy, Clone)]
 #[serde(untagged)]
-pub(crate) enum BackendErrorId {
+pub(super) enum BackendErrorId {
     BackendError(BackendId),
     #[serde(deserialize_with = "deserialize_client_error_id")]
     ClientError,
@@ -291,7 +292,7 @@ where
 }
 
 #[derive(Deserialize, Debug)]
-pub(crate) enum RequestAccessMode {
+pub(super) enum RequestAccessMode {
     #[serde(rename = "r")]
     Read,
     #[serde(rename = "w")]
@@ -309,7 +310,7 @@ impl From<RequestAccessMode> for RoutingControl {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct ExecuteQueryConfig {
+pub(super) struct ExecuteQueryConfig {
     database: Option<String>,
     routing: Option<RequestAccessMode>,
     impersonated_user: Option<String>,
@@ -318,7 +319,7 @@ pub(crate) struct ExecuteQueryConfig {
 
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
-pub(crate) enum ExecuteQueryBmmId {
+pub(super) enum ExecuteQueryBmmId {
     BackendId(BackendId),
     #[serde(deserialize_with = "deserialize_default_bmm_id")]
     Default,
@@ -362,7 +363,7 @@ mod tests {
 }
 
 impl Request {
-    pub(crate) fn handle(self, backend: &mut Backend) -> TestKitResult {
+    pub(super) fn handle(self, backend: &mut Backend) -> TestKitResult {
         match self {
             Request::StartTest { .. } => backend.send(&Response::RunTest)?,
             // Request::StartSubTest
@@ -382,8 +383,8 @@ impl Request {
             Request::NewSession { .. } => self.new_session(backend)?,
             Request::SessionClose { .. } => self.close_session(backend)?,
             Request::SessionRun { .. } => self.session_auto_commit(backend)?,
-            // Request::SessionReadTransaction { .. } => {},
-            // Request::SessionWriteTransaction { .. } => {},
+            Request::SessionReadTransaction { .. } => self.session_read_transaction(backend)?,
+            Request::SessionWriteTransaction { .. } => self.session_write_transaction(backend)?,
             Request::SessionBeginTransaction { .. } => self.session_begin_transaction(backend)?,
             Request::SessionLastBookmarks { .. } => self.session_last_bookmarks(backend)?,
             Request::TransactionRun { .. } => self.transaction_run(backend)?,
@@ -396,8 +397,8 @@ impl Request {
             // Request::ResultPeek { .. } => {},
             Request::ResultConsume { .. } => self.result_consume(backend)?,
             // Request::ResultList { .. } => {},
-            // Request::RetryablePositive { .. } => {},
-            // Request::RetryableNegative { .. } => {},
+            Request::RetryablePositive { .. } => self.retryable_positive(backend)?,
+            Request::RetryableNegative { .. } => self.retryable_negative(backend)?,
             // Request::ForcedRoutingTableUpdate { .. } => {},
             // Request::GetRoutingTable { .. } => {},
             // Request::GetConnectionPoolMetrics { .. } => {},
@@ -439,6 +440,7 @@ impl Request {
         };
         let connection_config: ConnectionConfig = uri.as_str().try_into()?;
         let mut driver_config = DriverConfig::new();
+        let mut emulated_config = EmulatedDriverConfig::default();
         driver_config = set_auth(driver_config, auth)?;
         if let Some(user_agent) = user_agent {
             driver_config = driver_config.with_user_agent(user_agent);
@@ -467,8 +469,8 @@ impl Request {
                 ));
             }
         }
-        if max_tx_retry_time_ms.is_some() {
-            return Err(TestKitError::backend_err("max tx retry time unsupported"));
+        if let Some(timeout) = max_tx_retry_time_ms {
+            emulated_config = emulated_config.with_max_retry_time(Duration::from_millis(timeout));
         }
         if liveness_check_timeout_ms.is_some() {
             return Err(TestKitError::backend_err("liveness check unsupported"));
@@ -506,6 +508,7 @@ impl Request {
             backend.id_generator.clone(),
             connection_config,
             driver_config,
+            emulated_config,
         );
         backend.drivers.insert(id, Some(driver_holder));
         backend.send(&Response::Driver { id })
@@ -632,6 +635,56 @@ impl Request {
         })
     }
 
+    fn session_read_transaction(self, backend: &mut Backend) -> TestKitResult {
+        let Request::SessionReadTransaction {
+            session_id,
+            tx_meta,
+            timeout,
+        } = self
+        else {
+            panic!("expected Request::SessionReadTransaction");
+        };
+        let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
+        let tx_meta = tx_meta
+            .map(cypher_value_map_to_value_send_map)
+            .transpose()?;
+        let tx_id = driver_holder
+            .transaction_function(TransactionFunction {
+                session_id,
+                tx_meta,
+                timeout,
+                access_mode: RoutingControl::Read,
+            })
+            .result?;
+        backend.tx_id_to_driver_id.insert(tx_id, driver_id);
+        backend.send(&Response::RetryableTry { id: tx_id })
+    }
+
+    fn session_write_transaction(self, backend: &mut Backend) -> TestKitResult {
+        let Request::SessionWriteTransaction {
+            session_id,
+            tx_meta,
+            timeout,
+        } = self
+        else {
+            panic!("expected Request::SessionWriteTransaction");
+        };
+        let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
+        let tx_meta = tx_meta
+            .map(cypher_value_map_to_value_send_map)
+            .transpose()?;
+        let tx_id = driver_holder
+            .transaction_function(TransactionFunction {
+                session_id,
+                tx_meta,
+                timeout,
+                access_mode: RoutingControl::Write,
+            })
+            .result?;
+        backend.tx_id_to_driver_id.insert(tx_id, driver_id);
+        backend.send(&Response::RetryableTry { id: tx_id })
+    }
+
     fn session_begin_transaction(self, backend: &mut Backend) -> TestKitResult {
         let Request::SessionBeginTransaction {
             session_id,
@@ -651,7 +704,7 @@ impl Request {
                 tx_meta,
                 timeout,
             })
-            .result??;
+            .result?;
         backend.tx_id_to_driver_id.insert(tx_id, driver_id);
         backend.send(&Response::Transaction { id: tx_id })
     }
@@ -691,7 +744,7 @@ impl Request {
                 query,
                 params,
             })
-            .result??;
+            .result?;
         backend.result_id_to_driver_id.insert(result_id, driver_id);
         backend.send(&Response::Result {
             id: result_id,
@@ -711,7 +764,7 @@ impl Request {
         };
         get_driver(backend, &driver_id)?
             .commit_transaction(CommitTransaction { transaction_id })
-            .result??;
+            .result?;
         backend.send(&Response::Transaction { id: transaction_id })
     }
 
@@ -758,8 +811,7 @@ impl Request {
         };
         let record = get_driver(backend, &driver_id)?
             .result_next(ResultNext { result_id })
-            .result?
-            .transpose()?;
+            .result?;
         let response = write_record(record)?;
         backend.send(&response)
     }
@@ -775,7 +827,7 @@ impl Request {
         };
         let record = get_driver(backend, &driver_id)?
             .result_single(ResultSingle { result_id })
-            .result??;
+            .result?;
         let response = write_record(Some(record))?;
         backend.send(&response)
     }
@@ -791,8 +843,46 @@ impl Request {
         };
         let summary = get_driver(backend, &driver_id)?
             .result_consume(ResultConsume { result_id })
-            .result??;
+            .result?;
         backend.send(&Response::Summary(summary.try_into()?))
+    }
+
+    fn retryable_positive(self, backend: &mut Backend) -> TestKitResult {
+        let Request::RetryablePositive { session_id } = self else {
+            panic!("expected Request::RetryablePositive");
+        };
+        let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
+        let tx_id = driver_holder
+            .retryable_positive(RetryablePositive { session_id })
+            .result?;
+        let res = match tx_id {
+            Some(tx_id) => {
+                backend.tx_id_to_driver_id.insert(tx_id, driver_id);
+                Response::RetryableTry { id: tx_id }
+            }
+            None => Response::RetryableDone,
+        };
+        backend.send(&res)
+    }
+
+    fn retryable_negative(self, backend: &mut Backend) -> TestKitResult {
+        let Request::RetryableNegative {
+            session_id,
+            error_id,
+        } = self
+        else {
+            panic!("expected Request::RetryableNegative");
+        };
+        let (driver_holder, _) = get_driver_for_session(backend, &session_id)?;
+        driver_holder
+            .retryable_negative(RetryableNegative {
+                session_id,
+                error_id,
+            })
+            .result?;
+        backend.send(&Response::FrontendError {
+            msg: String::from("Client said no!"),
+        })
     }
 }
 
@@ -832,6 +922,7 @@ fn closed_driver_error() -> TestKitError {
         error_type: String::from("DriverClosed"),
         msg: String::from("The driver has been closed"),
         code: None,
+        id: None,
     }
 }
 
@@ -844,6 +935,7 @@ fn closed_session_error() -> TestKitError {
         error_type: String::from("SessionClosed"),
         msg: String::from("The session  has been closed"),
         code: None,
+        id: None,
     }
 }
 

@@ -26,7 +26,7 @@ use super::BackendId;
 
 #[derive(Serialize, Debug)]
 #[serde(tag = "name", content = "data")]
-pub(crate) enum Response {
+pub(super) enum Response {
     FeatureList {
         features: Vec<String>,
     },
@@ -162,13 +162,13 @@ pub(crate) enum Response {
 }
 
 #[derive(Serialize, Debug)]
-pub(crate) struct RecordListEntry {
+pub(super) struct RecordListEntry {
     values: Vec<CypherValue>,
 }
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Summary {
+pub(super) struct Summary {
     counters: SummaryCounters,
     database: Option<String>,
     notifications: Option<Vec<Notification>>,
@@ -238,7 +238,7 @@ impl TryFrom<crate::summary::Summary> for Summary {
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SummaryCounters {
+pub(super) struct SummaryCounters {
     constraints_added: i64,
     constraints_removed: i64,
     contains_system_updates: bool,
@@ -278,7 +278,7 @@ impl From<crate::summary::Counters> for SummaryCounters {
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Notification {
+pub(super) struct Notification {
     description: String,
     code: String,
     title: String,
@@ -309,7 +309,7 @@ impl From<crate::summary::Notification> for Notification {
 }
 
 #[derive(Serialize, Debug)]
-pub(crate) struct Position {
+pub(super) struct Position {
     column: i64,
     offset: i64,
     line: i64,
@@ -327,7 +327,7 @@ impl From<crate::summary::Position> for Position {
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "UPPERCASE")]
-pub(crate) enum Severity {
+pub(super) enum Severity {
     Warning,
     Information,
     Unknown,
@@ -345,7 +345,7 @@ impl From<crate::summary::Severity> for Severity {
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "UPPERCASE")]
-pub(crate) enum Category {
+pub(super) enum Category {
     Hint,
     Unrecognized,
     Unsupported,
@@ -371,7 +371,7 @@ impl From<crate::summary::Category> for Category {
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Plan {
+pub(super) struct Plan {
     args: HashMap<String, CypherValue>,
     operator_type: String,
     identifiers: Vec<String>,
@@ -400,7 +400,7 @@ impl TryFrom<crate::summary::Plan> for Plan {
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Profile {
+pub(super) struct Profile {
     args: HashMap<String, CypherValue>,
     operator_type: String,
     identifiers: Vec<String>,
@@ -443,13 +443,13 @@ impl TryFrom<crate::summary::Profile> for Profile {
 }
 
 #[derive(Serialize, Debug)]
-pub(crate) struct SummaryQuery {
+pub(super) struct SummaryQuery {
     text: String,
     parameters: HashMap<String, CypherValue>,
 }
 
 #[derive(Serialize, Debug)]
-pub(crate) enum QueryType {
+pub(super) enum QueryType {
     #[serde(rename = "r")]
     Read,
     #[serde(rename = "w")]
@@ -462,7 +462,7 @@ pub(crate) enum QueryType {
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ServerInfo {
+pub(super) struct ServerInfo {
     address: String,
     agent: String,
     protocol_version: String,
@@ -500,7 +500,7 @@ mod tests {
 }
 
 impl Response {
-    pub(crate) fn feature_list() -> Self {
+    pub(super) fn feature_list() -> Self {
         Self::FeatureList {
             features: [
                 // "Feature:API:BookmarkManager",
@@ -560,7 +560,7 @@ impl Response {
         }
     }
 
-    pub(crate) fn try_from_testkit_error(
+    pub(super) fn try_from_testkit_error(
         e: TestKitError,
         id_generator: &Generator,
     ) -> Result<Response, TestKitError> {
@@ -569,8 +569,9 @@ impl Response {
                 error_type,
                 msg,
                 code,
+                id,
             } => Response::DriverError {
-                id: id_generator.next_id(),
+                id: id.unwrap_or_else(|| id_generator.next_id()),
                 error_type,
                 msg: Some(msg),
                 code,

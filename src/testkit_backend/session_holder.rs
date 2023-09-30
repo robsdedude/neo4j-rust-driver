@@ -25,23 +25,25 @@ use crate::bookmarks::Bookmarks;
 use crate::driver::record_stream::{GetSingleRecordError, RecordStream};
 use crate::driver::transaction::TransactionRecordStream;
 use crate::driver::{Driver, Record, RoutingControl};
+use crate::retry::ExponentialBackoff;
 use crate::session::{Session, SessionConfig};
 use crate::summary::Summary;
 use crate::{Neo4jError, ValueSend};
 
 use super::backend_id::Generator;
 use super::errors::TestKitError;
+use super::requests::BackendErrorId;
 use super::BackendId;
 
 #[derive(Debug)]
-pub(crate) struct SessionHolder {
+pub(super) struct SessionHolder {
     tx_req: Sender<Command>,
     rx_res: Receiver<CommandResult>,
     join_handle: Option<JoinHandle<()>>,
 }
 
 impl SessionHolder {
-    pub(crate) fn new(
+    pub(super) fn new(
         id: &BackendId,
         id_generator: Generator,
         driver: Arc<Driver>,
@@ -71,39 +73,66 @@ impl SessionHolder {
         }
     }
 
-    pub(crate) fn auto_commit(&self, args: AutoCommit) -> AutoCommitResult {
+    pub(super) fn auto_commit(&self, args: AutoCommit) -> AutoCommitResult {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
             CommandResult::AutoCommit(result) => result,
-            res => panic!("expected CommandResult::AutoCommit, found {:?}", res),
+            res => panic!("expected CommandResult::AutoCommit, found {res:?}"),
         }
     }
 
-    pub(crate) fn begin_transaction(&self, args: BeginTransaction) -> BeginTransactionResult {
+    pub(super) fn transaction_function(
+        &self,
+        args: TransactionFunction,
+    ) -> TransactionFunctionResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::TransactionFunction(result) => result,
+            res => panic!("expected CommandResult::TransactionFunction, found {res:?}"),
+        }
+    }
+
+    pub(super) fn retryable_positive(&self, args: RetryablePositive) -> RetryablePositiveResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::RetryablePositive(result) => result,
+            res => panic!("expected CommandResult::RetryablePositive, found {res:?}"),
+        }
+    }
+
+    pub(super) fn retryable_negative(&self, args: RetryableNegative) -> RetryableNegativeResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::RetryableNegative(result) => result,
+            res => panic!("expected CommandResult::RetryableNegative, found {res:?}"),
+        }
+    }
+
+    pub(super) fn begin_transaction(&self, args: BeginTransaction) -> BeginTransactionResult {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
             CommandResult::BeginTransaction(result) => result,
-            res => panic!("expected CommandResult::BeginTransaction, found {:?}", res),
+            res => panic!("expected CommandResult::BeginTransaction, found {res:?}"),
         }
     }
 
-    pub(crate) fn transaction_run(&self, args: TransactionRun) -> TransactionRunResult {
+    pub(super) fn transaction_run(&self, args: TransactionRun) -> TransactionRunResult {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
             CommandResult::TransactionRun(result) => result,
-            res => panic!("expected CommandResult::TransactionRun, found {:?}", res),
+            res => panic!("expected CommandResult::TransactionRun, found {res:?}"),
         }
     }
 
-    pub(crate) fn commit_transaction(&self, args: CommitTransaction) -> CommitTransactionResult {
+    pub(super) fn commit_transaction(&self, args: CommitTransaction) -> CommitTransactionResult {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
             CommandResult::CommitTransaction(result) => result,
-            res => panic!("expected CommandResult::CommitTransaction, found {:?}", res),
+            res => panic!("expected CommandResult::CommitTransaction, found {res:?}"),
         }
     }
 
-    pub(crate) fn rollback_transaction(
+    pub(super) fn rollback_transaction(
         &self,
         args: RollbackTransaction,
     ) -> RollbackTransactionResult {
@@ -117,54 +146,54 @@ impl SessionHolder {
         }
     }
 
-    pub(crate) fn close_transaction(&self, args: CloseTransaction) -> CloseTransactionResult {
+    pub(super) fn close_transaction(&self, args: CloseTransaction) -> CloseTransactionResult {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
             CommandResult::CloseTransaction(result) => result,
-            res => panic!("expected CommandResult::CloseTransaction, found {:?}", res),
+            res => panic!("expected CommandResult::CloseTransaction, found {res:?}"),
         }
     }
 
-    pub(crate) fn result_next(&self, args: ResultNext) -> ResultNextResult {
+    pub(super) fn result_next(&self, args: ResultNext) -> ResultNextResult {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
             CommandResult::ResultNext(result) => result,
-            res => panic!("expected CommandResult::ResultNext, found {:?}", res),
+            res => panic!("expected CommandResult::ResultNext, found {res:?}"),
         }
     }
 
-    pub(crate) fn result_single(&self, args: ResultSingle) -> ResultSingleResult {
+    pub(super) fn result_single(&self, args: ResultSingle) -> ResultSingleResult {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
             CommandResult::ResultSingle(result) => result,
-            res => panic!("expected CommandResult::ResultSingle, found {:?}", res),
+            res => panic!("expected CommandResult::ResultSingle, found {res:?}"),
         }
     }
 
-    pub(crate) fn result_consume(&self, args: ResultConsume) -> ResultConsumeResult {
+    pub(super) fn result_consume(&self, args: ResultConsume) -> ResultConsumeResult {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
             CommandResult::ResultConsume(result) => result,
-            res => panic!("expected CommandResult::ResultConsume, found {:?}", res),
+            res => panic!("expected CommandResult::ResultConsume, found {res:?}"),
         }
     }
 
-    pub(crate) fn last_bookmarks(&self, args: LastBookmarks) -> LastBookmarksResult {
+    pub(super) fn last_bookmarks(&self, args: LastBookmarks) -> LastBookmarksResult {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
             CommandResult::LastBookmarks(result) => result,
-            res => panic!("expected CommandResult::LastBookmarks, found {:?}", res),
+            res => panic!("expected CommandResult::LastBookmarks, found {res:?}"),
         }
     }
 
-    pub(crate) fn close(&mut self) -> CloseResult {
+    pub(super) fn close(&mut self) -> CloseResult {
         let Some(handle) = self.join_handle.take() else {
             return CloseResult { result: Ok(()) };
         };
         self.tx_req.send(Command::Close).unwrap();
         let res = match self.rx_res.recv().unwrap() {
             CommandResult::Close(result) => result,
-            res => panic!("expected CommandResult::Close, found {:?}", res),
+            res => panic!("expected CommandResult::Close, found {res:?}"),
         };
         handle.join().unwrap();
         res
@@ -256,9 +285,10 @@ impl SessionHolderRunner {
                                         self.tx_res
                                             .send(
                                                 ResultNextResult {
-                                                    result: Ok(stream
+                                                    result: stream
                                                         .next()
-                                                        .map(|r| r.map_err(Arc::new))),
+                                                        .map(|r| r.map_err(Into::into))
+                                                        .transpose(),
                                                 }
                                                 .into(),
                                             )
@@ -277,11 +307,11 @@ impl SessionHolderRunner {
                                         self.tx_res
                                             .send(
                                                 ResultSingleResult {
-                                                    result: Ok(stream
+                                                    result: stream
                                                         .single()
                                                         .map_err(Into::into)
                                                         .and_then(|f| f)
-                                                        .map_err(Arc::new)),
+                                                        .map_err(Into::into),
                                                 }
                                                 .into(),
                                             )
@@ -323,7 +353,17 @@ impl SessionHolderRunner {
                                     Command::CloseTransaction(command) => {
                                         command.default_response(&self.tx_res, known_transactions)
                                     }
+                                    command @ (Command::RetryablePositive(_)
+                                    | Command::RetryableNegative(_)) => {
+                                        command.reply_error(
+                                            tx_res,
+                                            TestKitError::backend_err(
+                                                "retryable commands not supported outside transaction function",
+                                            ),
+                                        );
+                                    }
                                     command @ (Command::AutoCommit(_)
+                                    | Command::TransactionFunction(_)
                                     | Command::BeginTransaction(_)
                                     | Command::LastBookmarks(_)) => {
                                         let _ = buffered_command.insert(command);
@@ -354,7 +394,7 @@ impl SessionHolderRunner {
                             let command = buffered_command
                                 .take()
                                 .unwrap_or_else(|| panic!("about to swallow closure error: {e:?}"));
-                            command.reply_error(e.into(), &self.tx_res);
+                            command.reply_error(&self.tx_res, e.into());
                             if matches!(command, Command::Close) {
                                 return;
                             }
@@ -410,7 +450,7 @@ impl SessionHolderRunner {
                             known_transactions.insert(id, TxFailState::Passed);
 
                             tx_res
-                                .send(BeginTransactionResult { result: Ok(Ok(id)) }.into())
+                                .send(BeginTransactionResult { result: Ok(id) }.into())
                                 .unwrap();
 
                             let mut streams: HashMap<BackendId, Option<TransactionRecordStream>> =
@@ -445,14 +485,14 @@ impl SessionHolderRunner {
                                                 queries.insert(result_id, query_str);
                                                 query_params.insert(result_id, params);
                                                 let msg = TransactionRunResult {
-                                                    result: Ok(Ok((result_id, keys))),
+                                                    result: Ok((result_id, keys)),
                                                 };
                                                 tx_res.send(msg.into()).unwrap();
                                             }
                                             Err(err) => {
                                                 known_transactions.insert(id, TxFailState::Failed);
                                                 let msg = TransactionRunResult {
-                                                    result: Ok(Err(err)),
+                                                    result: Err(err.into()),
                                                 };
                                                 tx_res.send(msg.into()).unwrap();
                                                 break;
@@ -469,14 +509,14 @@ impl SessionHolderRunner {
                                             Some(stream) => {
                                                 let result = match stream {
                                                     None => Err(result_consumed_error()),
-                                                    Some(stream) => Ok({
+                                                    Some(stream) => {
                                                         let res = stream.next();
                                                         if matches!(res, Some(Err(_))) {
                                                             known_transactions
                                                                 .insert(id, TxFailState::Failed);
                                                         }
-                                                        res.map(|r| r.map_err(Arc::new))
-                                                    }),
+                                                        res.transpose().map_err(Into::into)
+                                                    },
                                                 };
                                                 let msg = ResultNextResult { result };
                                                 tx_res.send(msg.into()).unwrap();
@@ -493,7 +533,7 @@ impl SessionHolderRunner {
                                             Some(stream) => {
                                                 let result = match stream {
                                                     None => Err(result_consumed_error()),
-                                                    Some(stream) => Ok(stream
+                                                    Some(stream) => stream
                                                         .single()
                                                         .map_err(Into::into)
                                                         .and_then(|r| {
@@ -504,8 +544,7 @@ impl SessionHolderRunner {
                                                                 );
                                                             }
                                                             r
-                                                        })
-                                                        .map_err(Arc::new)),
+                                                        }).map_err(Into::into),
                                                 };
                                                 let msg = ResultSingleResult { result };
                                                 tx_res.send(msg.into()).unwrap();
@@ -530,7 +569,7 @@ impl SessionHolderRunner {
                                                         tx_res
                                                             .send(
                                                                 ResultConsumeResult {
-                                                                    result: Ok(Err(Arc::new(err))),
+                                                                    result: Err(err.into()),
                                                                 }
                                                                 .into(),
                                                             )
@@ -542,7 +581,7 @@ impl SessionHolderRunner {
                                         }
                                         if let Some(summary) = summaries.get(&result_id) {
                                             let msg = ResultConsumeResult {
-                                                result: Ok(Ok(SummaryWithQuery {
+                                                result: Ok(SummaryWithQuery {
                                                     summary: Arc::clone(summary),
                                                     query: Arc::clone(
                                                         queries.get(&result_id).unwrap(),
@@ -550,7 +589,7 @@ impl SessionHolderRunner {
                                                     parameters: Arc::clone(
                                                         query_params.get(&result_id).unwrap(),
                                                     ),
-                                                })),
+                                                }),
                                             };
                                             tx_res.send(msg.into()).unwrap();
                                         } else {
@@ -612,10 +651,23 @@ impl SessionHolderRunner {
                                     Command::LastBookmarks(command) => {
                                         command.buffered_response(tx_res, last_bookmarks.clone());
                                     }
+
                                     command @ (Command::BeginTransaction(_)
-                                    | Command::AutoCommit(_)
+                                    | Command::TransactionFunction(_)|Command::AutoCommit(_)) => command.reply_error(
+                                        tx_res, session_already_executing_tx_error()
+                                    ),
+                                    command @ (Command::RetryablePositive(_)
+                                    | Command::RetryableNegative(_)) => {
+                                        command.reply_error(
+                                            tx_res,
+                                            TestKitError::backend_err(
+                                                "retryable commands not supported outside transaction function",
+                                            ),
+                                        );
+                                    }
+                                    command @ (
                                     | Command::Close) => {
-                                        let _ = buffered_command.insert(command);
+                                        _ = buffered_command.insert(command);
                                         break;
                                     }
                                 }
@@ -631,10 +683,7 @@ impl SessionHolderRunner {
                             let command = buffered_command
                                 .take()
                                 .unwrap_or_else(|| panic!("about to swallow closure error: {e:?}"));
-                            command.reply_error(e.into(), &self.tx_res);
-                            if matches!(command, Command::Close) {
-                                return;
-                            }
+                            command.reply_error(&self.tx_res, e.into());
                         } else {
                             self.tx_res
                                 .send(
@@ -646,6 +695,361 @@ impl SessionHolderRunner {
                                 .unwrap();
                         }
                     }
+                }
+
+                Command::TransactionFunction(TransactionFunction {
+                    session_id: _,
+                    tx_meta,
+                    timeout,
+                    access_mode,
+                }) => {
+                    let last_bookmarks = session.last_bookmarks();
+                    let mut transaction = session.transaction();
+                    transaction = transaction.with_routing_control(access_mode);
+                    if let Some(timeout) = timeout {
+                        if timeout == 0 {
+                            transaction = transaction.without_tx_timeout();
+                        } else {
+                            transaction = match transaction.with_tx_timeout(timeout) {
+                                Ok(transaction) => transaction,
+                                Err(e) => {
+                                    let msg = TransactionFunctionResult {
+                                        result: Err(e.into()),
+                                    };
+                                    self.tx_res.send(msg.into()).unwrap();
+                                    continue;
+                                }
+                            };
+                        }
+                    }
+                    if let Some(tx_meta) = tx_meta {
+                        transaction = transaction.with_tx_meta(tx_meta)
+                    }
+                    let res = {
+                        let record_holders = &mut record_holders;
+                        let known_transactions = &mut known_transactions;
+                        let tx_res = &self.tx_res;
+                        transaction.run_with_retry(
+                            ExponentialBackoff::default(),
+                            |transaction| {
+                                let id = self.id_generator.next_id();
+                                known_transactions.insert(id, TxFailState::Passed);
+
+                                tx_res
+                                    .send(TransactionFunctionResult { result: Ok(id) }.into())
+                                    .unwrap();
+
+                                let mut streams: HashMap<BackendId, Option<TransactionRecordStream>> =
+                                    Default::default();
+                                let mut summaries: HashMap<BackendId, Arc<Summary>> =
+                                    Default::default();
+                                let mut queries: HashMap<BackendId, Arc<String>> = Default::default();
+                                let mut query_params: HashMap<
+                                    BackendId,
+                                    Arc<Option<HashMap<String, ValueSend>>>,
+                                > = Default::default();
+                                let mut state_tracker = TransactionFunctionStateTracker::new(&self.id_generator);
+                                loop {
+                                    match Self::next_command(&self.rx_req, &mut buffered_command) {
+                                        Command::TransactionRun(command) => {
+                                            if command.transaction_id != id {
+                                                let error = state_tracker.wrap_testkit_error(command.scope_error(known_transactions));
+                                                tx_res.send(
+                                                    TransactionRunResult {
+                                                        result: Err(error)
+                                                    }.into()).unwrap();
+                                                continue;
+                                            }
+                                            if state_tracker.failed() {
+                                                Command::TransactionRun(command).reply_error(
+                                                    tx_res,
+                                                    state_tracker.wrap_testkit_error(transaction_out_of_scope_error())
+                                                );
+                                                continue;
+                                            }
+                                            let TransactionRun { params, query, .. } = command;
+                                            let query_str = Arc::new(query);
+                                            let params = Arc::new(params);
+                                            let query = transaction.query(&*query_str);
+                                            let result = match &*params {
+                                                Some(params) => query.with_parameters(params).run(),
+                                                None => query.run(),
+                                            };
+                                            match result {
+                                                Ok(result) => {
+                                                    let keys = result.keys();
+                                                    let result_id = self.id_generator.next_id();
+                                                    streams.insert(result_id, Some(result));
+                                                    queries.insert(result_id, query_str);
+                                                    query_params.insert(result_id, params);
+                                                    let msg = TransactionRunResult {
+                                                        result: Ok((result_id, keys)),
+                                                    };
+                                                    tx_res.send(msg.into()).unwrap();
+                                                }
+                                                Err(err) => {
+                                                    known_transactions.insert(id, TxFailState::Failed);
+                                                    let msg = TransactionRunResult {
+                                                        result: Err(state_tracker.wrap_neo4j_error(err)),
+                                                    };
+                                                    tx_res.send(msg.into()).unwrap();
+                                                }
+                                            }
+                                        }
+                                        Command::ResultNext(ResultNext { result_id }) => {
+                                            match streams.get_mut(&result_id) {
+                                                None => Self::send_record_from_holders(
+                                                    record_holders,
+                                                    result_id,
+                                                    tx_res,
+                                                ),
+                                                Some(stream) => {
+                                                    let result = match stream {
+                                                        None => Err(result_consumed_error()),
+                                                        Some(stream) => {
+                                                            if state_tracker.failed() {
+                                                                Err(state_tracker.wrap_testkit_error(transaction_out_of_scope_error()))
+                                                            } else {
+                                                                let res = stream.next();
+                                                                res.transpose().map_err(|e| {
+                                                                    known_transactions
+                                                                        .insert(id, TxFailState::Failed);
+                                                                    state_tracker.wrap_neo4j_error(e)
+                                                                })
+                                                            }
+                                                        },
+                                                    };
+                                                    let msg = ResultNextResult { result };
+                                                    tx_res.send(msg.into()).unwrap();
+                                                }
+                                            }
+                                        }
+                                        Command::ResultSingle(ResultSingle { result_id }) => {
+                                            match streams.get_mut(&result_id) {
+                                                None => Self::send_record_single_from_holders(
+                                                    record_holders,
+                                                    result_id,
+                                                    tx_res,
+                                                ),
+                                                Some(stream) => {
+                                                    let result = match stream {
+                                                        None => Err(result_consumed_error()),
+                                                        Some(stream) => {
+
+                                                            if state_tracker.failed() {
+                                                                Err(state_tracker.wrap_testkit_error(transaction_out_of_scope_error()))
+                                                            } else {
+                                                                stream
+                                                                    .single()
+                                                                    .map_err(|e|state_tracker.wrap_neo4j_error(e.into()))
+                                                                    .and_then(|r| {
+                                                                        r.map_err(|e| {
+                                                                            known_transactions.insert(
+                                                                                id,
+                                                                                TxFailState::Failed,
+                                                                            );
+                                                                            state_tracker.wrap_neo4j_error(e)
+                                                                        })
+                                                                    })
+                                                            }
+                                                        },
+                                                    };
+                                                    let msg = ResultSingleResult { result };
+                                                    tx_res.send(msg.into()).unwrap();
+                                                }
+                                            }
+                                        }
+                                        Command::ResultConsume(ResultConsume { result_id }) => {
+                                            if let Some(stream) = streams.get_mut(&result_id) {
+                                                if state_tracker.failed() {
+                                                    tx_res
+                                                        .send(
+                                                            ResultConsumeResult {
+                                                                result: Err(transaction_out_of_scope_error()),
+                                                            }
+                                                                .into(),
+                                                        )
+                                                        .unwrap();
+                                                    continue;
+                                                }
+                                                if let Some(stream) = stream.take() {
+                                                    match stream.consume() {
+                                                        Ok(summary) => {
+                                                            summaries.insert(
+                                                                result_id,
+                                                                Arc::new(summary.expect(
+                                                                    "will only ever fetch summary once",
+                                                                )),
+                                                            );
+                                                        }
+                                                        Err(err) => {
+                                                            known_transactions
+                                                                .insert(id, TxFailState::Failed);
+                                                            tx_res
+                                                                .send(
+                                                                    ResultConsumeResult {
+                                                                        result: Err(state_tracker.wrap_neo4j_error(err)),
+                                                                    }
+                                                                        .into(),
+                                                                )
+                                                                .unwrap();
+                                                            continue;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if let Some(summary) = summaries.get(&result_id) {
+                                                let msg = ResultConsumeResult {
+                                                    result: Ok(SummaryWithQuery {
+                                                        summary: Arc::clone(summary),
+                                                        query: Arc::clone(
+                                                            queries.get(&result_id).unwrap(),
+                                                        ),
+                                                        parameters: Arc::clone(
+                                                            query_params.get(&result_id).unwrap(),
+                                                        ),
+                                                    }),
+                                                };
+                                                tx_res.send(msg.into()).unwrap();
+                                            } else {
+                                                Self::send_summary_from_holders(
+                                                    record_holders,
+                                                    result_id,
+                                                    tx_res,
+                                                );
+                                            }
+                                        }
+                                        Command::CommitTransaction(command) => {
+                                            if command.transaction_id != id {
+                                                command.default_response(tx_res, known_transactions);
+                                                continue;
+                                            }
+                                            Command::CommitTransaction(command).reply_error(
+                                                tx_res, TestKitError::backend_err(
+                                                    "explicit commit not supported in transaction function",
+                                                ),
+                                            );
+                                        }
+                                        Command::RollbackTransaction(command) => {
+                                            if command.transaction_id != id {
+                                                command.default_response(tx_res, known_transactions);
+                                                continue;
+                                            }
+                                            Command::RollbackTransaction(command).reply_error(
+                                                tx_res, TestKitError::backend_err(
+                                                    "explicit rollback not supported in transaction function",
+                                                ),
+                                            );
+                                        }
+                                        Command::CloseTransaction(command) => {
+                                            if command.transaction_id != id {
+                                                command.default_response(tx_res, known_transactions);
+                                                continue;
+                                            }
+                                            Command::CloseTransaction(command).reply_error(
+                                                tx_res, TestKitError::backend_err(
+                                                    "explicit close not supported in transaction function",
+                                                ),
+                                            );
+                                        }
+                                        Command::LastBookmarks(command) => {
+                                            command.buffered_response(tx_res, last_bookmarks.clone());
+                                        }
+                                        command @ (Command::BeginTransaction(_)
+                                        | Command::TransactionFunction(_)
+                                        | Command::AutoCommit(_)) => command.reply_error(
+                                            tx_res, session_already_executing_tx_error()
+                                        ),
+                                        command @ Command::RetryablePositive(_) => {
+                                            streams.into_keys().for_each(|id| {
+                                                record_holders
+                                                    .insert(id, RecordBuffer::new_transaction());
+                                            });
+                                            let result = transaction.commit();
+                                            if result.is_err() {
+                                                known_transactions.insert(id, TxFailState::Failed);
+                                            }
+                                            let _ = buffered_command.insert(command);
+                                            return Ok(Ok(()))
+                                        }
+                                        Command::RetryableNegative(command) => {
+                                            streams.into_keys().for_each(|id| {
+                                                record_holders
+                                                    .insert(id, RecordBuffer::new_transaction());
+                                            });
+                                            let error_id = command.error_id;
+                                            let _ = buffered_command.insert(Command::RetryableNegative(command));
+                                            return match error_id {
+                                                BackendErrorId::BackendError(id) => {
+                                                    match state_tracker.into_error(id) {
+                                                        TransactionFunctionError::TestKit(e) => {
+                                                            Ok(Err(e))
+                                                        }
+                                                        TransactionFunctionError::Neo4j(e) => Err(e)
+                                                    }
+                                                }
+                                                BackendErrorId::ClientError => {
+                                                    Ok(Err(
+                                                        TestKitError::FrontendError {
+                                                            msg: String::from("Client said no!"),
+                                                        },
+                                                    ))
+                                                }
+                                            };
+                                        }
+                                        command @ (
+                                            | Command::Close) => {
+                                            let _ = buffered_command.insert(command);
+
+                                            streams.into_keys().for_each(|id| {
+                                                record_holders.insert(id, RecordBuffer::new_transaction());
+                                            });
+                                            return Ok(Ok(()))
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                    };
+                    let command = buffered_command.take().unwrap_or_else(|| {
+                        panic!("left transaction function without buffered command")
+                    });
+                    let res = res.map_err(Into::into).and_then(|x| Ok(x?));
+                    match command {
+                        Command::RetryablePositive(_) => {
+                            self.tx_res
+                                .send(
+                                    RetryablePositiveResult {
+                                        result: res.map(|_| None),
+                                    }
+                                    .into(),
+                                )
+                                .unwrap();
+                        }
+                        Command::RetryableNegative(_) => {
+                            self.tx_res
+                                .send(RetryableNegativeResult { result: res }.into())
+                                .unwrap();
+                        }
+                        Command::Close => {
+                            self.tx_res
+                                .send(CloseResult { result: res }.into())
+                                .unwrap();
+                            return;
+                        }
+                        _ => panic!(
+                            "left transaction function ok unexpected buffered command {command:?}"
+                        ),
+                    }
+                }
+
+                command @ (Command::RetryableNegative(_) | Command::RetryablePositive(_)) => {
+                    command.reply_error(
+                        &self.tx_res,
+                        TestKitError::backend_err(
+                            "retryable commands not supported outside transaction function",
+                        ),
+                    );
                 }
 
                 Command::TransactionRun(command) => {
@@ -763,6 +1167,7 @@ fn result_out_of_scope_error() -> TestKitError {
         error_type: String::from("ResultOutOfScope"),
         msg: String::from("The record stream's transaction has been closed"),
         code: None,
+        id: None,
     }
 }
 
@@ -771,6 +1176,7 @@ fn result_consumed_error() -> TestKitError {
         error_type: String::from("ResultConsumed"),
         msg: String::from("The record stream has been consumed"),
         code: None,
+        id: None,
     }
 }
 
@@ -779,6 +1185,16 @@ fn transaction_out_of_scope_error() -> TestKitError {
         error_type: String::from("TransactionOutOfScope"),
         msg: String::from("The transaction has been closed"),
         code: None,
+        id: None,
+    }
+}
+
+fn session_already_executing_tx_error() -> TestKitError {
+    TestKitError::DriverError {
+        error_type: String::from("SessionError"),
+        msg: String::from("Session is already executing a transaction"),
+        code: None,
+        id: None,
     }
 }
 
@@ -861,7 +1277,7 @@ impl RecordBuffer {
         }
     }
 
-    fn next(&mut self) -> Result<Option<Result<Record, Arc<Neo4jError>>>, TestKitError> {
+    fn next(&mut self) -> Result<Option<Record>, TestKitError> {
         match self {
             RecordBuffer::AutoCommit {
                 records, consumed, ..
@@ -869,14 +1285,17 @@ impl RecordBuffer {
                 if *consumed {
                     Err(result_consumed_error())
                 } else {
-                    Ok(records.pop_front())
+                    records
+                        .pop_front()
+                        .transpose()
+                        .map_err(|e| TestKitError::clone_neo4j_error(&e))
                 }
             }
             RecordBuffer::Transaction { .. } => Err(result_out_of_scope_error()),
         }
     }
 
-    fn single(&mut self) -> Result<Result<Record, Arc<Neo4jError>>, TestKitError> {
+    fn single(&mut self) -> Result<Record, TestKitError> {
         match self {
             RecordBuffer::AutoCommit {
                 records, consumed, ..
@@ -886,21 +1305,23 @@ impl RecordBuffer {
                 } else {
                     *consumed = true;
                     match records.pop_front() {
-                        None => Ok(Err(Arc::new(GetSingleRecordError::NoRecords.into()))),
+                        None => Err(TestKitError::from(Neo4jError::from(
+                            GetSingleRecordError::NoRecords,
+                        ))),
                         Some(result) => match result {
                             Ok(record) => {
                                 if !records.is_empty() {
                                     match Self::drop_buffered_records(records) {
-                                        Err(e) => Ok(Err(e)),
-                                        Ok(()) => Ok(Err(Arc::new(
-                                            GetSingleRecordError::TooManyRecords.into(),
+                                        Err(e) => Err(e),
+                                        Ok(()) => Err(TestKitError::from(Neo4jError::from(
+                                            GetSingleRecordError::TooManyRecords,
                                         ))),
                                     }
                                 } else {
-                                    Ok(Ok(record))
+                                    Ok(record)
                                 }
                             }
-                            Err(_) => Ok(result),
+                            Err(e) => Err(TestKitError::clone_neo4j_error(&e)),
                         },
                     }
                 }
@@ -909,7 +1330,7 @@ impl RecordBuffer {
         }
     }
 
-    fn consume(&mut self) -> Result<Result<SummaryWithQuery, Arc<Neo4jError>>, TestKitError> {
+    fn consume(&mut self) -> Result<SummaryWithQuery, TestKitError> {
         match self {
             RecordBuffer::AutoCommit {
                 records,
@@ -921,17 +1342,17 @@ impl RecordBuffer {
                 *consumed = true;
                 let dropped_records = Self::drop_buffered_records(records);
                 if let Err(e) = dropped_records {
-                    return Ok(Err(e));
+                    return Err(e);
                 }
                 match summary {
                     None => Err(TestKitError::backend_err(
                         "cannot receive summary of a failed record stream",
                     )),
-                    Some(summary) => Ok(Ok(SummaryWithQuery {
+                    Some(summary) => Ok(SummaryWithQuery {
                         summary: Arc::clone(summary),
                         query: Arc::clone(query),
                         parameters: Arc::clone(params),
-                    })),
+                    }),
                 }
             }
             RecordBuffer::Transaction => Err(result_out_of_scope_error()),
@@ -940,7 +1361,7 @@ impl RecordBuffer {
 
     fn drop_buffered_records(
         records: &mut VecDeque<Result<Record, Arc<Neo4jError>>>,
-    ) -> Result<(), Arc<Neo4jError>> {
+    ) -> Result<(), TestKitError> {
         let mut swapped_records = Default::default();
         mem::swap(records, &mut swapped_records);
         let dropped_records = swapped_records.into_iter().try_for_each(|r| {
@@ -952,7 +1373,7 @@ impl RecordBuffer {
         });
         if let Err(e) = dropped_records {
             records.push_back(Err(Arc::clone(&e)));
-            return Err(e);
+            return Err(TestKitError::clone_neo4j_error(&*e));
         }
         Ok(())
     }
@@ -965,9 +1386,74 @@ enum TxFailState {
 }
 
 #[derive(Debug)]
-pub(crate) enum Command {
+struct TransactionFunctionStateTracker<'gen> {
+    state: TransactionFunctionState,
+    errors: HashMap<BackendId, TransactionFunctionError>,
+    generator: &'gen Generator,
+}
+
+#[derive(Debug)]
+enum TransactionFunctionState {
+    Ok,
+    Err,
+}
+
+#[derive(Debug)]
+enum TransactionFunctionError {
+    TestKit(TestKitError),
+    Neo4j(Neo4jError),
+}
+
+impl<'gen> TransactionFunctionStateTracker<'gen> {
+    fn new(generator: &'gen Generator) -> Self {
+        Self {
+            state: TransactionFunctionState::Ok,
+            errors: Default::default(),
+            generator,
+        }
+    }
+
+    fn wrap_neo4j_error(&mut self, error: Neo4jError) -> TestKitError {
+        self.state = TransactionFunctionState::Err;
+        let id = self.generator.next_id();
+        let mut testkit_error = TestKitError::clone_neo4j_error(&error);
+        testkit_error.set_id(id);
+        self.errors
+            .insert(id, TransactionFunctionError::Neo4j(error));
+        testkit_error
+    }
+
+    fn wrap_testkit_error(&mut self, mut error: TestKitError) -> TestKitError {
+        if error.get_id().is_none() {
+            error.set_id_gen(self.generator);
+        }
+        if let Some(id) = error.get_id() {
+            self.errors
+                .insert(id, TransactionFunctionError::TestKit(error.clone()));
+        }
+        error
+    }
+
+    fn failed(&self) -> bool {
+        matches!(self.state, TransactionFunctionState::Err)
+    }
+
+    fn into_error(mut self, id: BackendId) -> TransactionFunctionError {
+        self.errors
+            .remove(&id)
+            .unwrap_or(TransactionFunctionError::TestKit(
+                TestKitError::backend_err(format!("Unknown error with id {id} found")),
+            ))
+    }
+}
+
+#[derive(Debug)]
+pub(super) enum Command {
     AutoCommit(AutoCommit),
     BeginTransaction(BeginTransaction),
+    TransactionFunction(TransactionFunction),
+    RetryablePositive(RetryablePositive),
+    RetryableNegative(RetryableNegative),
     TransactionRun(TransactionRun),
     CommitTransaction(CommitTransaction),
     RollbackTransaction(RollbackTransaction),
@@ -980,9 +1466,12 @@ pub(crate) enum Command {
 }
 
 #[derive(Debug)]
-pub(crate) enum CommandResult {
+pub(super) enum CommandResult {
     AutoCommit(AutoCommitResult),
     BeginTransaction(BeginTransactionResult),
+    TransactionFunction(TransactionFunctionResult),
+    RetryablePositive(RetryablePositiveResult),
+    RetryableNegative(RetryableNegativeResult),
     TransactionRun(TransactionRunResult),
     CommitTransaction(CommitTransactionResult),
     RollbackTransaction(RollbackTransactionResult),
@@ -995,10 +1484,15 @@ pub(crate) enum CommandResult {
 }
 
 impl Command {
-    fn reply_error(&self, err: TestKitError, tx_res: &Sender<CommandResult>) {
+    fn reply_error(&self, tx_res: &Sender<CommandResult>, err: TestKitError) {
         let msg = match self {
             Command::AutoCommit(_) => AutoCommitResult { result: Err(err) }.into(),
             Command::BeginTransaction(_) => BeginTransactionResult { result: Err(err) }.into(),
+            Command::TransactionFunction(_) => {
+                TransactionFunctionResult { result: Err(err) }.into()
+            }
+            Command::RetryablePositive(_) => RetryablePositiveResult { result: Err(err) }.into(),
+            Command::RetryableNegative(_) => RetryableNegativeResult { result: Err(err) }.into(),
             Command::TransactionRun(_) => TransactionRunResult { result: Err(err) }.into(),
             Command::CommitTransaction(_) => CommitTransactionResult { result: Err(err) }.into(),
             Command::RollbackTransaction(_) => {
@@ -1016,12 +1510,12 @@ impl Command {
 }
 
 #[derive(Debug)]
-pub(crate) struct AutoCommit {
-    pub(crate) session_id: BackendId,
-    pub(crate) query: String,
-    pub(crate) params: Option<HashMap<String, ValueSend>>,
-    pub(crate) tx_meta: Option<HashMap<String, ValueSend>>,
-    pub(crate) timeout: Option<i64>,
+pub(super) struct AutoCommit {
+    pub(super) session_id: BackendId,
+    pub(super) query: String,
+    pub(super) params: Option<HashMap<String, ValueSend>>,
+    pub(super) tx_meta: Option<HashMap<String, ValueSend>>,
+    pub(super) timeout: Option<i64>,
 }
 
 impl From<AutoCommit> for Command {
@@ -1032,8 +1526,8 @@ impl From<AutoCommit> for Command {
 
 #[must_use]
 #[derive(Debug)]
-pub(crate) struct AutoCommitResult {
-    pub(crate) result: Result<(BackendId, RecordKeys), TestKitError>,
+pub(super) struct AutoCommitResult {
+    pub(super) result: Result<(BackendId, RecordKeys), TestKitError>,
 }
 
 impl From<AutoCommitResult> for CommandResult {
@@ -1043,10 +1537,83 @@ impl From<AutoCommitResult> for CommandResult {
 }
 
 #[derive(Debug)]
-pub(crate) struct BeginTransaction {
-    pub(crate) session_id: BackendId,
-    pub(crate) tx_meta: Option<HashMap<String, ValueSend>>,
-    pub(crate) timeout: Option<i64>,
+pub(super) struct TransactionFunction {
+    pub(super) session_id: BackendId,
+    pub(super) tx_meta: Option<HashMap<String, ValueSend>>,
+    pub(super) timeout: Option<i64>,
+    pub(super) access_mode: RoutingControl,
+}
+
+impl From<TransactionFunction> for Command {
+    fn from(c: TransactionFunction) -> Self {
+        Command::TransactionFunction(c)
+    }
+}
+
+#[must_use]
+#[derive(Debug)]
+pub(super) struct TransactionFunctionResult {
+    pub(super) result: Result<BackendId, TestKitError>,
+}
+
+impl From<TransactionFunctionResult> for CommandResult {
+    fn from(r: TransactionFunctionResult) -> Self {
+        CommandResult::TransactionFunction(r)
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct RetryablePositive {
+    pub(super) session_id: BackendId,
+}
+
+impl From<RetryablePositive> for Command {
+    fn from(c: RetryablePositive) -> Self {
+        Command::RetryablePositive(c)
+    }
+}
+
+#[must_use]
+#[derive(Debug)]
+pub(super) struct RetryablePositiveResult {
+    pub(super) result: Result<Option<BackendId>, TestKitError>,
+}
+
+impl From<RetryablePositiveResult> for CommandResult {
+    fn from(r: RetryablePositiveResult) -> Self {
+        CommandResult::RetryablePositive(r)
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct RetryableNegative {
+    pub(super) session_id: BackendId,
+    pub(super) error_id: BackendErrorId,
+}
+
+impl From<RetryableNegative> for Command {
+    fn from(c: RetryableNegative) -> Self {
+        Command::RetryableNegative(c)
+    }
+}
+
+#[must_use]
+#[derive(Debug)]
+pub(super) struct RetryableNegativeResult {
+    pub(super) result: Result<(), TestKitError>,
+}
+
+impl From<RetryableNegativeResult> for CommandResult {
+    fn from(r: RetryableNegativeResult) -> Self {
+        CommandResult::RetryableNegative(r)
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct BeginTransaction {
+    pub(super) session_id: BackendId,
+    pub(super) tx_meta: Option<HashMap<String, ValueSend>>,
+    pub(super) timeout: Option<i64>,
 }
 
 impl From<BeginTransaction> for Command {
@@ -1057,8 +1624,8 @@ impl From<BeginTransaction> for Command {
 
 #[must_use]
 #[derive(Debug)]
-pub(crate) struct BeginTransactionResult {
-    pub(crate) result: Result<Result<BackendId, Neo4jError>, TestKitError>,
+pub(super) struct BeginTransactionResult {
+    pub(super) result: Result<BackendId, TestKitError>,
 }
 
 impl From<BeginTransactionResult> for CommandResult {
@@ -1068,10 +1635,10 @@ impl From<BeginTransactionResult> for CommandResult {
 }
 
 #[derive(Debug)]
-pub(crate) struct TransactionRun {
-    pub(crate) transaction_id: BackendId,
-    pub(crate) query: String,
-    pub(crate) params: Option<HashMap<String, ValueSend>>,
+pub(super) struct TransactionRun {
+    pub(super) transaction_id: BackendId,
+    pub(super) query: String,
+    pub(super) params: Option<HashMap<String, ValueSend>>,
 }
 
 impl From<TransactionRun> for Command {
@@ -1086,19 +1653,23 @@ impl TransactionRun {
         tx_res: &Sender<CommandResult>,
         known_transactions: &HashMap<BackendId, TxFailState>,
     ) {
-        let err = match known_transactions.get(&self.transaction_id) {
-            Some(_) => transaction_out_of_scope_error(),
-            None => TestKitError::backend_err("transaction not found"),
-        };
+        let err = self.scope_error(known_transactions);
         let msg = CommandResult::TransactionRun(TransactionRunResult { result: Err(err) });
         tx_res.send(msg).unwrap();
+    }
+
+    fn scope_error(&self, known_transactions: &HashMap<BackendId, TxFailState>) -> TestKitError {
+        match known_transactions.get(&self.transaction_id) {
+            Some(_) => transaction_out_of_scope_error(),
+            None => TestKitError::backend_err("transaction not found"),
+        }
     }
 }
 
 #[must_use]
 #[derive(Debug)]
-pub(crate) struct TransactionRunResult {
-    pub(crate) result: Result<Result<(BackendId, RecordKeys), Neo4jError>, TestKitError>,
+pub(super) struct TransactionRunResult {
+    pub(super) result: Result<(BackendId, RecordKeys), TestKitError>,
 }
 
 impl From<TransactionRunResult> for CommandResult {
@@ -1108,8 +1679,8 @@ impl From<TransactionRunResult> for CommandResult {
 }
 
 #[derive(Debug)]
-pub(crate) struct CommitTransaction {
-    pub(crate) transaction_id: BackendId,
+pub(super) struct CommitTransaction {
+    pub(super) transaction_id: BackendId,
 }
 
 impl From<CommitTransaction> for Command {
@@ -1133,15 +1704,17 @@ impl CommitTransaction {
     }
 
     fn real_response(&self, result: Result<(), Neo4jError>, tx_res: &Sender<CommandResult>) {
-        let msg = CommandResult::CommitTransaction(CommitTransactionResult { result: Ok(result) });
+        let msg = CommandResult::CommitTransaction(CommitTransactionResult {
+            result: result.map_err(Into::into),
+        });
         tx_res.send(msg).unwrap();
     }
 }
 
 #[must_use]
 #[derive(Debug)]
-pub(crate) struct CommitTransactionResult {
-    pub(crate) result: Result<Result<(), Neo4jError>, TestKitError>,
+pub(super) struct CommitTransactionResult {
+    pub(super) result: Result<(), TestKitError>,
 }
 
 impl From<CommitTransactionResult> for CommandResult {
@@ -1151,8 +1724,8 @@ impl From<CommitTransactionResult> for CommandResult {
 }
 
 #[derive(Debug)]
-pub(crate) struct RollbackTransaction {
-    pub(crate) transaction_id: BackendId,
+pub(super) struct RollbackTransaction {
+    pub(super) transaction_id: BackendId,
 }
 
 impl From<RollbackTransaction> for Command {
@@ -1185,8 +1758,8 @@ impl RollbackTransaction {
 
 #[must_use]
 #[derive(Debug)]
-pub(crate) struct RollbackTransactionResult {
-    pub(crate) result: Result<Result<(), Neo4jError>, TestKitError>,
+pub(super) struct RollbackTransactionResult {
+    pub(super) result: Result<Result<(), Neo4jError>, TestKitError>,
 }
 
 impl From<RollbackTransactionResult> for CommandResult {
@@ -1196,8 +1769,8 @@ impl From<RollbackTransactionResult> for CommandResult {
 }
 
 #[derive(Debug)]
-pub(crate) struct CloseTransaction {
-    pub(crate) transaction_id: BackendId,
+pub(super) struct CloseTransaction {
+    pub(super) transaction_id: BackendId,
 }
 
 impl From<CloseTransaction> for Command {
@@ -1228,8 +1801,8 @@ impl CloseTransaction {
 
 #[must_use]
 #[derive(Debug)]
-pub(crate) struct CloseTransactionResult {
-    pub(crate) result: Result<Result<(), Neo4jError>, TestKitError>,
+pub(super) struct CloseTransactionResult {
+    pub(super) result: Result<Result<(), Neo4jError>, TestKitError>,
 }
 
 impl From<CloseTransactionResult> for CommandResult {
@@ -1239,8 +1812,8 @@ impl From<CloseTransactionResult> for CommandResult {
 }
 
 #[derive(Debug)]
-pub(crate) struct ResultNext {
-    pub(crate) result_id: BackendId,
+pub(super) struct ResultNext {
+    pub(super) result_id: BackendId,
 }
 
 impl From<ResultNext> for Command {
@@ -1251,8 +1824,8 @@ impl From<ResultNext> for Command {
 
 #[must_use]
 #[derive(Debug)]
-pub(crate) struct ResultNextResult {
-    pub(crate) result: Result<Option<Result<Record, Arc<Neo4jError>>>, TestKitError>,
+pub(super) struct ResultNextResult {
+    pub(super) result: Result<Option<Record>, TestKitError>,
 }
 
 impl From<ResultNextResult> for CommandResult {
@@ -1262,8 +1835,8 @@ impl From<ResultNextResult> for CommandResult {
 }
 
 #[derive(Debug)]
-pub(crate) struct ResultSingle {
-    pub(crate) result_id: BackendId,
+pub(super) struct ResultSingle {
+    pub(super) result_id: BackendId,
 }
 
 impl From<ResultSingle> for Command {
@@ -1274,8 +1847,8 @@ impl From<ResultSingle> for Command {
 
 #[must_use]
 #[derive(Debug)]
-pub(crate) struct ResultSingleResult {
-    pub(crate) result: Result<Result<Record, Arc<Neo4jError>>, TestKitError>,
+pub(super) struct ResultSingleResult {
+    pub(super) result: Result<Record, TestKitError>,
 }
 
 impl From<ResultSingleResult> for CommandResult {
@@ -1285,8 +1858,8 @@ impl From<ResultSingleResult> for CommandResult {
 }
 
 #[derive(Debug)]
-pub(crate) struct ResultConsume {
-    pub(crate) result_id: BackendId,
+pub(super) struct ResultConsume {
+    pub(super) result_id: BackendId,
 }
 
 impl From<ResultConsume> for Command {
@@ -1297,15 +1870,15 @@ impl From<ResultConsume> for Command {
 
 #[must_use]
 #[derive(Debug)]
-pub(crate) struct ResultConsumeResult {
-    pub(crate) result: Result<Result<SummaryWithQuery, Arc<Neo4jError>>, TestKitError>,
+pub(super) struct ResultConsumeResult {
+    pub(super) result: Result<SummaryWithQuery, TestKitError>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SummaryWithQuery {
-    pub(crate) summary: Arc<Summary>,
-    pub(crate) query: Arc<String>,
-    pub(crate) parameters: Arc<Option<HashMap<String, ValueSend>>>,
+pub(super) struct SummaryWithQuery {
+    pub(super) summary: Arc<Summary>,
+    pub(super) query: Arc<String>,
+    pub(super) parameters: Arc<Option<HashMap<String, ValueSend>>>,
 }
 
 impl From<ResultConsumeResult> for CommandResult {
@@ -1315,8 +1888,8 @@ impl From<ResultConsumeResult> for CommandResult {
 }
 
 #[derive(Debug)]
-pub(crate) struct LastBookmarks {
-    pub(crate) session_id: BackendId,
+pub(super) struct LastBookmarks {
+    pub(super) session_id: BackendId,
 }
 
 impl From<LastBookmarks> for Command {
@@ -1344,8 +1917,8 @@ impl LastBookmarks {
 
 #[must_use]
 #[derive(Debug)]
-pub(crate) struct LastBookmarksResult {
-    pub(crate) result: Result<Bookmarks, TestKitError>,
+pub(super) struct LastBookmarksResult {
+    pub(super) result: Result<Bookmarks, TestKitError>,
 }
 
 impl From<LastBookmarksResult> for CommandResult {
@@ -1356,8 +1929,8 @@ impl From<LastBookmarksResult> for CommandResult {
 
 #[must_use]
 #[derive(Debug)]
-pub(crate) struct CloseResult {
-    pub(crate) result: Result<(), TestKitError>,
+pub(super) struct CloseResult {
+    pub(super) result: Result<(), TestKitError>,
 }
 
 impl From<CloseResult> for CommandResult {
@@ -1366,4 +1939,4 @@ impl From<CloseResult> for CommandResult {
     }
 }
 
-pub(crate) type RecordKeys = Vec<Arc<String>>;
+pub(super) type RecordKeys = Vec<Arc<String>>;

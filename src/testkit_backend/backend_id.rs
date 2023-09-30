@@ -23,7 +23,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use snowflaked::Generator as SnowflakeGenerator;
 
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-pub(crate) struct BackendId(u64);
+pub(super) struct BackendId(u64);
 
 impl Display for BackendId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -97,18 +97,18 @@ impl<'de> Visitor<'de> for BackendIdVisitor {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Generator {
+pub(super) struct Generator {
     generator: Arc<Mutex<SnowflakeGenerator>>,
 }
 
 impl Generator {
-    pub(crate) fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             generator: Arc::new(Mutex::new(SnowflakeGenerator::new(0))),
         }
     }
 
-    pub(crate) fn next_id(&self) -> BackendId {
+    pub(super) fn next_id(&self) -> BackendId {
         let mut generator = self.generator.lock().unwrap();
         BackendId(generator.generate())
     }

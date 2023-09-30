@@ -83,19 +83,35 @@ impl<'driver> RecordStream<'driver> {
             Ok(())
         });
 
-        assert!(!self.connection.borrow_mut().has_buffered_message());
-        assert!(!self.connection.borrow_mut().expects_reply());
-
-        let mut res = self.connection.borrow_mut().run(parameters, callbacks);
-        res = res.and_then(|_| self.connection.borrow_mut().write_one(None));
-        if let Err(e) = res.and_then(|_| self.pull(false)) {
-            let mut listener = self.listener.borrow_mut();
-            listener.state = RecordListenerState::Done;
-            return Err(e);
+        if self.auto_commit {
+            assert!(!self.connection.borrow_mut().has_buffered_message());
+            assert!(!self.connection.borrow_mut().expects_reply());
         }
 
-        let res = self.connection.borrow_mut().write_all(None);
-        if let Err(e) = res.and_then(|_| self.connection.borrow_mut().read_one(None)) {
+        let mut res = self.connection.borrow_mut().run(parameters, callbacks);
+        if self.auto_commit {
+            res = res.and_then(|_| self.connection.borrow_mut().write_one(None));
+            res = match res.and_then(|_| self.pull(true)) {
+                Err(e) => {
+                    let mut listener = self.listener.borrow_mut();
+                    listener.state = RecordListenerState::Done;
+                    return Err(e);
+                }
+                Ok(res) => Ok(res),
+            }
+        } else {
+            res = self.pull(true);
+        }
+
+        if let Err(e) = res.and_then(|_| {
+            // read until only response(s) to PULL is/are left
+            let mut connection = self.connection.borrow_mut();
+            let mut res = Ok(());
+            while res.is_ok() && connection.expected_reply_len() > 1 {
+                res = connection.read_one(None);
+            }
+            res
+        }) {
             let mut listener = self.listener.borrow_mut();
             listener.state = RecordListenerState::Done;
             return Err(self.failed_commit(e));
@@ -202,8 +218,6 @@ impl<'driver> RecordStream<'driver> {
             .pull(self.fetch_size, self.qid(), callbacks)?;
         if flush {
             self.connection.borrow_mut().write_all(None)?;
-            let res = self.connection.borrow_mut().read_all(None);
-            self.wrap_commit(res)?;
         }
         Ok(())
     }
@@ -215,8 +229,6 @@ impl<'driver> RecordStream<'driver> {
             .discard(-1, self.qid(), callbacks)?;
         if flush {
             self.connection.borrow_mut().write_all(None)?;
-            let res = self.connection.borrow_mut().read_all(None);
-            self.wrap_commit(res)?;
         }
         Ok(())
     }
@@ -296,7 +308,22 @@ impl<'driver> Iterator for RecordStream<'driver> {
             listener.buffer.is_empty() && listener.state.is_discarding()
         }
 
+        if AtomicRefCell::borrow(&*self.listener).state.is_done() {
+            return None;
+        }
+
         loop {
+            if matches!(
+                AtomicRefCell::borrow(&*self.listener).state,
+                RecordListenerState::Streaming | RecordListenerState::Discarding
+            ) && RefCell::borrow(&self.connection).expects_reply()
+            {
+                if let Err(err) = self.connection.borrow_mut().read_one(None) {
+                    self.listener
+                        .borrow_mut()
+                        .set_error(self.failed_commit(err));
+                }
+            }
             if let Some(record) = self.listener.borrow_mut().buffer.pop_front() {
                 return Some(Ok(record));
             }
@@ -346,6 +373,11 @@ impl<'driver> Iterator for RecordStream<'driver> {
                     mem::swap(&mut listener.state, &mut state);
                     return Some(Err(Neo4jError::protocol_error("record stream was ignored")));
                 }
+                RecordListenerState::Success => {
+                    let mut state = RecordListenerState::Done;
+                    mem::swap(&mut listener.state, &mut state);
+                    return None;
+                }
                 RecordListenerState::Done => return None,
                 _ => {}
             }
@@ -363,6 +395,7 @@ enum RecordListenerState {
     /// another result stream of the same transaction has failed
     ForeignError(Arc<ServerError>),
     Ignored,
+    Success,
     Done,
 }
 
@@ -374,6 +407,7 @@ impl RecordListenerState {
         [ is_error ]          [ Error(_) ];
         [ is_foreign_error ]  [ ForeignError(_) ];
         [ is_ignored ]        [ Ignored ];
+        [ is_success ]        [ Success ];
         [ is_done ]           [ Done ];
     )]
     pub fn fn_name(&self) -> bool {
@@ -412,15 +446,21 @@ impl RecordListener {
         }
         if let Some(qid) = meta.remove("qid") {
             let ValueReceive::Integer(qid) = qid else {
-                return Err(Neo4jError::protocol_error("SUCCESS after RUN 'qid' was not an integer"))
+                return Err(Neo4jError::protocol_error(
+                    "SUCCESS after RUN 'qid' was not an integer",
+                ));
             };
             self.qid = Some(qid);
         }
         let Some(fields) = meta.remove("fields") else {
-            return Err(Neo4jError::protocol_error("SUCCESS after RUN did not contain 'fields'"));
+            return Err(Neo4jError::protocol_error(
+                "SUCCESS after RUN did not contain 'fields'",
+            ));
         };
         let ValueReceive::List(fields) = fields else {
-            return Err(Neo4jError::protocol_error("SUCCESS after RUN 'fields' was not a list"));
+            return Err(Neo4jError::protocol_error(
+                "SUCCESS after RUN 'fields' was not a list",
+            ));
         };
         let fields = fields
             .into_iter()
@@ -473,7 +513,7 @@ impl RecordListener {
 
     fn pull_success_cb(&mut self, mut meta: BoltMeta) -> Result<()> {
         let Some(ValueReceive::Boolean(true)) = meta.remove("has_more") else {
-            self.state = RecordListenerState::Done;
+            self.state = RecordListenerState::Success;
             if let Some(ValueReceive::String(bms)) = meta.remove("bookmark") {
                 self.bookmark = Some(bms);
             };

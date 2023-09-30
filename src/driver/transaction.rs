@@ -17,8 +17,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::rc::Rc;
+use std::result;
 use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
@@ -26,8 +27,8 @@ use atomic_refcell::AtomicRefCell;
 use super::io::bolt::message_parameters::RunParameters;
 use super::io::bolt::ResponseCallbacks;
 use super::io::PooledBolt;
-use super::record_stream::RecordStream;
-use super::record_stream::SharedErrorPropagator;
+use super::record_stream::{GetSingleRecordError, RecordStream, SharedErrorPropagator};
+use super::Record;
 use crate::error::ServerError;
 use crate::summary::Summary;
 use crate::{Neo4jError, Result, ValueReceive, ValueSend};
@@ -85,20 +86,6 @@ pub struct TransactionRecordStream<'driver, 'tx, 'inner_tx>(
     &'tx Transaction<'driver, 'inner_tx>,
 );
 
-impl<'driver, 'tx, 'inner_tx> Deref for TransactionRecordStream<'driver, 'tx, 'inner_tx> {
-    type Target = RecordStream<'driver>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'driver, 'tx, 'inner_tx> DerefMut for TransactionRecordStream<'driver, 'tx, 'inner_tx> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 impl<'driver, 'tx, 'inner_tx> Drop for TransactionRecordStream<'driver, 'tx, 'inner_tx> {
     fn drop(&mut self) {
         if let Err(err) = self.0.consume() {
@@ -113,6 +100,22 @@ impl<'driver, 'tx, 'inner_tx> TransactionRecordStream<'driver, 'tx, 'inner_tx> {
     /// see `RecordStream::consume` (except that this consumes `self`)
     pub fn consume(mut self) -> Result<Option<Summary>> {
         self.0.consume()
+    }
+    /// see `RecordStream::keys`
+    pub fn keys(&self) -> Vec<Arc<String>> {
+        self.0.keys()
+    }
+    /// see `RecordStream::single`
+    pub fn single(&mut self) -> result::Result<Result<Record>, GetSingleRecordError> {
+        self.0.single()
+    }
+}
+
+impl<'driver, 'tx, 'inner_tx> Iterator for TransactionRecordStream<'driver, 'tx, 'inner_tx> {
+    type Item = Result<Record>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
     }
 }
 

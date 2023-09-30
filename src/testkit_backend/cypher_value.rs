@@ -31,7 +31,7 @@ use crate::{ValueReceive, ValueSend};
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "name", content = "data", deny_unknown_fields)]
-pub(crate) enum CypherValue {
+pub(super) enum CypherValue {
     CypherNull {
         #[serde(skip_serializing_if = "Option::is_none")]
         value: Option<()>,
@@ -110,13 +110,13 @@ pub(crate) enum CypherValue {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "name", content = "data", deny_unknown_fields)]
-pub(crate) enum NodeTagged {
+pub(super) enum NodeTagged {
     Node(Node),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub(crate) struct Node {
+pub(super) struct Node {
     id: Box<CypherValue>,
     labels: Box<CypherValue>,
     props: Box<CypherValue>,
@@ -125,13 +125,13 @@ pub(crate) struct Node {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "name", content = "data", deny_unknown_fields)]
-pub(crate) enum RelationshipTagged {
+pub(super) enum RelationshipTagged {
     CypherRelationship(Relationship),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub(crate) struct Relationship {
+pub(super) struct Relationship {
     id: Box<CypherValue>,
     start_node_id: Box<CypherValue>,
     end_node_id: Box<CypherValue>,
@@ -145,7 +145,7 @@ pub(crate) struct Relationship {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "lowercase")]
-pub(crate) enum PointSystem {
+pub(super) enum PointSystem {
     Cartesian,
     WGS84,
 }
@@ -294,7 +294,7 @@ impl<'de> Visitor<'de> for CypherBytesVisitor {
 
 #[derive(Error, Debug)]
 #[error("{reason}")]
-pub(crate) struct NotADriverValueError {
+pub(super) struct NotADriverValueError {
     reason: String,
 }
 
@@ -415,7 +415,7 @@ impl From<ValueSend> for CypherValue {
 
 #[derive(Error, Debug)]
 #[error("Record contains a broken value: {reason}")]
-pub(crate) struct BrokenValueError {
+pub(super) struct BrokenValueError {
     reason: String,
 }
 

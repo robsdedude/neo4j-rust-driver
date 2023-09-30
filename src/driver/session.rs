@@ -14,6 +14,7 @@
 
 pub(crate) mod bookmarks;
 pub(crate) mod config;
+pub(crate) mod retry;
 
 use log::{debug, info};
 use std::borrow::Borrow;
@@ -26,16 +27,17 @@ use std::result;
 
 use thiserror::Error;
 
+use super::io::bolt::message_parameters::RunParameters;
+use super::io::PooledBolt;
 use super::io::{AcquireConfig, Pool, UpdateRtArgs};
 use super::record_stream::RecordStream;
 use super::transaction::Transaction;
-use crate::driver::io::bolt::message_parameters::RunParameters;
-use crate::driver::io::PooledBolt;
-use crate::driver::{EagerResult, ReducedDriverConfig, RoutingControl};
+use super::{EagerResult, ReducedDriverConfig, RoutingControl};
 use crate::transaction::InnerTransaction;
 use crate::{Result, ValueSend};
 use bookmarks::Bookmarks;
 pub use config::SessionConfig;
+use retry::RetryPolicy;
 
 #[derive(Debug)]
 pub struct Session<'driver, C> {
@@ -137,7 +139,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         FTx: for<'tx> FnOnce(Transaction<'driver, 'tx>) -> Result<R>,
     >(
         &'session mut self,
-        builder: TransactionBuilder<'driver, 'session, C, KM, M>,
+        builder: &TransactionBuilder<'driver, 'session, C, KM, M>,
         receiver: FTx,
     ) -> Result<R> {
         let connection = self.acquire_connection(builder.mode)?;
@@ -590,9 +592,18 @@ impl<
         self
     }
 
-    pub fn run<R, FTx: FnOnce(Transaction) -> Result<R>>(mut self, receiver: FTx) -> Result<R> {
+    pub fn run<R>(mut self, receiver: impl FnOnce(Transaction) -> Result<R>) -> Result<R> {
         let session = self.session.take().unwrap();
-        session.transaction_run(self, receiver)
+        session.transaction_run(&self, receiver)
+    }
+
+    pub fn run_with_retry<R, P: RetryPolicy>(
+        mut self,
+        retry_policy: P,
+        mut receiver: impl FnMut(Transaction) -> Result<R>,
+    ) -> result::Result<R, P::Error> {
+        let session = self.session.take().unwrap();
+        retry_policy.execute(|| session.transaction_run(&self, &mut receiver))
     }
 }
 

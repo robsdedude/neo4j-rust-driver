@@ -27,12 +27,12 @@ mod requests;
 mod responses;
 mod session_holder;
 
-use crate::testkit_backend::responses::Response;
-pub(crate) use backend_id::BackendId;
+use backend_id::BackendId;
 use backend_id::Generator;
 use driver_holder::DriverHolder;
 use errors::TestKitError;
 use requests::Request;
+use responses::Response;
 
 const ADDRESS: &str = "0.0.0.0:9876";
 
@@ -169,7 +169,7 @@ impl Backend {
         Ok(())
     }
 
-    pub(crate) fn send<S: Serialize>(&mut self, message: &S) -> TestKitResult {
+    fn send<S: Serialize>(&mut self, message: &S) -> TestKitResult {
         let data = TestKitError::wrap_fatal(serde_json::to_string(message))?;
         debug!(">>> {data}");
         TestKitError::wrap_fatal(self.writer.write_all(b"#response begin\n"))?;
@@ -179,12 +179,20 @@ impl Backend {
         Ok(())
     }
 
-    pub(crate) fn send_err(&mut self, err: TestKitError) -> TestKitResult {
+    fn send_err(&mut self, err: TestKitError) -> TestKitResult {
         let response = Response::try_from_testkit_error(err, &self.id_generator)?;
         self.send(&response)
     }
 
-    pub(crate) fn next_id(&mut self) -> BackendId {
+    fn next_id(&mut self) -> BackendId {
         self.id_generator.next_id()
+    }
+}
+
+impl Drop for Backend {
+    fn drop(&mut self) {
+        for (_, driver) in self.drivers.drain() {
+            driver.map(|mut d| _ = d.close());
+        }
     }
 }

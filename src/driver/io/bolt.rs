@@ -281,16 +281,24 @@ impl<R: Read, W: Write> Bolt<R, W> {
     }
 
     pub(crate) fn write_all(&mut self, deadline: Option<Instant>) -> Result<()> {
-        self.data.write_all(deadline)
+        self.data.write_all(deadline)?;
+        self.data.flush(deadline)
     }
     pub(crate) fn write_one(&mut self, deadline: Option<Instant>) -> Result<()> {
-        self.data.write_one(deadline)
+        self.data.write_one(deadline)?;
+        self.data.flush(deadline)
     }
     pub(crate) fn has_buffered_message(&self) -> bool {
         self.data.has_buffered_message()
     }
+    pub(crate) fn buffered_messages_len(&self) -> usize {
+        self.data.buffered_messages_len()
+    }
     pub(crate) fn expects_reply(&self) -> bool {
         self.data.expects_reply()
+    }
+    pub(crate) fn expected_reply_len(&self) -> usize {
+        self.data.expected_reply_len()
     }
     pub(crate) fn needs_reset(&self) -> bool {
         self.data.needs_reset()
@@ -526,12 +534,22 @@ impl<R: Read, W: Write> BoltData<R, W> {
                     return res;
                 }
             }
-            let res = Neo4jError::wrap_write(writer.flush());
-            let res = writer.rewrite_error(res);
-            if let Err(err) = &res {
-                self.handle_write_error(err);
-                return res;
-            }
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self, deadline: Option<Instant>) -> Result<()> {
+        let mut writer = DeadlineIO::new(
+            &mut self.reader,
+            &mut self.writer,
+            deadline,
+            self.socket.as_ref(),
+        );
+        let res = Neo4jError::wrap_write(writer.flush());
+        let res = writer.rewrite_error(res);
+        if let Err(err) = &res {
+            self.handle_write_error(err);
+            return res;
         }
         Ok(())
     }
@@ -545,9 +563,15 @@ impl<R: Read, W: Write> BoltData<R, W> {
     fn has_buffered_message(&self) -> bool {
         !self.message_buff.is_empty()
     }
+    fn buffered_messages_len(&self) -> usize {
+        self.message_buff.len()
+    }
 
     fn expects_reply(&self) -> bool {
         !self.responses.is_empty()
+    }
+    fn expected_reply_len(&self) -> usize {
+        self.responses.len()
     }
 
     fn needs_reset(&self) -> bool {

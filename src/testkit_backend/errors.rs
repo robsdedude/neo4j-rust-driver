@@ -14,21 +14,23 @@
 
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
 
 use crate::driver::ConfigureFetchSizeError;
+use crate::retry::RetryableError;
 use crate::session::ConfigureTimeoutError;
 use crate::Neo4jError;
 
 use super::cypher_value::{BrokenValueError, NotADriverValueError};
+use super::{BackendId, Generator};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)] // names are reflecting TestKit protocol
-pub(crate) enum TestKitError {
+pub(super) enum TestKitError {
     DriverError {
         error_type: String,
         msg: String,
         code: Option<String>,
+        id: Option<BackendId>,
     },
     FrontendError {
         msg: String,
@@ -65,69 +67,31 @@ impl From<Neo4jError> for TestKitError {
                     Some(source) => format!("{}: {}", message, source),
                 },
                 code: None,
+                id: None,
             },
             Neo4jError::InvalidConfig { message } => TestKitError::DriverError {
                 error_type: String::from("ConfigError"),
                 msg: message,
                 code: None,
+                id: None,
             },
             Neo4jError::ServerError { error } => TestKitError::DriverError {
                 error_type: String::from("ServerError"),
                 msg: String::from(error.message()),
                 code: Some(String::from(error.code())),
+                id: None,
             },
             Neo4jError::Timeout { message } => TestKitError::DriverError {
                 error_type: String::from("TimeoutError"),
                 msg: message,
                 code: None,
+                id: None,
             },
             Neo4jError::ProtocolError { message } => TestKitError::DriverError {
                 error_type: String::from("ProtocolError"),
                 msg: message,
                 code: None,
-            },
-        }
-    }
-}
-
-impl From<Arc<Neo4jError>> for TestKitError {
-    fn from(err: Arc<Neo4jError>) -> Self {
-        match &*err {
-            Neo4jError::Disconnect {
-                message,
-                source,
-                during_commit,
-            } => TestKitError::DriverError {
-                error_type: String::from(if *during_commit {
-                    "IncompleteCommitError"
-                } else {
-                    "DriverError"
-                }),
-                msg: match source {
-                    None => message.clone(),
-                    Some(source) => format!("{}: {}", message, source),
-                },
-                code: None,
-            },
-            Neo4jError::InvalidConfig { message } => TestKitError::DriverError {
-                error_type: String::from("ConfigError"),
-                msg: message.clone(),
-                code: None,
-            },
-            Neo4jError::ServerError { error } => TestKitError::DriverError {
-                error_type: String::from("ServerError"),
-                msg: String::from(error.message()),
-                code: Some(String::from(error.code())),
-            },
-            Neo4jError::Timeout { message } => TestKitError::DriverError {
-                error_type: String::from("TimeoutError"),
-                msg: message.clone(),
-                code: None,
-            },
-            Neo4jError::ProtocolError { message } => TestKitError::DriverError {
-                error_type: String::from("ProtocolError"),
-                msg: message.clone(),
-                code: None,
+                id: None,
             },
         }
     }
@@ -158,6 +122,7 @@ impl From<BrokenValueError> for TestKitError {
             error_type: String::from("BrokenValueError"),
             msg: format!("{v}"),
             code: None,
+            id: None,
         }
     }
 }
@@ -168,6 +133,7 @@ impl<Builder> From<ConfigureFetchSizeError<Builder>> for TestKitError {
             error_type: String::from("ConfigureFetchSizeError"),
             msg: format!("{e}"),
             code: None,
+            id: None,
         }
     }
 }
@@ -178,6 +144,18 @@ impl<Builder> From<ConfigureTimeoutError<Builder>> for TestKitError {
             error_type: String::from("ConfigureTimeoutError"),
             msg: format!("{e}"),
             code: None,
+            id: None,
+        }
+    }
+}
+
+impl From<RetryableError> for TestKitError {
+    fn from(v: RetryableError) -> Self {
+        TestKitError::DriverError {
+            error_type: String::from("RetryableError"),
+            msg: format!("{v}"),
+            code: None,
+            id: None,
         }
     }
 }
@@ -185,7 +163,38 @@ impl<Builder> From<ConfigureTimeoutError<Builder>> for TestKitError {
 impl Error for TestKitError {}
 
 impl TestKitError {
-    pub(crate) fn wrap_fatal<T, E: Error + Debug>(res: Result<T, E>) -> Result<T, Self> {
+    pub(super) fn set_id_gen(&mut self, generator: &Generator) {
+        match self {
+            TestKitError::DriverError { id, .. } => {
+                *id = Some(generator.next_id());
+            }
+            TestKitError::FatalError { .. }
+            | TestKitError::FrontendError { .. }
+            | TestKitError::BackendError { .. } => {}
+        }
+    }
+
+    pub(super) fn set_id(&mut self, new_id: BackendId) {
+        match self {
+            TestKitError::DriverError { id, .. } => {
+                *id = Some(new_id);
+            }
+            TestKitError::FatalError { .. }
+            | TestKitError::FrontendError { .. }
+            | TestKitError::BackendError { .. } => {}
+        }
+    }
+
+    pub(super) fn get_id(&self) -> Option<BackendId> {
+        match self {
+            TestKitError::DriverError { id, .. } => *id,
+            TestKitError::FatalError { .. }
+            | TestKitError::FrontendError { .. }
+            | TestKitError::BackendError { .. } => None,
+        }
+    }
+
+    pub(super) fn wrap_fatal<T, E: Error + Debug>(res: Result<T, E>) -> Result<T, Self> {
         match res {
             Ok(ok) => Ok(ok),
             Err(err) => Err(Self::FatalError {
@@ -194,9 +203,55 @@ impl TestKitError {
         }
     }
 
-    pub(crate) fn backend_err<S: Into<String>>(message: S) -> Self {
+    pub(super) fn backend_err<S: Into<String>>(message: S) -> Self {
         Self::BackendError {
             msg: message.into(),
+        }
+    }
+
+    pub(super) fn clone_neo4j_error(e: &Neo4jError) -> Self {
+        match e {
+            Neo4jError::Disconnect {
+                message,
+                source,
+                during_commit,
+            } => TestKitError::DriverError {
+                error_type: String::from(if *during_commit {
+                    "IncompleteCommitError"
+                } else {
+                    "DriverError"
+                }),
+                msg: match source {
+                    None => message.clone(),
+                    Some(source) => format!("{}: {}", message, source),
+                },
+                code: None,
+                id: None,
+            },
+            Neo4jError::InvalidConfig { message } => TestKitError::DriverError {
+                error_type: String::from("ConfigError"),
+                msg: message.clone(),
+                code: None,
+                id: None,
+            },
+            Neo4jError::ServerError { error } => TestKitError::DriverError {
+                error_type: String::from("ServerError"),
+                msg: String::from(error.message()),
+                code: Some(String::from(error.code())),
+                id: None,
+            },
+            Neo4jError::Timeout { message } => TestKitError::DriverError {
+                error_type: String::from("TimeoutError"),
+                msg: message.clone(),
+                code: None,
+                id: None,
+            },
+            Neo4jError::ProtocolError { message } => TestKitError::DriverError {
+                error_type: String::from("ProtocolError"),
+                msg: message.clone(),
+                code: None,
+                id: None,
+            },
         }
     }
 }

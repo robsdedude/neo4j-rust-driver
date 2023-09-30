@@ -41,6 +41,9 @@ pub mod spatial {
 pub mod session {
     pub use super::driver::session::*;
 }
+pub mod retry {
+    pub use super::driver::session::retry::*;
+}
 pub mod transaction {
     pub use super::driver::transaction::*;
 }
