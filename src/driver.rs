@@ -36,7 +36,17 @@ pub struct Driver {
 }
 
 impl Driver {
-    pub fn new(connection_config: ConnectionConfig, config: DriverConfig) -> Self {
+    pub fn new(mut connection_config: ConnectionConfig, config: DriverConfig) -> Self {
+        if let Some(routing_context) = &mut connection_config.routing_context {
+            let before = routing_context.insert(
+                String::from("address"),
+                connection_config.address.to_string().into(),
+            );
+            assert!(
+                before.is_none(),
+                "address was already set in routing context"
+            );
+        }
         let pool_config = PoolConfig {
             routing_context: connection_config.routing_context,
             user_agent: config.user_agent,

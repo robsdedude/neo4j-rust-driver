@@ -495,14 +495,7 @@ impl<R: Read, W: Write> BoltData<R, W> {
         translator: &T,
         routing_context: &HashMap<String, ValueSend>,
     ) -> result::Result<(), S::Error> {
-        serializer.write_dict_header(u64::from_usize(
-            routing_context
-                .len()
-                .checked_add(1)
-                .expect("user cannot create a usize::MAX large map"),
-        ))?;
-        serializer.write_string("address")?;
-        serializer.write_string(&self.address_str)?;
+        serializer.write_dict_header(u64::from_usize(routing_context.len()))?;
         for (k, v) in routing_context {
             serializer.write_string(k.borrow())?;
             self.serialize_value(serializer, translator, v)?;

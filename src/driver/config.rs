@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::Path;
-use std::result;
+use std::result::Result as StdResult;
 use std::time::Duration;
 
 use openssl::error::ErrorStack;
@@ -104,7 +104,7 @@ impl DriverConfig {
     pub fn with_fetch_size(
         mut self,
         fetch_size: u64,
-    ) -> result::Result<Self, ConfigureFetchSizeError<Self>> {
+    ) -> StdResult<Self, ConfigureFetchSizeError<Self>> {
         match i64::try_from(fetch_size) {
             Ok(fetch_size) => {
                 self.fetch_size = fetch_size;
@@ -178,14 +178,23 @@ impl ConnectionConfig {
         self
     }
 
-    pub fn with_routing_context(mut self, routing_context: HashMap<String, String>) -> Self {
+    pub fn with_routing_context(
+        mut self,
+        routing_context: HashMap<String, String>,
+    ) -> StdResult<Self, InvalidRoutingContextError<Self>> {
+        if routing_context.contains_key("address") {
+            return Err(InvalidRoutingContextError {
+                builder: self,
+                it: "cannot contain key 'address'",
+            });
+        }
         self.routing_context = Some(
             routing_context
                 .into_iter()
                 .map(|(k, v)| (k, v.into()))
                 .collect(),
         );
-        self
+        Ok(self)
     }
 
     pub fn with_encryption_trust_system_cas(mut self) -> Result<Self> {
@@ -314,6 +323,14 @@ impl ConnectionConfig {
             }
             let value = elements.pop().unwrap();
             let key = elements.pop().unwrap();
+            if key == "address" {
+                return Err(Neo4jError::InvalidConfig {
+                    message: format!(
+                        "routing context cannot contain key 'address', found: {}",
+                        value
+                    ),
+                });
+            }
             result.insert(key.into(), value.into());
         }
         Ok(result)
@@ -658,4 +675,11 @@ mod tests {
 #[error("fetch size must be <= i64::MAX")]
 pub struct ConfigureFetchSizeError<Builder> {
     pub builder: Builder,
+}
+
+#[derive(Debug, Error)]
+#[error("routing context invalid because it {it}")]
+pub struct InvalidRoutingContextError<Builder> {
+    pub builder: Builder,
+    it: &'static str,
 }

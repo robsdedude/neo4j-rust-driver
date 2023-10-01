@@ -40,7 +40,7 @@ pub use config::SessionConfig;
 use retry::RetryPolicy;
 
 #[derive(Debug)]
-pub struct Session<'driver, C> {
+pub struct Session<'driver, C: AsRef<SessionConfig>> {
     config: C,
     pool: &'driver Pool,
     driver_config: &'driver ReducedDriverConfig,
@@ -232,7 +232,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
     }
 }
 
-pub struct AutoCommitBuilder<'driver, 'session, C, Q, KP, P, KM, M, FRes> {
+pub struct AutoCommitBuilder<'driver, 'session, C: AsRef<SessionConfig>, Q, KP, P, KM, M, FRes> {
     session: Option<&'session mut Session<'driver, C>>,
     query: Q,
     _kp: PhantomData<KP>,
@@ -475,7 +475,7 @@ impl<
     }
 }
 
-impl<'driver, 'session, C, Q: Debug, KP, P: Debug, KM, M: Debug, FRes> Debug
+impl<'driver, 'session, C: AsRef<SessionConfig>, Q: Debug, KP, P: Debug, KM, M: Debug, FRes> Debug
     for AutoCommitBuilder<'driver, 'session, C, Q, KP, P, KM, M, FRes>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -497,7 +497,7 @@ impl<'driver, 'session, C, Q: Debug, KP, P: Debug, KM, M: Debug, FRes> Debug
     }
 }
 
-pub struct TransactionBuilder<'driver, 'session, C, KM, M> {
+pub struct TransactionBuilder<'driver, 'session, C: AsRef<SessionConfig>, KM, M> {
     session: Option<&'session mut Session<'driver, C>>,
     _km: PhantomData<KM>,
     meta: M,
