@@ -193,6 +193,10 @@ impl RoutingTable {
             .into_iter()
             .filter(|a| **a != *addr)
             .collect();
+        self.deactivate_writer(addr);
+    }
+
+    pub(crate) fn deactivate_writer(&mut self, addr: &Address) {
         self.writers = mem::take(&mut self.writers)
             .into_iter()
             .filter(|a| **a != *addr)

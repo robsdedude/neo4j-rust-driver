@@ -116,6 +116,7 @@ macro_rules! socket_debug {
         );
     };
 }
+use crate::error::ServerError;
 pub(crate) use socket_debug;
 
 fn dbg_extra(port: Option<u16>, bolt_id: Option<&str>) -> String {
@@ -127,6 +128,8 @@ fn dbg_extra(port: Option<u16>, bolt_id: Option<&str>) -> String {
 }
 
 pub(crate) type TcpBolt = Bolt<BufReader<TcpStream>, BufWriter<TcpStream>>;
+
+pub(crate) type OnServerErrorCb<'a, 'b> = Option<&'a mut (dyn FnMut(&ServerError) + 'b)>;
 
 #[derive(Debug)]
 pub(crate) struct Bolt<R: Read, W: Write> {
@@ -245,14 +248,23 @@ impl<R: Read, W: Write> Bolt<R, W> {
         )
     }
 
-    pub(crate) fn read_all(&mut self, deadline: Option<Instant>) -> Result<()> {
+    pub(crate) fn read_all(
+        &mut self,
+        deadline: Option<Instant>,
+        mut on_server_error: OnServerErrorCb,
+    ) -> Result<()> {
+        let on_server_error_ref = &mut on_server_error;
         while self.expects_reply() {
-            self.read_one(deadline)?
+            self.read_one(deadline, on_server_error_ref.as_deref_mut())?;
         }
         Ok(())
     }
 
-    pub(crate) fn read_one(&mut self, deadline: Option<Instant>) -> Result<()> {
+    pub(crate) fn read_one(
+        &mut self,
+        deadline: Option<Instant>,
+        on_server_error: OnServerErrorCb,
+    ) -> Result<()> {
         let mut reader = DeadlineIO::new(
             &mut self.data.reader,
             &mut self.data.writer,
@@ -265,7 +277,8 @@ impl<R: Read, W: Write> Bolt<R, W> {
         drop(dechunker);
         let message_result = reader.rewrite_error(message_result);
         let message = self.wrap_read_result(message_result)?;
-        self.protocol.handle_response(&mut self.data, message)
+        self.protocol
+            .handle_response(&mut self.data, message, on_server_error)
     }
 
     fn wrap_read_result<T>(&mut self, res: Result<T>) -> Result<T> {
@@ -368,6 +381,7 @@ trait BoltProtocol: Debug {
         &mut self,
         data: &mut BoltData<R, W>,
         message: BoltMessage<ValueReceive>,
+        on_server_error: OnServerErrorCb,
     ) -> Result<()>;
 }
 

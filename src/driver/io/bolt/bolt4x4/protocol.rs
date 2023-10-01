@@ -31,7 +31,8 @@ use super::super::packstream::{
 };
 use super::super::{
     bolt_debug_extra, dbg_extra, debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltProtocol,
-    BoltResponse, BoltStructTranslatorWithUtcPatch, ResponseCallbacks, ResponseMessage,
+    BoltResponse, BoltStructTranslatorWithUtcPatch, OnServerErrorCb, ResponseCallbacks,
+    ResponseMessage,
 };
 use crate::{Result, ValueReceive, ValueSend};
 
@@ -248,7 +249,9 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
         &mut self,
         bolt_data: &mut BoltData<R, W>,
         message: BoltMessage<ValueReceive>,
+        on_server_error: OnServerErrorCb,
     ) -> Result<()> {
-        self.bolt5x0.handle_response(bolt_data, message)
+        self.bolt5x0
+            .handle_response(bolt_data, message, on_server_error)
     }
 }

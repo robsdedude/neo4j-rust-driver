@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use log::{debug, info, warn};
 use parking_lot::{Condvar, Mutex, RwLockReadGuard};
 
-use super::bolt::{ResponseCallbacks, TcpBolt};
+use super::bolt::ResponseCallbacks;
 use crate::driver::RoutingControl;
 use crate::error::ServerError;
 use crate::sync::MostlyRLock;
@@ -46,13 +46,9 @@ pub(crate) struct PooledBolt<'pool> {
 }
 
 impl<'pool> PooledBolt<'pool> {
-    fn wrap_io(
-        &mut self,
-        io_op: fn(&mut TcpBolt, deadline: Option<Instant>) -> Result<()>,
-        deadline: Option<Instant>,
-    ) -> Result<()> {
+    fn wrap_io(&mut self, mut io_op: impl FnMut(&mut Self) -> Result<()>) -> Result<()> {
         let was_broken = self.deref().unexpectedly_closed();
-        let res = io_op(self, deadline);
+        let res = io_op(self);
         if !was_broken && self.deref().unexpectedly_closed() {
             self.pool.deactivate_server(&self.deref().address())
         }
@@ -61,22 +57,46 @@ impl<'pool> PooledBolt<'pool> {
 
     #[inline]
     pub(crate) fn read_one(&mut self, deadline: Option<Instant>) -> Result<()> {
-        self.wrap_io(TcpBolt::read_one, deadline)
+        self.wrap_io(|this| {
+            let address = this.deref().address();
+            let mut cb = |error: &ServerError| {
+                if error.invalidates_writer() {
+                    self.pool.deactivate_writer(&address)
+                }
+            };
+            this.bolt
+                .as_mut()
+                .expect("bolt option should be Some from init to drop")
+                .deref_mut()
+                .read_one(deadline, Some(&mut cb))
+        })
     }
 
     #[inline]
     pub(crate) fn read_all(&mut self, deadline: Option<Instant>) -> Result<()> {
-        self.wrap_io(TcpBolt::read_all, deadline)
+        self.wrap_io(|this| {
+            let address = this.deref().address();
+            let mut cb = |error: &ServerError| {
+                if error.invalidates_writer() {
+                    self.pool.deactivate_writer(&address)
+                }
+            };
+            this.bolt
+                .as_mut()
+                .expect("bolt option should be Some from init to drop")
+                .deref_mut()
+                .read_all(deadline, Some(&mut cb))
+        })
     }
 
     #[inline]
     pub(crate) fn write_one(&mut self, deadline: Option<Instant>) -> Result<()> {
-        self.wrap_io(TcpBolt::write_one, deadline)
+        self.wrap_io(|this| this.deref_mut().write_one(deadline))
     }
 
     #[inline]
     pub(crate) fn write_all(&mut self, deadline: Option<Instant>) -> Result<()> {
-        self.wrap_io(TcpBolt::write_all, deadline)
+        self.wrap_io(|this| this.deref_mut().write_all(deadline))
     }
 }
 
@@ -200,6 +220,12 @@ impl Pool {
     fn deactivate_server(&self, addr: &Address) {
         if let Pools::Routing(routing_pool) = &self.pools {
             routing_pool.deactivate_server(addr)
+        }
+    }
+
+    fn deactivate_writer(&self, addr: &Address) {
+        if let Pools::Routing(routing_pool) = &self.pools {
+            routing_pool.deactivate_writer(addr)
         }
     }
 }
@@ -531,27 +557,25 @@ impl RoutingPool {
             args.bookmarks.as_deref(),
             args.db.as_deref(),
             args.imp_user.as_deref(),
-            ResponseCallbacks::new()
-                .with_on_success({
-                    let rt = Arc::clone(&rt);
-                    move |meta| {
-                        let new_rt = RoutingTable::try_parse(meta);
-                        let mut res;
-                        match new_rt {
-                            Ok(new_rt) => res = Some(Ok(new_rt)),
-                            Err(e) => {
-                                warn!("failed to parse routing table: {}", e);
-                                res = Some(Err(Neo4jError::protocol_error(format!("{}", e))));
-                            }
+            ResponseCallbacks::new().with_on_success({
+                let rt = Arc::clone(&rt);
+                move |meta| {
+                    let new_rt = RoutingTable::try_parse(meta);
+                    let mut res;
+                    match new_rt {
+                        Ok(new_rt) => res = Some(Ok(new_rt)),
+                        Err(e) => {
+                            warn!("failed to parse routing table: {}", e);
+                            res = Some(Err(Neo4jError::protocol_error(format!("{}", e))));
                         }
-                        mem::swap(rt.deref().borrow_mut().deref_mut(), &mut res);
-                        Ok(())
                     }
-                })
-                .with_on_failure(|meta| Err(ServerError::from_meta(meta).into())),
+                    mem::swap(rt.deref().borrow_mut().deref_mut(), &mut res);
+                    Ok(())
+                }
+            }),
         )?;
         con.write_all(None)?;
-        con.read_all(None)?;
+        con.read_all(None, None)?;
         let rt = Arc::try_unwrap(rt).expect("read_all flushes all ResponseCallbacks");
         rt.into_inner().ok_or_else(|| {
             Neo4jError::protocol_error("server did not reply with SUCCESS to ROUTE request")
@@ -615,6 +639,19 @@ impl RoutingPool {
         debug!("deactivating address: {:?}", addr);
         rts.iter_mut().for_each(|(_, rt)| rt.deactivate(addr));
         pools.remove(addr);
+    }
+
+    fn deactivate_writer(&self, addr: &Address) {
+        drop(self.routing_tables.update(|mut rts| {
+            Self::deactivate_writer_locked(addr, &mut rts);
+            Ok(())
+        }));
+    }
+
+    fn deactivate_writer_locked(addr: &Address, rts: &mut RoutingTables) {
+        debug!("deactivating writer: {:?}", addr);
+        rts.iter_mut()
+            .for_each(|(_, rt)| rt.deactivate_writer(addr));
     }
 
     fn wrap_discovery_error<T>(res: Result<T>) -> Result<Result<T>> {

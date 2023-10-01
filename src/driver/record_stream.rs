@@ -258,11 +258,11 @@ impl<'driver> RecordStream<'driver> {
     fn failure_callbacks(&self) -> ResponseCallbacks {
         let mut callbacks = ResponseCallbacks::new();
         let listener = Arc::downgrade(&self.listener);
-        callbacks = callbacks.with_on_failure(move |meta| {
+        callbacks = callbacks.with_on_failure(move |error| {
             if let Some(listener) = listener.upgrade() {
                 return listener
                     .borrow_mut()
-                    .failure_cb(Arc::downgrade(&listener), meta);
+                    .failure_cb(Arc::downgrade(&listener), error);
             }
             Ok(())
         });
@@ -479,8 +479,7 @@ impl RecordListener {
         Ok(())
     }
 
-    fn failure_cb(&mut self, me: Weak<AtomicRefCell<Self>>, meta: BoltMeta) -> Result<()> {
-        let error = ServerError::from_meta(meta);
+    fn failure_cb(&mut self, me: Weak<AtomicRefCell<Self>>, error: ServerError) -> Result<()> {
         if let Some(error_propagator) = &self.error_propagator {
             error_propagator.borrow_mut().propagate_error(me, &error);
         }

@@ -78,7 +78,7 @@ impl InnerPool {
             self.config.routing_context.as_ref(),
         )?;
         connection.write_all(deadline)?;
-        connection.read_all(deadline)?;
+        connection.read_all(deadline, None)?;
         Ok(connection)
     }
 }
@@ -183,7 +183,7 @@ impl SimplePool {
             let _ = connection
                 .reset()
                 .and_then(|_| connection.write_all(None))
-                .and_then(|_| connection.read_all(None));
+                .and_then(|_| connection.read_all(None, None));
         }
         if !connection.closed() {
             lock.raw_pool.push_back(connection);

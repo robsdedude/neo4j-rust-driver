@@ -44,8 +44,7 @@ impl BoltResponse {
     pub(crate) fn from_message(message: ResponseMessage) -> Self {
         Self::new(
             message,
-            ResponseCallbacks::new()
-                .with_on_failure(|meta| Err(ServerError::from_meta(meta).into())),
+            ResponseCallbacks::new().with_on_failure(|error| Err(error.into())),
         )
     }
 }
@@ -56,7 +55,7 @@ pub(crate) type BoltRecordFields = Vec<ValueReceive>;
 
 pub(crate) struct ResponseCallbacks {
     on_success_cb: OptBox<dyn FnMut(BoltMeta) -> Result<()> + Send + Sync>,
-    on_failure_cb: OptBox<dyn FnMut(BoltMeta) -> Result<()> + Send + Sync>,
+    on_failure_cb: OptBox<dyn FnMut(ServerError) -> Result<()> + Send + Sync>,
     on_ignored_cb: OptBox<dyn FnMut() -> Result<()> + Send + Sync>,
     on_record_cb: OptBox<dyn FnMut(BoltRecordFields) -> Result<()> + Send + Sync>,
     on_summary_cb: OptBox<dyn FnMut() + Send + Sync>,
@@ -99,7 +98,7 @@ impl ResponseCallbacks {
         self
     }
 
-    pub(crate) fn with_on_failure<F: FnMut(BoltMeta) -> Result<()> + Send + Sync + 'static>(
+    pub(crate) fn with_on_failure<F: FnMut(ServerError) -> Result<()> + Send + Sync + 'static>(
         mut self,
         cb: F,
     ) -> Self {
@@ -144,15 +143,10 @@ impl ResponseCallbacks {
         res
     }
 
-    pub(crate) fn on_failure(&mut self, meta: ValueReceive) -> Result<()> {
-        let res = match meta {
-            ValueReceive::Map(meta) => match self.on_failure_cb.as_mut() {
-                None => Ok(()),
-                Some(cb) => cb(meta),
-            },
-            _ => Err(Neo4jError::protocol_error(
-                "onFailure meta was not a Dictionary",
-            )),
+    pub(crate) fn on_failure(&mut self, error: ServerError) -> Result<()> {
+        let res = match self.on_failure_cb.as_mut() {
+            None => Ok(()),
+            Some(cb) => cb(error),
         };
         self.on_summary();
         res

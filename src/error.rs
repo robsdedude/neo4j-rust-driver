@@ -175,6 +175,13 @@ impl Neo4jError {
             _ => false,
         }
     }
+
+    pub(crate) fn invalidates_writer(&self) -> bool {
+        match self {
+            Neo4jError::ServerError { error } => error.invalidates_writer(),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -229,12 +236,12 @@ impl ServerError {
         self.code.split('.').nth(3).unwrap_or("")
     }
 
-    fn is_retryable(&self) -> bool {
+    pub(crate) fn is_retryable(&self) -> bool {
         self.code() == "Neo.ClientError.Security.AuthorizationExpired"
             || self.classification() == "TransientError"
     }
 
-    fn fatal_during_discovery(&self) -> bool {
+    pub(crate) fn fatal_during_discovery(&self) -> bool {
         // TODO: add the other exceptions
         match self.code() {
             "Neo.ClientError.Database.DatabaseNotFound"
@@ -248,6 +255,14 @@ impl ServerError {
                     && code != "Neo.ClientError.Security.AuthorizationExpired"
             }
         }
+    }
+
+    pub(crate) fn invalidates_writer(&self) -> bool {
+        matches!(
+            self.code.as_str(),
+            "Neo.ClientError.Cluster.NotALeader"
+                | "Neo.ClientError.General.ForbiddenOnReadOnlyDatabase"
+        )
     }
 }
 

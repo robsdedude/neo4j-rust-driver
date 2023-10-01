@@ -174,7 +174,7 @@ impl<'driver> InnerTransaction<'driver> {
                     };
                     Ok(())
                 })
-                .with_on_failure(|meta| Err(ServerError::from_meta(meta).into())),
+                .with_on_failure(|error| Err(error.into())),
         )?;
         cx.write_all(None)?;
         Neo4jError::wrap_commit(cx.read_all(None))

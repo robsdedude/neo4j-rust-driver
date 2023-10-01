@@ -31,8 +31,9 @@ use super::super::packstream::{
 use super::super::{
     assert_response_field_count, bolt_debug, bolt_debug_extra, dbg_extra, debug_buf, debug_buf_end,
     debug_buf_start, BoltData, BoltProtocol, BoltResponse, BoltStructTranslator, ConnectionState,
-    ResponseCallbacks, ResponseMessage,
+    OnServerErrorCb, ResponseCallbacks, ResponseMessage,
 };
+use crate::error::ServerError;
 use crate::{Neo4jError, Result, ValueReceive, ValueSend};
 
 const SERVER_AGENT_KEY: &str = "server";
@@ -602,6 +603,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         &mut self,
         bolt_data: &mut BoltData<R, W>,
         message: BoltMessage<ValueReceive>,
+        on_server_error: OnServerErrorCb,
     ) -> Result<()> {
         let mut response = bolt_data
             .responses
@@ -638,8 +640,12 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
                 assert_response_field_count("FAILURE", &fields, 1)?;
                 let meta = fields.pop().unwrap();
                 bolt_debug!(bolt_data, "S: FAILURE {}", meta.dbg_print());
+                let error = try_parse_error(meta)?;
                 bolt_data.bolt_state.failure();
-                response.callbacks.on_failure(meta)
+                if let Some(cb) = on_server_error {
+                    cb(&error);
+                }
+                response.callbacks.on_failure(error)
             }
             BoltMessage {
                 tag: 0x71,
@@ -659,4 +665,11 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
             ))),
         }
     }
+}
+
+fn try_parse_error(meta: ValueReceive) -> Result<ServerError> {
+    let meta = meta
+        .try_into_map()
+        .map_err(|_| Neo4jError::protocol_error("FAILURE meta was not a Dictionary"))?;
+    Ok(ServerError::from_meta(meta))
 }
