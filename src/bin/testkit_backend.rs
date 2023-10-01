@@ -15,6 +15,10 @@
 use neo4j::testkit_backend;
 
 fn main() {
-    env_logger::init();
+    env_logger::builder()
+        .format_timestamp_millis()
+        .format_module_path(false)
+        .format_target(false)
+        .init();
     testkit_backend::main();
 }

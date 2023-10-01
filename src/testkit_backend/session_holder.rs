@@ -698,7 +698,7 @@ impl SessionHolderRunner {
                 }
 
                 Command::TransactionFunction(TransactionFunction {
-                    session_id: _,
+                    session_id,
                     tx_meta,
                     timeout,
                     access_mode,
@@ -725,6 +725,15 @@ impl SessionHolderRunner {
                     if let Some(tx_meta) = tx_meta {
                         transaction = transaction.with_tx_meta(tx_meta)
                     }
+                    let _ = buffered_command.insert(
+                        TransactionFunction {
+                            session_id,
+                            tx_meta: Default::default(),
+                            timeout,
+                            access_mode,
+                        }
+                        .into(),
+                    );
                     let res = {
                         let record_holders = &mut record_holders;
                         let known_transactions = &mut known_transactions;
@@ -735,8 +744,26 @@ impl SessionHolderRunner {
                                 let id = self.id_generator.next_id();
                                 known_transactions.insert(id, TxFailState::Passed);
 
+                                let command = buffered_command.take().unwrap_or_else(|| {
+                                    panic!("entered transaction function without buffered command")
+                                });
+                                let msg = match command {
+                                    Command::TransactionFunction(_) => {
+                                        TransactionFunctionResult {
+                                            result: Ok(RetryableOutcome::Retry(id)),
+                                        }.into()
+                                    }
+                                    Command::RetryableNegative(_) => {
+                                        RetryableNegativeResult {
+                                            result: Ok(RetryableOutcome::Retry(id)),
+                                        }.into()
+                                    }
+                                    _ => panic!(
+                                        "entered transaction function with unexpected buffered command {command:?}"
+                                    ),
+                                };
                                 tx_res
-                                    .send(TransactionFunctionResult { result: Ok(id) }.into())
+                                    .send(msg)
                                     .unwrap();
 
                                 let mut streams: HashMap<BackendId, Option<TransactionRecordStream>> =
@@ -1014,13 +1041,13 @@ impl SessionHolderRunner {
                     let command = buffered_command.take().unwrap_or_else(|| {
                         panic!("left transaction function without buffered command")
                     });
-                    let res = res.map_err(Into::into).and_then(|x| Ok(x?));
+                    let res = res.map_err(Into::into).and_then(|x| x);
                     match command {
                         Command::RetryablePositive(_) => {
                             self.tx_res
                                 .send(
                                     RetryablePositiveResult {
-                                        result: res.map(|_| None),
+                                        result: res.map(|_| RetryableOutcome::Done),
                                     }
                                     .into(),
                                 )
@@ -1028,7 +1055,22 @@ impl SessionHolderRunner {
                         }
                         Command::RetryableNegative(_) => {
                             self.tx_res
-                                .send(RetryableNegativeResult { result: res }.into())
+                                .send(
+                                    RetryableNegativeResult {
+                                        result: res.map(|_| RetryableOutcome::Done),
+                                    }
+                                    .into(),
+                                )
+                                .unwrap();
+                        }
+                        Command::TransactionFunction(_) => {
+                            self.tx_res
+                                .send(
+                                    TransactionFunctionResult {
+                                        result: res.map(|_| RetryableOutcome::Done),
+                                    }
+                                    .into(),
+                                )
                                 .unwrap();
                         }
                         Command::Close => {
@@ -1553,7 +1595,7 @@ impl From<TransactionFunction> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct TransactionFunctionResult {
-    pub(super) result: Result<BackendId, TestKitError>,
+    pub(super) result: Result<RetryableOutcome, TestKitError>,
 }
 
 impl From<TransactionFunctionResult> for CommandResult {
@@ -1576,7 +1618,7 @@ impl From<RetryablePositive> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct RetryablePositiveResult {
-    pub(super) result: Result<Option<BackendId>, TestKitError>,
+    pub(super) result: Result<RetryableOutcome, TestKitError>,
 }
 
 impl From<RetryablePositiveResult> for CommandResult {
@@ -1600,7 +1642,13 @@ impl From<RetryableNegative> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct RetryableNegativeResult {
-    pub(super) result: Result<(), TestKitError>,
+    pub(super) result: Result<RetryableOutcome, TestKitError>,
+}
+
+#[derive(Debug)]
+pub(super) enum RetryableOutcome {
+    Retry(BackendId),
+    Done,
 }
 
 impl From<RetryableNegativeResult> for CommandResult {

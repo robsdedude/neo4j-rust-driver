@@ -20,6 +20,7 @@ use std::time::Duration;
 
 use crate::driver::{ConnectionConfig, DriverConfig, Record, RoutingControl};
 use crate::session::SessionConfig;
+use crate::testkit_backend::session_holder::RetryableOutcome;
 use crate::ValueSend;
 
 use super::cypher_value::CypherValue;
@@ -648,7 +649,7 @@ impl Request {
         let tx_meta = tx_meta
             .map(cypher_value_map_to_value_send_map)
             .transpose()?;
-        let tx_id = driver_holder
+        let retry_outcome = driver_holder
             .transaction_function(TransactionFunction {
                 session_id,
                 tx_meta,
@@ -656,8 +657,7 @@ impl Request {
                 access_mode: RoutingControl::Read,
             })
             .result?;
-        backend.tx_id_to_driver_id.insert(tx_id, driver_id);
-        backend.send(&Response::RetryableTry { id: tx_id })
+        handle_retry_outcome(backend, retry_outcome, driver_id)
     }
 
     fn session_write_transaction(self, backend: &mut Backend) -> TestKitResult {
@@ -673,7 +673,7 @@ impl Request {
         let tx_meta = tx_meta
             .map(cypher_value_map_to_value_send_map)
             .transpose()?;
-        let tx_id = driver_holder
+        let retry_outcome = driver_holder
             .transaction_function(TransactionFunction {
                 session_id,
                 tx_meta,
@@ -681,8 +681,7 @@ impl Request {
                 access_mode: RoutingControl::Write,
             })
             .result?;
-        backend.tx_id_to_driver_id.insert(tx_id, driver_id);
-        backend.send(&Response::RetryableTry { id: tx_id })
+        handle_retry_outcome(backend, retry_outcome, driver_id)
     }
 
     fn session_begin_transaction(self, backend: &mut Backend) -> TestKitResult {
@@ -852,17 +851,10 @@ impl Request {
             panic!("expected Request::RetryablePositive");
         };
         let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
-        let tx_id = driver_holder
+        let retry_outcome = driver_holder
             .retryable_positive(RetryablePositive { session_id })
             .result?;
-        let res = match tx_id {
-            Some(tx_id) => {
-                backend.tx_id_to_driver_id.insert(tx_id, driver_id);
-                Response::RetryableTry { id: tx_id }
-            }
-            None => Response::RetryableDone,
-        };
-        backend.send(&res)
+        handle_retry_outcome(backend, retry_outcome, driver_id)
     }
 
     fn retryable_negative(self, backend: &mut Backend) -> TestKitResult {
@@ -873,17 +865,30 @@ impl Request {
         else {
             panic!("expected Request::RetryableNegative");
         };
-        let (driver_holder, _) = get_driver_for_session(backend, &session_id)?;
-        driver_holder
+        let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
+        let retry_outcome = driver_holder
             .retryable_negative(RetryableNegative {
                 session_id,
                 error_id,
             })
             .result?;
-        backend.send(&Response::FrontendError {
-            msg: String::from("Client said no!"),
-        })
+        handle_retry_outcome(backend, retry_outcome, driver_id)
     }
+}
+
+fn handle_retry_outcome(
+    backend: &mut Backend,
+    outcome: RetryableOutcome,
+    driver_id: BackendId,
+) -> TestKitResult {
+    let msg = match outcome {
+        RetryableOutcome::Retry(tx_id) => {
+            backend.tx_id_to_driver_id.insert(tx_id, driver_id);
+            Response::RetryableTry { id: tx_id }
+        }
+        RetryableOutcome::Done => Response::RetryableDone,
+    };
+    backend.send(&msg)
 }
 
 fn get_driver<'a, 'b>(

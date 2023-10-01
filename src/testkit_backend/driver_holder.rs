@@ -24,6 +24,7 @@ use log::warn;
 use crate::driver::{ConnectionConfig, Driver, DriverConfig, RoutingControl};
 use crate::retry::ExponentialBackoff;
 use crate::session::SessionConfig;
+use crate::testkit_backend::session_holder::RetryableOutcome;
 
 use super::backend_id::{BackendId, Generator};
 use super::errors::TestKitError;
@@ -303,7 +304,7 @@ impl DriverHolderRunner {
                         );
                     };
                     let res = session_holder.transaction_function(args);
-                    if let Ok(tx_id) = res.result {
+                    if let Ok(RetryableOutcome::Retry(tx_id)) = res.result {
                         tx_id_to_session_id.insert(tx_id, session_id);
                     }
                     Some(res.into())
@@ -323,7 +324,7 @@ impl DriverHolderRunner {
                         );
                     };
                     let res = session_holder.retryable_positive(args);
-                    if let Ok(Some(tx_id)) = res.result {
+                    if let Ok(RetryableOutcome::Retry(tx_id)) = res.result {
                         tx_id_to_session_id.insert(tx_id, session_id);
                     }
                     Some(res.into())
@@ -342,7 +343,11 @@ impl DriverHolderRunner {
                             .into(),
                         );
                     };
-                    Some(session_holder.retryable_negative(args).into())
+                    let res = session_holder.retryable_negative(args);
+                    if let Ok(RetryableOutcome::Retry(tx_id)) = res.result {
+                        tx_id_to_session_id.insert(tx_id, session_id);
+                    }
+                    Some(res.into())
                 }
 
                 Command::BeginTransaction(args) => 'arm: {

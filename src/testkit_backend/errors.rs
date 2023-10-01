@@ -151,11 +151,14 @@ impl<Builder> From<ConfigureTimeoutError<Builder>> for TestKitError {
 
 impl From<RetryableError> for TestKitError {
     fn from(v: RetryableError) -> Self {
-        TestKitError::DriverError {
-            error_type: String::from("RetryableError"),
-            msg: format!("{v}"),
-            code: None,
-            id: None,
+        match v {
+            RetryableError::Neo4jError(e) => e.into(),
+            RetryableError::Timeout(e) => TestKitError::DriverError {
+                error_type: String::from("RetryableError"),
+                msg: format!("{e}"),
+                code: None,
+                id: None,
+            },
         }
     }
 }
