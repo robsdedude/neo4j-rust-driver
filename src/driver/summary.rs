@@ -425,7 +425,7 @@ impl PlanProfileCommon {
             .map(|v| try_into_string(v, "operatorType in plan/profile"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let identifiers = meta
-            .remove("operatorType")
+            .remove("identifiers")
             .map(|v| {
                 try_into_list(v, "identifiers in plan/profile")?
                     .into_iter()
@@ -494,11 +494,14 @@ pub struct Profile {
     pub identifiers: Vec<String>,
     pub children: Vec<Profile>,
     pub db_hits: i64,
+    pub rows: i64,
+
+    /// If `false`, the following stats were not reported by the server and are set to some default
+    /// value instead.
     pub has_page_cache_stats: bool,
     pub page_cache_hit_ratio: f64,
     pub page_cache_hits: i64,
     pub page_cache_misses: i64,
-    pub rows: i64,
     pub time: i64,
 }
 
@@ -545,19 +548,21 @@ impl Profile {
             .remove("pageCacheMisses")
             .map(|v| try_into_int(v, "pageCacheMisses in profile").map(Some))
             .unwrap_or(Ok(None))?;
+        let time = meta
+            .remove("time")
+            .map(|v| try_into_int(v, "time in profile").map(Some))
+            .unwrap_or(Ok(None))?;
         let has_page_cache_stats = page_cache_hit_ratio.is_some()
             || page_cache_hits.is_some()
-            || page_cache_misses.is_some();
+            || page_cache_misses.is_some()
+            || time.is_some();
         let page_cache_hit_ratio = page_cache_hit_ratio.unwrap_or_default();
         let page_cache_hits = page_cache_hits.unwrap_or_default();
         let page_cache_misses = page_cache_misses.unwrap_or_default();
+        let time = time.unwrap_or_default();
         let rows = meta
             .remove("rows")
             .map(|v| try_into_int(v, "rows in profile"))
-            .unwrap_or_else(|| Ok(Default::default()))?;
-        let time = meta
-            .remove("time")
-            .map(|v| try_into_int(v, "time in profile"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         Ok(Self {
             args,
@@ -565,11 +570,11 @@ impl Profile {
             identifiers,
             children,
             db_hits,
+            rows,
             has_page_cache_stats,
             page_cache_hit_ratio,
             page_cache_hits,
             page_cache_misses,
-            rows,
             time,
         })
     }

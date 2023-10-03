@@ -16,9 +16,10 @@ use std::collections::HashMap;
 use std::ops::Deref;
 
 use serde::Serialize;
+use serde_json::Value as JsonValue;
 
 use super::backend_id::Generator;
-use super::cypher_value::{BrokenValueError, CypherValue};
+use super::cypher_value::CypherValue;
 use super::errors::TestKitError;
 use super::requests::TestKitAuth;
 use super::session_holder::SummaryWithQuery;
@@ -182,7 +183,8 @@ pub(super) struct Summary {
 }
 
 impl TryFrom<SummaryWithQuery> for Summary {
-    type Error = BrokenValueError;
+    type Error = TestKitError;
+
     fn try_from(summary: SummaryWithQuery) -> Result<Self, Self::Error> {
         let SummaryWithQuery {
             summary,
@@ -202,7 +204,7 @@ impl TryFrom<SummaryWithQuery> for Summary {
 }
 
 impl TryFrom<crate::summary::Summary> for Summary {
-    type Error = BrokenValueError;
+    type Error = TestKitError;
 
     fn try_from(summary: crate::summary::Summary) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -373,20 +375,23 @@ impl From<crate::summary::Category> for Category {
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Plan {
-    args: HashMap<String, CypherValue>,
+    args: HashMap<String, JsonValue>,
     operator_type: String,
     identifiers: Vec<String>,
     children: Vec<Plan>,
 }
 
 impl TryFrom<crate::summary::Plan> for Plan {
-    type Error = BrokenValueError;
+    type Error = TestKitError;
+
     fn try_from(plan: crate::summary::Plan) -> Result<Self, Self::Error> {
         Ok(Self {
             args: plan
                 .args
                 .into_iter()
-                .map(|(k, v)| Ok((k, v.try_into()?)))
+                .map(|(k, v)| {
+                    Ok::<_, Self::Error>((k, v.try_into().map_err(TestKitError::backend_err)?))
+                })
                 .collect::<Result<_, _>>()?,
             operator_type: plan.op_type,
             identifiers: plan.identifiers,
@@ -402,43 +407,59 @@ impl TryFrom<crate::summary::Plan> for Plan {
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Profile {
-    args: HashMap<String, CypherValue>,
+    args: HashMap<String, JsonValue>,
     operator_type: String,
     identifiers: Vec<String>,
     children: Vec<Profile>,
     db_hits: i64,
+    rows: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     page_cache_hit_ratio: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     page_cache_hits: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     page_cache_misses: Option<i64>,
-    rows: i64,
-    time: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    time: Option<i64>,
 }
 
 impl TryFrom<crate::summary::Profile> for Profile {
-    type Error = BrokenValueError;
-    fn try_from(plan: crate::summary::Profile) -> Result<Self, Self::Error> {
+    type Error = TestKitError;
+
+    fn try_from(profile: crate::summary::Profile) -> Result<Self, Self::Error> {
         Ok(Self {
-            args: plan
+            args: profile
                 .args
                 .into_iter()
-                .map(|(k, v)| Ok((k, v.try_into()?)))
+                .map(|(k, v)| {
+                    Ok::<_, Self::Error>((k, v.try_into().map_err(TestKitError::backend_err)?))
+                })
                 .collect::<Result<_, _>>()?,
-            operator_type: plan.op_type,
-            identifiers: plan.identifiers,
-            children: plan
+            operator_type: profile.op_type,
+            identifiers: profile.identifiers,
+            children: profile
                 .children
                 .into_iter()
                 .map(TryInto::try_into)
                 .collect::<Result<_, _>>()?,
-            db_hits: plan.db_hits,
-            page_cache_hit_ratio: Some(plan.page_cache_hit_ratio),
-            page_cache_hits: Some(plan.page_cache_hits),
-            page_cache_misses: Some(plan.page_cache_misses),
-            rows: plan.rows,
-            time: plan.time,
+            db_hits: profile.db_hits,
+            rows: profile.rows,
+            page_cache_hit_ratio: match profile.has_page_cache_stats {
+                true => Some(profile.page_cache_hit_ratio),
+                false => None,
+            },
+            page_cache_hits: match profile.has_page_cache_stats {
+                true => Some(profile.page_cache_hits),
+                false => None,
+            },
+            page_cache_misses: match profile.has_page_cache_stats {
+                true => Some(profile.page_cache_misses),
+                false => None,
+            },
+            time: match profile.has_page_cache_stats {
+                true => Some(profile.time),
+                false => None,
+            },
         })
     }
 }

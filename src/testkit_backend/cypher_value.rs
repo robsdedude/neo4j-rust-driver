@@ -20,6 +20,7 @@ use std::num::FpCategory;
 use serde::de::Unexpected;
 use serde::ser::SerializeMap;
 use serde::{de::Error as DeError, de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue};
 use thiserror::Error;
 
 use crate::graph::{
@@ -148,46 +149,6 @@ pub(super) struct Relationship {
 pub(super) enum PointSystem {
     Cartesian,
     WGS84,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rstest::rstest;
-
-    #[rstest]
-    fn foo() {
-        let r: Result<CypherValue, _> = serde_json::from_str(
-            "{
-    \"name\": \"CypherPath\",
-    \"data\": {
-        \"nodes\": [
-            {
-                \"name\": \"Node\",
-                \"data\": {
-                    \"id\": 1,
-                    \"labels\": [],
-                    \"props\": {},
-                    \"elementId\": \"foobar\"
-                }
-            },
-            {
-                \"name\": \"Node\",
-                \"data\": {
-                    \"id\": 2,
-                    \"labels\": [\"L1\"],
-                    \"props\": {},
-                    \"elementId\": \"baz\"
-                }
-            }
-        ]
-    }
-}
-        ",
-        );
-        let r = r.unwrap();
-        println!("{r:?}");
-    }
 }
 
 fn serialize_cypher_float<S>(v: &f64, s: S) -> Result<S::Ok, S::Error>
@@ -434,10 +395,7 @@ impl TryFrom<ValueReceive> for CypherValue {
                 value: try_into_vec(v)?,
             },
             ValueReceive::Map(v) => CypherValue::CypherMap {
-                value: v
-                    .into_iter()
-                    .map(|(k, v)| Ok((k, v.try_into()?)))
-                    .collect::<Result<_, _>>()?,
+                value: try_into_hash_map(v)?,
             },
             ValueReceive::Cartesian2D(v) => CypherValue::CypherPoint {
                 system: PointSystem::Cartesian,
@@ -510,7 +468,7 @@ fn try_into_node(n: Neo4jNode) -> Result<Node, BrokenValueError> {
                 .collect(),
         }),
         props: Box::new(CypherValue::CypherMap {
-            value: try_into_map_values(n.properties)?,
+            value: try_into_hash_map(n.properties)?,
         }),
         element_id: Box::new(CypherValue::CypherString {
             value: n.element_id,
@@ -529,7 +487,7 @@ fn try_into_relationship(r: Neo4jRelationship) -> Result<Relationship, BrokenVal
         }),
         type_: Box::new(CypherValue::CypherString { value: r.type_ }),
         props: Box::new(CypherValue::CypherMap {
-            value: try_into_map_values(r.properties)?,
+            value: try_into_hash_map(r.properties)?,
         }),
 
         element_id: Box::new(CypherValue::CypherString {
@@ -555,7 +513,7 @@ fn try_into_relationship_unbound(
         end_node_id: Box::new(CypherValue::CypherInt { value: e.id }),
         type_: Box::new(CypherValue::CypherString { value: r.type_ }),
         props: Box::new(CypherValue::CypherMap {
-            value: try_into_map_values(r.properties)?,
+            value: try_into_hash_map(r.properties)?,
         }),
         element_id: Box::new(CypherValue::CypherString {
             value: r.element_id,
@@ -575,10 +533,77 @@ fn try_into_vec<T: TryFrom<V, Error = E>, E, V>(v: Vec<V>) -> Result<Vec<T>, E> 
         .collect::<Result<_, _>>()
 }
 
-fn try_into_map_values<T: TryFrom<V, Error = E>, E, K: Eq + Hash, V>(
+fn try_into_hash_map<T: TryFrom<V, Error = E>, E, K: Eq + Hash, V>(
     v: HashMap<K, V>,
 ) -> Result<HashMap<K, T>, E> {
     v.into_iter()
         .map(|(k, v)| Ok((k, v.try_into()?)))
         .collect::<Result<_, _>>()
+}
+
+fn try_into_json_map<E, V: TryInto<JsonValue, Error = E>>(
+    v: HashMap<String, V>,
+) -> Result<JsonMap<String, JsonValue>, E> {
+    v.into_iter()
+        .map(|(k, v)| Ok((k, v.try_into()?)))
+        .collect::<Result<_, _>>()
+}
+
+impl TryFrom<ValueReceive> for JsonValue {
+    type Error = String;
+
+    fn try_from(v: ValueReceive) -> Result<Self, Self::Error> {
+        Ok(match v {
+            ValueReceive::Null => JsonValue::Null,
+            ValueReceive::Boolean(v) => JsonValue::Bool(v),
+            ValueReceive::Integer(v) => JsonValue::Number(v.into()),
+            ValueReceive::Float(v) => JsonValue::Number(
+                JsonNumber::from_f64(v).ok_or(format!("Failed to serialize float: {v}"))?,
+            ),
+            ValueReceive::String(v) => JsonValue::String(v),
+            ValueReceive::List(v) => JsonValue::Array(try_into_vec(v)?),
+            ValueReceive::Map(v) => JsonValue::Object(try_into_json_map(v)?),
+            _ => return Err(format!("Failed to serialize to json: {:?}", v)),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    fn foo() {
+        let r: Result<CypherValue, _> = serde_json::from_str(
+            "{
+    \"name\": \"CypherPath\",
+    \"data\": {
+        \"nodes\": [
+            {
+                \"name\": \"Node\",
+                \"data\": {
+                    \"id\": 1,
+                    \"labels\": [],
+                    \"props\": {},
+                    \"elementId\": \"foobar\"
+                }
+            },
+            {
+                \"name\": \"Node\",
+                \"data\": {
+                    \"id\": 2,
+                    \"labels\": [\"L1\"],
+                    \"props\": {},
+                    \"elementId\": \"baz\"
+                }
+            }
+        ]
+    }
+}
+        ",
+        );
+        let r = r.unwrap();
+        println!("{r:?}");
+    }
 }
