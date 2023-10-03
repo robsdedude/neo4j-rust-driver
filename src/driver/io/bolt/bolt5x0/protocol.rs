@@ -50,10 +50,13 @@ impl<T: BoltStructTranslator> Bolt5x0<T> {
         n: i64,
         qid: i64,
         callbacks: ResponseCallbacks,
-        name: &str,
-        tag: u8,
-        response: ResponseMessage,
+        message: MessageSpec,
     ) -> Result<()> {
+        let MessageSpec {
+            name,
+            tag,
+            response,
+        } = message;
         debug_buf_start!(log_buf);
         debug_buf!(log_buf, "C: {}", name);
         let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
@@ -88,6 +91,12 @@ impl<T: BoltStructTranslator> Bolt5x0<T> {
         debug_buf_end!(data, log_buf);
         Ok(())
     }
+}
+
+struct MessageSpec {
+    name: &'static str,
+    tag: u8,
+    response: ResponseMessage,
 }
 
 impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
@@ -365,9 +374,11 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
             n,
             qid,
             callbacks,
-            "DISCARD",
-            0x2F,
-            ResponseMessage::Discard,
+            MessageSpec {
+                name: "DISCARD",
+                tag: 0x2F,
+                response: ResponseMessage::Discard,
+            },
         )
     }
 
@@ -378,7 +389,17 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         qid: i64,
         callbacks: ResponseCallbacks,
     ) -> Result<()> {
-        self.pull_or_discard(data, n, qid, callbacks, "PULL", 0x3F, ResponseMessage::Pull)
+        self.pull_or_discard(
+            data,
+            n,
+            qid,
+            callbacks,
+            MessageSpec {
+                name: "PULL",
+                tag: 0x3F,
+                response: ResponseMessage::Pull,
+            },
+        )
     }
 
     fn begin<R: Read, W: Write, K: Borrow<str> + Debug>(

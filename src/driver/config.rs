@@ -178,6 +178,7 @@ impl ConnectionConfig {
         self
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn with_routing_context(
         mut self,
         routing_context: HashMap<String, String>,

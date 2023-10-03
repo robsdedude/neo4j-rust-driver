@@ -1382,10 +1382,7 @@ impl RecordBuffer {
                 params,
             } => {
                 *consumed = true;
-                let dropped_records = Self::drop_buffered_records(records);
-                if let Err(e) = dropped_records {
-                    return Err(e);
-                }
+                Self::drop_buffered_records(records)?;
                 match summary {
                     None => Err(TestKitError::backend_err(
                         "cannot receive summary of a failed record stream",
@@ -1415,7 +1412,7 @@ impl RecordBuffer {
         });
         if let Err(e) = dropped_records {
             records.push_back(Err(Arc::clone(&e)));
-            return Err(TestKitError::clone_neo4j_error(&*e));
+            return Err(TestKitError::clone_neo4j_error(&e));
         }
         Ok(())
     }
@@ -1947,10 +1944,10 @@ impl From<LastBookmarks> for Command {
 }
 
 impl LastBookmarks {
-    fn real_response<'driver, C: AsRef<SessionConfig>>(
+    fn real_response<C: AsRef<SessionConfig>>(
         &self,
         tx_res: &Sender<CommandResult>,
-        session: &Session<'driver, C>,
+        session: &Session<'_, C>,
     ) {
         self.buffered_response(tx_res, session.last_bookmarks())
     }

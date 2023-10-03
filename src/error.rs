@@ -30,7 +30,7 @@ pub enum Neo4jError {
     ///    E.g., not able to connect, a broken socket,
     ///    not able to fetch routing information
     #[error("connection failed: {message} (during commit: {during_commit})")]
-    // #[non_exhaustive]
+    #[non_exhaustive]
     Disconnect {
         message: String,
         // #[backtrace]
@@ -53,7 +53,7 @@ pub enum Neo4jError {
     ///  * Can be generated using `GetSingleRecordError::into()`
     ///    (the driver itself won't perform this conversion)
     #[error("invalid configuration: {message}")]
-    // #[non_exhaustive]
+    #[non_exhaustive]
     InvalidConfig {
         message: String,
         // backtrace: Backtrace,
@@ -61,17 +61,18 @@ pub enum Neo4jError {
     /// used when
     ///  * the server returns an error
     #[error("{error}")]
-    // #[non_exhaustive]
+    #[non_exhaustive]
     ServerError { error: ServerError },
     /// used when
     ///  * `Config::connection_acquisition_timeout` is exceeded
     #[error("{message}")]
+    #[non_exhaustive]
     Timeout { message: String },
     #[error(
         "the driver encountered a protocol violation, \
         this is likely a bug in the driver or the server: {message}"
     )]
-    // #[non_exhaustive]
+    #[non_exhaustive]
     ProtocolError {
         message: String,
         // backtrace: Backtrace
@@ -186,8 +187,8 @@ impl Neo4jError {
 
 #[derive(Debug)]
 pub struct ServerError {
-    code: String,
-    message: String,
+    pub code: String,
+    pub message: String,
 }
 
 impl ServerError {

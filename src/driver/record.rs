@@ -28,7 +28,7 @@ impl Record {
     pub(crate) fn new(keys: &[Arc<String>], fields: BoltRecordFields) -> Self {
         assert_eq!(keys.len(), fields.len());
         Self {
-            entries: iter::zip(keys.iter().map(Arc::clone), fields.into_iter()).collect(),
+            entries: iter::zip(keys.iter().map(Arc::clone), fields).collect(),
         }
     }
 }

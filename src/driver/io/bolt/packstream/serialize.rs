@@ -79,7 +79,7 @@ impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
             self.writer.write_all(&i32::to_be_bytes(i as i32))?;
         } else {
             self.writer.write_all(&[0xCB])?;
-            self.writer.write_all(&i64::to_be_bytes(i as i64))?;
+            self.writer.write_all(&i64::to_be_bytes(i))?;
         }
         Ok(())
     }

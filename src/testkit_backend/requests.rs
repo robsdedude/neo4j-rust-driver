@@ -895,25 +895,25 @@ fn handle_retry_outcome(
     backend.send(&msg)
 }
 
-fn get_driver<'a, 'b>(
+fn get_driver<'a>(
     backend: &'a Backend,
-    driver_id: &'b BackendId,
+    driver_id: &BackendId,
 ) -> Result<&'a DriverHolder, TestKitError> {
     backend
         .drivers
-        .get(&driver_id)
+        .get(driver_id)
         .ok_or_else(|| missing_driver_error(driver_id))?
         .as_ref()
         .ok_or_else(closed_driver_error)
 }
 
-fn get_driver_for_session<'a, 'b>(
+fn get_driver_for_session<'a>(
     backend: &'a Backend,
-    session_id: &'b BackendId,
+    session_id: &BackendId,
 ) -> Result<(&'a DriverHolder, BackendId), TestKitError> {
     let driver_id = backend
         .session_id_to_driver_id
-        .get(&session_id)
+        .get(session_id)
         .ok_or_else(|| missing_session_error(session_id))?
         .as_ref()
         .ok_or_else(closed_session_error)?;

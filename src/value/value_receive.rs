@@ -67,14 +67,15 @@ impl ValueReceive {
     }
 
     #[inline]
-    pub fn as_bool(&self) -> Option<&bool> {
+    pub fn as_bool(&self) -> Option<bool> {
         match self {
-            ValueReceive::Boolean(v) => Some(v),
+            ValueReceive::Boolean(v) => Some(*v),
             _ => None,
         }
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_bool(self) -> Result<bool, Self> {
         self.try_into()
     }
@@ -99,14 +100,15 @@ impl ValueReceive {
     }
 
     #[inline]
-    pub fn as_int(&self) -> Option<&i64> {
+    pub fn as_int(&self) -> Option<i64> {
         match self {
-            ValueReceive::Integer(v) => Some(v),
+            ValueReceive::Integer(v) => Some(*v),
             _ => None,
         }
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_int(self) -> Result<i64, Self> {
         self.try_into()
     }
@@ -131,14 +133,15 @@ impl ValueReceive {
     }
 
     #[inline]
-    pub fn as_float(&self) -> Option<&f64> {
+    pub fn as_float(&self) -> Option<f64> {
         match self {
-            ValueReceive::Float(v) => Some(v),
+            ValueReceive::Float(v) => Some(*v),
             _ => None,
         }
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_float(self) -> Result<f64, Self> {
         self.try_into()
     }
@@ -171,6 +174,7 @@ impl ValueReceive {
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_bytes(self) -> Result<Vec<u8>, Self> {
         self.try_into()
     }
@@ -203,6 +207,7 @@ impl ValueReceive {
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_string(self) -> Result<String, Self> {
         self.try_into()
     }
@@ -235,6 +240,7 @@ impl ValueReceive {
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_list(self) -> Result<Vec<ValueReceive>, Self> {
         self.try_into()
     }
@@ -267,6 +273,7 @@ impl ValueReceive {
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_map(self) -> Result<HashMap<String, ValueReceive>, Self> {
         self.try_into()
     }
@@ -299,6 +306,7 @@ impl ValueReceive {
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_node(self) -> Result<graph::Node, Self> {
         self.try_into()
     }
@@ -331,6 +339,7 @@ impl ValueReceive {
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_relationship(self) -> Result<graph::Relationship, Self> {
         self.try_into()
     }
@@ -363,6 +372,7 @@ impl ValueReceive {
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_path(self) -> Result<graph::Path, Self> {
         self.try_into()
     }
@@ -395,6 +405,7 @@ impl ValueReceive {
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_cartesian_2d(self) -> Result<spatial::Cartesian2D, Self> {
         self.try_into()
     }
@@ -427,6 +438,7 @@ impl ValueReceive {
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_cartesian_3d(self) -> Result<spatial::Cartesian3D, Self> {
         self.try_into()
     }
@@ -459,6 +471,7 @@ impl ValueReceive {
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_wgs84_2d(self) -> Result<spatial::WGS84_2D, Self> {
         self.try_into()
     }
@@ -491,6 +504,7 @@ impl ValueReceive {
     }
 
     #[inline]
+    #[allow(clippy::result_large_err)]
     pub fn try_into_wgs84_3d(self) -> Result<spatial::WGS84_3D, Self> {
         self.try_into()
     }
