@@ -33,6 +33,7 @@ use driver_holder::DriverHolder;
 use errors::TestKitError;
 use requests::Request;
 use responses::Response;
+use session_holder::SummaryWithQuery;
 
 const ADDRESS: &str = "0.0.0.0:9876";
 
@@ -86,6 +87,7 @@ pub(crate) struct Backend {
 
     id_generator: Generator,
     drivers: HashMap<BackendId, Option<DriverHolder>>,
+    summaries: HashMap<BackendId, SummaryWithQuery>,
     session_id_to_driver_id: HashMap<BackendId, Option<BackendId>>,
     result_id_to_driver_id: HashMap<BackendId, BackendId>,
     tx_id_to_driver_id: HashMap<BackendId, BackendId>,
@@ -98,6 +100,7 @@ impl Backend {
             writer,
             id_generator: Generator::new(),
             drivers: Default::default(),
+            summaries: Default::default(),
             session_id_to_driver_id: Default::default(),
             result_id_to_driver_id: Default::default(),
             tx_id_to_driver_id: Default::default(),

@@ -203,6 +203,7 @@ impl TryFrom<SummaryWithQuery> for Summary {
 
 impl TryFrom<crate::summary::Summary> for Summary {
     type Error = BrokenValueError;
+
     fn try_from(summary: crate::summary::Summary) -> Result<Self, Self::Error> {
         Ok(Self {
             counters: summary.counters.into(),

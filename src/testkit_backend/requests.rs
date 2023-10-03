@@ -835,6 +835,9 @@ impl Request {
         let Request::ResultConsume { result_id } = self else {
             panic!("expected Request::ResultConsume");
         };
+        if let Some(summary) = backend.summaries.get(&result_id) {
+            return backend.send(&Response::Summary(summary.clone().try_into()?));
+        }
         let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
             return Err(TestKitError::backend_err(format!(
                 "Unknown result id {result_id} in backend"
@@ -843,6 +846,7 @@ impl Request {
         let summary = get_driver(backend, &driver_id)?
             .result_consume(ResultConsume { result_id })
             .result?;
+        backend.summaries.insert(result_id, summary.clone());
         backend.send(&Response::Summary(summary.try_into()?))
     }
 
