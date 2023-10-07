@@ -55,6 +55,7 @@ impl DriverHolder {
         emulated_config: EmulatedDriverConfig,
     ) -> Self {
         let driver = Arc::new(Driver::new(connection_config, config));
+        let emulated_config = Arc::new(emulated_config);
         let (tx_req, rx_req) = flume::unbounded();
         let (tx_res, rx_res) = flume::unbounded();
         // let session_ids = Arc::new(Mutex::new(HashSet::new()));
@@ -244,7 +245,7 @@ struct DriverHolderRunner {
     rx_req: Receiver<Command>,
     tx_res: Sender<CommandResult>,
     driver: Arc<Driver>,
-    emulated_config: EmulatedDriverConfig,
+    emulated_config: Arc<EmulatedDriverConfig>,
 }
 
 impl DriverHolderRunner {
@@ -265,6 +266,7 @@ impl DriverHolderRunner {
                         Arc::clone(&self.driver),
                         auto_commit_access_mode,
                         config,
+                        Arc::clone(&self.emulated_config),
                     );
                     sessions.insert(session_id, session_holder);
                     Some(NewSessionResult { session_id }.into())
@@ -794,5 +796,9 @@ impl EmulatedDriverConfig {
     pub(super) fn with_max_retry_time(mut self, max_retry_time: Duration) -> Self {
         self.retry_policy = self.retry_policy.with_max_retry_time(max_retry_time);
         self
+    }
+
+    pub(super) fn retry_policy(&self) -> ExponentialBackoff {
+        self.retry_policy
     }
 }

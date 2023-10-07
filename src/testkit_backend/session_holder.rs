@@ -25,12 +25,12 @@ use crate::bookmarks::Bookmarks;
 use crate::driver::record_stream::{GetSingleRecordError, RecordStream};
 use crate::driver::transaction::TransactionRecordStream;
 use crate::driver::{Driver, Record, RoutingControl};
-use crate::retry::ExponentialBackoff;
 use crate::session::{Session, SessionConfig};
 use crate::summary::Summary;
 use crate::{Neo4jError, ValueSend};
 
 use super::backend_id::Generator;
+use super::driver_holder::EmulatedDriverConfig;
 use super::errors::TestKitError;
 use super::requests::BackendErrorId;
 use super::BackendId;
@@ -49,6 +49,7 @@ impl SessionHolder {
         driver: Arc<Driver>,
         auto_commit_access_mode: RoutingControl,
         config: SessionConfig,
+        emulated_driver_config: Arc<EmulatedDriverConfig>,
     ) -> Self {
         let (tx_req, rx_req) = flume::unbounded();
         let (tx_res, rx_res) = flume::unbounded();
@@ -62,6 +63,7 @@ impl SessionHolder {
                     rx_req,
                     tx_res,
                     driver,
+                    emulated_driver_config,
                 };
                 runner.run();
             })
@@ -216,6 +218,7 @@ struct SessionHolderRunner {
     driver: Arc<Driver>,
     rx_req: Receiver<Command>,
     tx_res: Sender<CommandResult>,
+    emulated_driver_config: Arc<EmulatedDriverConfig>,
 }
 
 impl SessionHolderRunner {
@@ -739,7 +742,7 @@ impl SessionHolderRunner {
                         let known_transactions = &mut known_transactions;
                         let tx_res = &self.tx_res;
                         transaction.run_with_retry(
-                            ExponentialBackoff::default(),
+                            self.emulated_driver_config.retry_policy(),
                             |transaction| {
                                 let id = self.id_generator.next_id();
                                 known_transactions.insert(id, TxFailState::Passed);
@@ -755,6 +758,11 @@ impl SessionHolderRunner {
                                     }
                                     Command::RetryableNegative(_) => {
                                         RetryableNegativeResult {
+                                            result: Ok(RetryableOutcome::Retry(id)),
+                                        }.into()
+                                    }
+                                    Command::RetryablePositive(_) => {
+                                        RetryablePositiveResult {
                                             result: Ok(RetryableOutcome::Retry(id)),
                                         }.into()
                                     }
@@ -997,7 +1005,7 @@ impl SessionHolderRunner {
                                                 known_transactions.insert(id, TxFailState::Failed);
                                             }
                                             let _ = buffered_command.insert(command);
-                                            return Ok(Ok(()))
+                                            return result.map(|_| Ok(()));
                                         }
                                         Command::RetryableNegative(command) => {
                                             streams.into_keys().for_each(|id| {
@@ -1031,7 +1039,7 @@ impl SessionHolderRunner {
                                             streams.into_keys().for_each(|id| {
                                                 record_holders.insert(id, RecordBuffer::new_transaction());
                                             });
-                                            return Ok(Ok(()))
+                                            return Ok(Ok(()));
                                         }
                                     }
                                 }
