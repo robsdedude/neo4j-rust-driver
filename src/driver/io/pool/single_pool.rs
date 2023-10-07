@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use log::info;
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -67,11 +68,17 @@ impl InnerPool {
     }
 
     fn open_new(&self, deadline: Option<Instant>) -> Result<PoolElement> {
-        let mut connection = bolt::open(
+        let mut connection = match bolt::open(
             Arc::clone(&self.address),
             deadline,
             self.config.connection_timeout,
-        )?;
+        ) {
+            Ok(connection) => connection,
+            Err(err) => {
+                info!("failed to open connection: {}", err);
+                return Err(err);
+            }
+        };
         connection.hello(
             self.config.user_agent.as_str(),
             &self.config.auth,
@@ -180,10 +187,13 @@ impl SimplePool {
         let mut lock = inner_pool.synced.lock();
         lock.borrowed -= 1;
         if connection.needs_reset() {
-            let _ = connection
+            let res = connection
                 .reset()
                 .and_then(|_| connection.write_all(None))
                 .and_then(|_| connection.read_all(None, None));
+            if res.is_err() {
+                info!("ignoring failure during reset, dropping connection");
+            }
         }
         if !connection.closed() {
             lock.raw_pool.push_back(connection);
