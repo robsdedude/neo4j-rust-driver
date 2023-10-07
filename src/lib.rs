@@ -16,7 +16,7 @@
 // TODO: remove when prototyping phase is done
 #![allow(dead_code)]
 
-mod address;
+mod address_;
 pub mod driver;
 mod error;
 mod macros;
@@ -24,11 +24,14 @@ mod sync;
 mod util;
 pub mod value;
 
-pub use address::Address;
+pub use address_::Address;
 pub use error::{Neo4jError, Result};
 pub use value::ValueReceive;
 pub use value::ValueSend;
 
+pub mod address {
+    pub use super::address_::resolution::*;
+}
 pub mod bookmarks {
     pub use super::driver::session::bookmarks::*;
 }

@@ -18,6 +18,8 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
 use std::vec::IntoIter;
 
+pub(crate) mod resolution;
+
 pub(crate) const DEFAULT_PORT: u16 = 7687;
 const COLON_BYTES: usize = ':'.len_utf8();
 
@@ -46,7 +48,7 @@ impl Hash for Address {
 }
 
 impl Address {
-    pub(crate) fn resolve(&self) -> std::io::Result<Vec<Address>> {
+    fn resolve(&self) -> std::io::Result<Vec<Address>> {
         if self.is_resolved {
             return Ok(vec![self.clone()]);
         }
@@ -55,7 +57,7 @@ impl Address {
 
     fn normalize_ip(host: &str) -> (bool, String) {
         IpAddr::from_str(host)
-            .map(|addr| (true, format!("{}", addr)))
+            .map(|addr| (true, format!("{addr}")))
             .unwrap_or_else(|_| (false, String::from(host)))
     }
 

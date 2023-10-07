@@ -16,6 +16,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
 use crate::driver::ConfigureFetchSizeError;
+use crate::error::UserCallbackError;
 use crate::retry::RetryableError;
 use crate::session::ConfigureTimeoutError;
 use crate::Neo4jError;
@@ -87,11 +88,38 @@ impl From<Neo4jError> for TestKitError {
                 code: None,
                 id: None,
             },
+            Neo4jError::UserCallback { error } => error.into(),
             Neo4jError::ProtocolError { message } => TestKitError::DriverError {
                 error_type: String::from("ProtocolError"),
                 msg: message,
                 code: None,
                 id: None,
+            },
+        }
+    }
+}
+
+impl From<UserCallbackError> for TestKitError {
+    fn from(value: UserCallbackError) -> Self {
+        match value {
+            UserCallbackError::ResolverError(err) => match err.downcast::<Self>() {
+                Ok(err) => *err,
+                Err(err) => TestKitError::BackendError {
+                    msg: format!("unexpected resolver error: {}", err),
+                },
+            },
+        }
+    }
+}
+
+impl From<&UserCallbackError> for TestKitError {
+    fn from(value: &UserCallbackError) -> Self {
+        match value {
+            UserCallbackError::ResolverError(err) => match err.downcast_ref::<Self>() {
+                Some(err) => err.clone(),
+                None => TestKitError::BackendError {
+                    msg: format!("unexpected resolver error: {}", err),
+                },
             },
         }
     }
@@ -249,6 +277,7 @@ impl TestKitError {
                 code: None,
                 id: None,
             },
+            Neo4jError::UserCallback { error } => error.into(),
             Neo4jError::ProtocolError { message } => TestKitError::DriverError {
                 error_type: String::from("ProtocolError"),
                 msg: message.clone(),

@@ -54,6 +54,7 @@ impl Driver {
             max_connection_pool_size: config.max_connection_pool_size,
             connection_timeout: config.connection_timeout,
             connection_acquisition_timeout: config.connection_acquisition_timeout,
+            resolver: config.resolver,
         };
         Driver {
             config: ReducedDriverConfig {

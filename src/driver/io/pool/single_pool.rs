@@ -23,6 +23,7 @@ use parking_lot::{Condvar, Mutex, RawMutex};
 
 use super::super::bolt::{self, TcpBolt};
 use super::PoolConfig;
+use crate::address::resolve_address_fully;
 use crate::{Address, Neo4jError, Result};
 
 type PoolElement = TcpBolt;
@@ -68,17 +69,9 @@ impl InnerPool {
     }
 
     fn open_new(&self, deadline: Option<Instant>) -> Result<PoolElement> {
-        let mut connection = match bolt::open(
-            Arc::clone(&self.address),
-            deadline,
-            self.config.connection_timeout,
-        ) {
-            Ok(connection) => connection,
-            Err(err) => {
-                info!("failed to open connection: {}", err);
-                return Err(err);
-            }
-        };
+        let address = Arc::clone(&self.address);
+        let mut connection = self.open_socket(address, deadline)?;
+
         connection.hello(
             self.config.user_agent.as_str(),
             &self.config.auth,
@@ -87,6 +80,28 @@ impl InnerPool {
         connection.write_all(deadline)?;
         connection.read_all(deadline, None)?;
         Ok(connection)
+    }
+
+    fn open_socket(&self, address: Arc<Address>, deadline: Option<Instant>) -> Result<TcpBolt> {
+        let mut last_err = None;
+        for address in resolve_address_fully(address, self.config.resolver.as_deref())? {
+            last_err = match address {
+                Ok(address) => {
+                    match bolt::open(address, deadline, self.config.connection_timeout) {
+                        Ok(connection) => return Ok(connection),
+                        Err(err) => {
+                            info!("failed to open connection: {}", err);
+                            Some(Err(err))
+                        }
+                    }
+                }
+                Err(err) => {
+                    info!("failed to resolve address: {}", err);
+                    Some(Err(Neo4jError::connect_error(err)))
+                }
+            }
+        }
+        last_err.expect("resolve_address_fully returned empty iterator")
     }
 }
 

@@ -27,7 +27,8 @@ use tests::{MockSslContext as SslContext, MockSslContextBuilder as SslContextBui
 use thiserror::Error;
 use uriparse::{Query, URIError, URI};
 
-use crate::address::DEFAULT_PORT;
+use crate::address::AddressResolver;
+use crate::address_::DEFAULT_PORT;
 use crate::{Address, Neo4jError, Result, ValueSend};
 
 const DEFAULT_USER_AGENT: &str = env!("NEO4J_DEFAULT_USER_AGENT");
@@ -38,13 +39,14 @@ pub(crate) const DEFAULT_CONNECTION_ACQUISITION_TIMEOUT: Duration = Duration::fr
 #[derive(Debug)]
 pub struct DriverConfig {
     pub(crate) user_agent: String,
-    pub(crate) auth: HashMap<String, ValueSend>, // max_connection_lifetime
+    pub(crate) auth: HashMap<String, ValueSend>,
+    // max_connection_lifetime
     pub(crate) max_connection_pool_size: usize,
     pub(crate) fetch_size: i64,
     pub(crate) connection_timeout: Option<Duration>,
     pub(crate) connection_acquisition_timeout: Option<Duration>,
     // trust
-    // resolver
+    pub(crate) resolver: Option<Box<dyn AddressResolver>>,
     // encrypted
     // trusted_certificates
     // ssl_context
@@ -67,6 +69,7 @@ impl Default for DriverConfig {
             fetch_size: DEFAULT_FETCH_SIZE,
             connection_timeout: Some(DEFAULT_CONNECTION_TIMEOUT),
             connection_acquisition_timeout: Some(DEFAULT_CONNECTION_ACQUISITION_TIMEOUT),
+            resolver: None,
         }
     }
 }
@@ -151,6 +154,16 @@ impl DriverConfig {
 
     pub fn with_default_connection_acquisition_timeout(mut self) -> Self {
         self.connection_acquisition_timeout = Some(DEFAULT_CONNECTION_ACQUISITION_TIMEOUT);
+        self
+    }
+
+    pub fn with_resolver(mut self, resolver: Box<dyn AddressResolver>) -> Self {
+        self.resolver = Some(resolver);
+        self
+    }
+
+    pub fn without_resolver(mut self) -> Self {
+        self.resolver = None;
         self
     }
 }

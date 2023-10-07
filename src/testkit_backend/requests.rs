@@ -16,6 +16,7 @@ use crate::bookmarks::Bookmarks;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::driver::{ConnectionConfig, DriverConfig, Record, RoutingControl};
@@ -26,13 +27,14 @@ use crate::ValueSend;
 use super::cypher_value::CypherValue;
 use super::driver_holder::{CloseSession, DriverHolder, EmulatedDriverConfig, NewSession};
 use super::errors::TestKitError;
+use super::resolver::TestKitResolver;
 use super::responses::Response;
 use super::session_holder::{
     AutoCommit, BeginTransaction, CloseTransaction, CommitTransaction, LastBookmarks,
     ResultConsume, ResultNext, ResultSingle, RetryableNegative, RetryablePositive,
     RollbackTransaction, TransactionFunction, TransactionRun,
 };
-use super::{Backend, BackendId, TestKitResult};
+use super::{Backend, BackendData, BackendId, TestKitResult};
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "name", content = "data", deny_unknown_fields)]
@@ -364,7 +366,7 @@ mod tests {
 }
 
 impl Request {
-    pub(super) fn handle(self, backend: &mut Backend) -> TestKitResult {
+    pub(super) fn handle(self, backend: &Backend) -> TestKitResult {
         match self {
             Request::StartTest { .. } => backend.send(&Response::RunTest)?,
             // Request::StartSubTest
@@ -417,7 +419,7 @@ impl Request {
         Ok(())
     }
 
-    fn new_driver(self, backend: &mut Backend) -> TestKitResult {
+    fn new_driver(self, backend: &Backend) -> TestKitResult {
         let Request::NewDriver {
             uri,
             auth,
@@ -450,7 +452,9 @@ impl Request {
             return Err(TestKitError::backend_err("auth token manager unsupported"));
         }
         if resolver_registered.unwrap_or(false) {
-            return Err(TestKitError::backend_err("resolver unsupported"));
+            let resolver =
+                TestKitResolver::new(Arc::clone(&backend.io), backend.id_generator.clone());
+            driver_config = driver_config.with_resolver(Box::new(resolver));
         }
         if dns_registered.unwrap_or(false) {
             return Err(TestKitError::backend_err("DNS resolver unsupported"));
@@ -502,7 +506,6 @@ impl Request {
         if trusted_certificates.is_some() {
             return Err(TestKitError::backend_err("CA config unsupported"));
         }
-        // let driver = Driver::new(connection_config, driver_config);
         let id = backend.next_id();
         let driver_holder = DriverHolder::new(
             &id,
@@ -511,15 +514,20 @@ impl Request {
             driver_config,
             emulated_config,
         );
-        backend.drivers.insert(id, Some(driver_holder));
+        backend
+            .data
+            .borrow_mut()
+            .drivers
+            .insert(id, Some(driver_holder));
         backend.send(&Response::Driver { id })
     }
 
-    fn driver_close(self, backend: &mut Backend) -> TestKitResult {
+    fn driver_close(self, backend: &Backend) -> TestKitResult {
         let Request::DriverClose { driver_id } = self else {
             panic!("expected Request::DriverClose");
         };
-        let Some(driver_holder) = backend.drivers.get_mut(&driver_id) else {
+        let mut data = backend.data.borrow_mut();
+        let Some(driver_holder) = data.drivers.get_mut(&driver_id) else {
             return Err(missing_driver_error(&driver_id));
         };
         let Some(driver_holder) = driver_holder.take() else {
@@ -529,7 +537,7 @@ impl Request {
         backend.send(&Response::Driver { id: driver_id })
     }
 
-    fn new_session(self, backend: &mut Backend) -> TestKitResult {
+    fn new_session(self, backend: &Backend) -> TestKitResult {
         let Request::NewSession {
             driver_id,
             access_mode,
@@ -544,7 +552,8 @@ impl Request {
         else {
             panic!("expected Request::NewDriver");
         };
-        let driver_holder = get_driver(backend, &driver_id)?;
+        let mut data = backend.data.borrow_mut();
+        let driver_holder = get_driver(&data, &driver_id)?;
         let mut config = SessionConfig::new();
         if let Some(bookmarks) = bookmarks {
             config = config.with_bookmarks(Bookmarks::from_raw(bookmarks));
@@ -583,20 +592,21 @@ impl Request {
                 config,
             })
             .session_id;
-        backend.session_id_to_driver_id.insert(id, Some(driver_id));
+        data.session_id_to_driver_id.insert(id, Some(driver_id));
         backend.send(&Response::Session { id })
     }
 
-    fn close_session(self, backend: &mut Backend) -> TestKitResult {
+    fn close_session(self, backend: &Backend) -> TestKitResult {
         let Request::SessionClose { session_id } = self else {
             panic!("expected Request::SessionClose");
         };
-        let Some(driver_id) = backend.session_id_to_driver_id.get_mut(&session_id) else {
+        let mut data = backend.data.borrow_mut();
+        let Some(driver_id) = data.session_id_to_driver_id.get_mut(&session_id) else {
             return Err(missing_session_error(&session_id));
         };
         driver_id
             .take()
-            .and_then(|driver_id| backend.drivers.get(&driver_id))
+            .and_then(|driver_id| data.drivers.get(&driver_id))
             .unwrap()
             .as_ref()
             .map(|driver| driver.session_close(CloseSession { session_id }).result)
@@ -604,7 +614,7 @@ impl Request {
         backend.send(&Response::Session { id: session_id })
     }
 
-    fn session_auto_commit(self, backend: &mut Backend) -> TestKitResult {
+    fn session_auto_commit(self, backend: &Backend) -> TestKitResult {
         let Request::SessionRun {
             session_id,
             query,
@@ -615,7 +625,8 @@ impl Request {
         else {
             panic!("expected Request::SessionRun");
         };
-        let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
+        let mut data = backend.data.borrow_mut();
+        let (driver_holder, driver_id) = get_driver_for_session(&data, &session_id)?;
         let params = params.map(cypher_value_map_to_value_send_map).transpose()?;
         let tx_meta = tx_meta
             .map(cypher_value_map_to_value_send_map)
@@ -629,14 +640,14 @@ impl Request {
                 timeout,
             })
             .result?;
-        backend.result_id_to_driver_id.insert(result_id, driver_id);
+        data.result_id_to_driver_id.insert(result_id, driver_id);
         backend.send(&Response::Result {
             id: result_id,
             keys: keys.into_iter().map(|k| (*k).clone()).collect(),
         })
     }
 
-    fn session_read_transaction(self, backend: &mut Backend) -> TestKitResult {
+    fn session_read_transaction(self, backend: &Backend) -> TestKitResult {
         let Request::SessionReadTransaction {
             session_id,
             tx_meta,
@@ -645,7 +656,8 @@ impl Request {
         else {
             panic!("expected Request::SessionReadTransaction");
         };
-        let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
+        let mut data = backend.data.borrow_mut();
+        let (driver_holder, driver_id) = get_driver_for_session(&data, &session_id)?;
         let tx_meta = tx_meta
             .map(cypher_value_map_to_value_send_map)
             .transpose()?;
@@ -657,10 +669,11 @@ impl Request {
                 access_mode: RoutingControl::Read,
             })
             .result?;
-        handle_retry_outcome(backend, retry_outcome, driver_id)
+        let msg = handle_retry_outcome(&mut data, retry_outcome, driver_id);
+        backend.send(&msg)
     }
 
-    fn session_write_transaction(self, backend: &mut Backend) -> TestKitResult {
+    fn session_write_transaction(self, backend: &Backend) -> TestKitResult {
         let Request::SessionWriteTransaction {
             session_id,
             tx_meta,
@@ -669,7 +682,8 @@ impl Request {
         else {
             panic!("expected Request::SessionWriteTransaction");
         };
-        let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
+        let mut data = backend.data.borrow_mut();
+        let (driver_holder, driver_id) = get_driver_for_session(&data, &session_id)?;
         let tx_meta = tx_meta
             .map(cypher_value_map_to_value_send_map)
             .transpose()?;
@@ -681,10 +695,11 @@ impl Request {
                 access_mode: RoutingControl::Write,
             })
             .result?;
-        handle_retry_outcome(backend, retry_outcome, driver_id)
+        let msg = handle_retry_outcome(&mut data, retry_outcome, driver_id);
+        backend.send(&msg)
     }
 
-    fn session_begin_transaction(self, backend: &mut Backend) -> TestKitResult {
+    fn session_begin_transaction(self, backend: &Backend) -> TestKitResult {
         let Request::SessionBeginTransaction {
             session_id,
             tx_meta,
@@ -693,7 +708,8 @@ impl Request {
         else {
             panic!("expected Request::SessionBeginTransaction");
         };
-        let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
+        let mut data = backend.data.borrow_mut();
+        let (driver_holder, driver_id) = get_driver_for_session(&data, &session_id)?;
         let tx_meta = tx_meta
             .map(cypher_value_map_to_value_send_map)
             .transpose()?;
@@ -704,15 +720,16 @@ impl Request {
                 timeout,
             })
             .result?;
-        backend.tx_id_to_driver_id.insert(tx_id, driver_id);
+        data.tx_id_to_driver_id.insert(tx_id, driver_id);
         backend.send(&Response::Transaction { id: tx_id })
     }
 
-    fn session_last_bookmarks(self, backend: &mut Backend) -> TestKitResult {
+    fn session_last_bookmarks(self, backend: &Backend) -> TestKitResult {
         let Request::SessionLastBookmarks { session_id } = self else {
             panic!("expected Request::SessionLastBookmarks");
         };
-        let (driver_holder, _) = get_driver_for_session(backend, &session_id)?;
+        let data = backend.data.borrow();
+        let (driver_holder, _) = get_driver_for_session(&data, &session_id)?;
         let bookmarks = driver_holder
             .last_bookmarks(LastBookmarks { session_id })
             .result?;
@@ -721,7 +738,7 @@ impl Request {
         })
     }
 
-    fn transaction_run(self, backend: &mut Backend) -> TestKitResult {
+    fn transaction_run(self, backend: &Backend) -> TestKitResult {
         let Request::TransactionRun {
             transaction_id,
             query,
@@ -730,138 +747,147 @@ impl Request {
         else {
             panic!("expected Request::TransactionRun");
         };
-        let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
+        let mut data = backend.data.borrow_mut();
+        let Some(&driver_id) = data.tx_id_to_driver_id.get(&transaction_id) else {
             return Err(TestKitError::backend_err(format!(
                 "Unknown transaction id {} in backend",
                 transaction_id
             )));
         };
         let params = params.map(cypher_value_map_to_value_send_map).transpose()?;
-        let (result_id, keys) = get_driver(backend, &driver_id)?
+        let (result_id, keys) = get_driver(&data, &driver_id)?
             .transaction_run(TransactionRun {
                 transaction_id,
                 query,
                 params,
             })
             .result?;
-        backend.result_id_to_driver_id.insert(result_id, driver_id);
+        data.result_id_to_driver_id.insert(result_id, driver_id);
         backend.send(&Response::Result {
             id: result_id,
             keys: keys.into_iter().map(|k| (*k).clone()).collect(),
         })
     }
 
-    fn transaction_commit(self, backend: &mut Backend) -> TestKitResult {
+    fn transaction_commit(self, backend: &Backend) -> TestKitResult {
         let Request::TransactionCommit { transaction_id } = self else {
             panic!("expected Request::TransactionCommit");
         };
-        let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
+        let data = backend.data.borrow();
+        let Some(&driver_id) = data.tx_id_to_driver_id.get(&transaction_id) else {
             return Err(TestKitError::backend_err(format!(
                 "Unknown transaction id {} in backend",
                 transaction_id
             )));
         };
-        get_driver(backend, &driver_id)?
+        get_driver(&data, &driver_id)?
             .commit_transaction(CommitTransaction { transaction_id })
             .result?;
         backend.send(&Response::Transaction { id: transaction_id })
     }
 
-    fn transaction_rollback(self, backend: &mut Backend) -> TestKitResult {
+    fn transaction_rollback(self, backend: &Backend) -> TestKitResult {
         let Request::TransactionRollback { transaction_id } = self else {
             panic!("expected Request::TransactionRollback");
         };
-        let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
+        let data = backend.data.borrow();
+        let Some(&driver_id) = data.tx_id_to_driver_id.get(&transaction_id) else {
             return Err(TestKitError::backend_err(format!(
                 "Unknown transaction id {} in backend",
                 transaction_id
             )));
         };
-        get_driver(backend, &driver_id)?
+        get_driver(&data, &driver_id)?
             .rollback_transaction(RollbackTransaction { transaction_id })
             .result??;
         backend.send(&Response::Transaction { id: transaction_id })
     }
 
-    fn transaction_close(self, backend: &mut Backend) -> TestKitResult {
+    fn transaction_close(self, backend: &Backend) -> TestKitResult {
         let Request::TransactionClose { transaction_id } = self else {
             panic!("expected Request::TransactionClose");
         };
-        let Some(&driver_id) = backend.tx_id_to_driver_id.get(&transaction_id) else {
+        let data = backend.data.borrow();
+        let Some(&driver_id) = data.tx_id_to_driver_id.get(&transaction_id) else {
             return Err(TestKitError::backend_err(format!(
                 "Unknown transaction id {} in backend",
                 transaction_id
             )));
         };
-        get_driver(backend, &driver_id)?
+        get_driver(&data, &driver_id)?
             .close_transaction(CloseTransaction { transaction_id })
             .result??;
         backend.send(&Response::Transaction { id: transaction_id })
     }
 
-    fn result_next(self, backend: &mut Backend) -> TestKitResult {
+    fn result_next(self, backend: &Backend) -> TestKitResult {
         let Request::ResultNext { result_id } = self else {
             panic!("expected Request::ResultNext");
         };
-        let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
+        let data = backend.data.borrow();
+        let Some(&driver_id) = data.result_id_to_driver_id.get(&result_id) else {
             return Err(TestKitError::backend_err(format!(
                 "Unknown result id {result_id} in backend"
             )));
         };
-        let record = get_driver(backend, &driver_id)?
+        let record = get_driver(&data, &driver_id)?
             .result_next(ResultNext { result_id })
             .result?;
         let response = write_record(record)?;
         backend.send(&response)
     }
 
-    fn result_single(self, backend: &mut Backend) -> TestKitResult {
+    fn result_single(self, backend: &Backend) -> TestKitResult {
         let Request::ResultSingle { result_id } = self else {
             panic!("expected Request::ResultSingle");
         };
-        let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
+        let data = backend.data.borrow();
+        let Some(&driver_id) = data.result_id_to_driver_id.get(&result_id) else {
             return Err(TestKitError::backend_err(format!(
                 "Unknown result id {result_id} in backend"
             )));
         };
-        let record = get_driver(backend, &driver_id)?
+        let record = get_driver(&data, &driver_id)?
             .result_single(ResultSingle { result_id })
             .result?;
         let response = write_record(Some(record))?;
         backend.send(&response)
     }
 
-    fn result_consume(self, backend: &mut Backend) -> TestKitResult {
+    fn result_consume(self, backend: &Backend) -> TestKitResult {
         let Request::ResultConsume { result_id } = self else {
             panic!("expected Request::ResultConsume");
         };
-        if let Some(summary) = backend.summaries.get(&result_id) {
+        let mut data = backend.data.borrow_mut();
+        if let Some(summary) = data.summaries.get(&result_id) {
             return backend.send(&Response::Summary(summary.clone().try_into()?));
         }
-        let Some(&driver_id) = backend.result_id_to_driver_id.get(&result_id) else {
+        let Some(&driver_id) = data.result_id_to_driver_id.get(&result_id) else {
             return Err(TestKitError::backend_err(format!(
                 "Unknown result id {result_id} in backend"
             )));
         };
-        let summary = get_driver(backend, &driver_id)?
+        let summary = get_driver(&data, &driver_id)?
             .result_consume(ResultConsume { result_id })
             .result?;
-        backend.summaries.insert(result_id, summary.clone());
+        data.summaries.insert(result_id, summary.clone());
         backend.send(&Response::Summary(summary.try_into()?))
     }
 
-    fn retryable_positive(self, backend: &mut Backend) -> TestKitResult {
+    fn retryable_positive(self, backend: &Backend) -> TestKitResult {
         let Request::RetryablePositive { session_id } = self else {
             panic!("expected Request::RetryablePositive");
         };
-        let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
+        let mut data = backend.data.borrow_mut();
+        let (driver_holder, driver_id) = get_driver_for_session(&data, &session_id)?;
         let retry_outcome = driver_holder
             .retryable_positive(RetryablePositive { session_id })
             .result?;
-        handle_retry_outcome(backend, retry_outcome, driver_id)
+        let msg = handle_retry_outcome(&mut data, retry_outcome, driver_id);
+        backend.send(&msg)
     }
 
-    fn retryable_negative(self, backend: &mut Backend) -> TestKitResult {
+    fn retryable_negative(self, backend: &Backend) -> TestKitResult {
         let Request::RetryableNegative {
             session_id,
             error_id,
@@ -869,37 +895,38 @@ impl Request {
         else {
             panic!("expected Request::RetryableNegative");
         };
-        let (driver_holder, driver_id) = get_driver_for_session(backend, &session_id)?;
+        let mut data = backend.data.borrow_mut();
+        let (driver_holder, driver_id) = get_driver_for_session(&data, &session_id)?;
         let retry_outcome = driver_holder
             .retryable_negative(RetryableNegative {
                 session_id,
                 error_id,
             })
             .result?;
-        handle_retry_outcome(backend, retry_outcome, driver_id)
+        let msg = handle_retry_outcome(&mut data, retry_outcome, driver_id);
+        backend.send(&msg)
     }
 }
 
 fn handle_retry_outcome(
-    backend: &mut Backend,
+    backend_data: &mut BackendData,
     outcome: RetryableOutcome,
     driver_id: BackendId,
-) -> TestKitResult {
-    let msg = match outcome {
+) -> Response {
+    match outcome {
         RetryableOutcome::Retry(tx_id) => {
-            backend.tx_id_to_driver_id.insert(tx_id, driver_id);
+            backend_data.tx_id_to_driver_id.insert(tx_id, driver_id);
             Response::RetryableTry { id: tx_id }
         }
         RetryableOutcome::Done => Response::RetryableDone,
-    };
-    backend.send(&msg)
+    }
 }
 
 fn get_driver<'a>(
-    backend: &'a Backend,
+    backend_data: &'a BackendData,
     driver_id: &BackendId,
 ) -> Result<&'a DriverHolder, TestKitError> {
-    backend
+    backend_data
         .drivers
         .get(driver_id)
         .ok_or_else(|| missing_driver_error(driver_id))?
@@ -908,16 +935,16 @@ fn get_driver<'a>(
 }
 
 fn get_driver_for_session<'a>(
-    backend: &'a Backend,
+    backend_data: &'a BackendData,
     session_id: &BackendId,
 ) -> Result<(&'a DriverHolder, BackendId), TestKitError> {
-    let driver_id = backend
+    let driver_id = backend_data
         .session_id_to_driver_id
         .get(session_id)
         .ok_or_else(|| missing_session_error(session_id))?
         .as_ref()
         .ok_or_else(closed_session_error)?;
-    backend
+    backend_data
         .drivers
         .get(driver_id)
         .unwrap()

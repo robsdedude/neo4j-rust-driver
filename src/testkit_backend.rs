@@ -12,18 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use atomic_refcell::AtomicRefCell;
 use log::debug;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::error::Error;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::Arc;
 
 mod backend_id;
 mod cypher_value;
 mod driver_holder;
 mod errors;
 mod requests;
+mod resolver;
 mod responses;
 mod session_holder;
 
@@ -72,7 +75,7 @@ fn handle_stream(stream: TcpStream) -> DynError {
         Err(err) => return err.into(),
     });
     let writer = BufWriter::new(stream);
-    let mut backend = Backend::new(reader, writer);
+    let backend = Backend::new(reader, writer);
     loop {
         if let Err(err) = backend.handle_request() {
             return err;
@@ -80,12 +83,21 @@ fn handle_stream(stream: TcpStream) -> DynError {
     }
 }
 
+#[derive(Debug, Clone)]
+struct Backend {
+    io: Arc<AtomicRefCell<BackendIo>>,
+    data: Arc<AtomicRefCell<BackendData>>,
+    id_generator: Generator,
+}
+
 #[derive(Debug)]
-pub(crate) struct Backend {
+struct BackendIo {
     reader: BufReader<TcpStream>,
     writer: BufWriter<TcpStream>,
+}
 
-    id_generator: Generator,
+#[derive(Debug)]
+struct BackendData {
     drivers: HashMap<BackendId, Option<DriverHolder>>,
     summaries: HashMap<BackendId, SummaryWithQuery>,
     session_id_to_driver_id: HashMap<BackendId, Option<BackendId>>,
@@ -95,68 +107,30 @@ pub(crate) struct Backend {
 
 impl Backend {
     fn new(reader: BufReader<TcpStream>, writer: BufWriter<TcpStream>) -> Self {
-        Self {
-            reader,
-            writer,
-            id_generator: Generator::new(),
+        let io = BackendIo { reader, writer };
+        let data = BackendData {
             drivers: Default::default(),
             summaries: Default::default(),
             session_id_to_driver_id: Default::default(),
             result_id_to_driver_id: Default::default(),
             tx_id_to_driver_id: Default::default(),
+        };
+        Self {
+            io: Arc::new(AtomicRefCell::new(io)),
+            data: Arc::new(AtomicRefCell::new(data)),
+            id_generator: Generator::new(),
         }
     }
+}
 
-    fn handle_request(&mut self) -> Result<(), DynError> {
-        let mut in_request = false;
-        let mut request = String::new();
-        loop {
-            let mut line = String::new();
-            let read = self.reader.read_line(&mut line)?;
-            if read == 0 {
-                return Err(TestKitError::FatalError {
-                    error: String::from("end of stream"),
-                }
-                .into());
-            }
-            while line.ends_with(char::is_whitespace) {
-                line.pop();
-            }
-            match line.as_str() {
-                "#request begin" => {
-                    if in_request {
-                        return Err(TestKitError::FatalError {
-                            error: String::from(
-                                "received '#request begin' while processing a request",
-                            ),
-                        }
-                        .into());
-                    }
-                    in_request = true;
-                }
-                "#request end" => {
-                    if !in_request {
-                        return Err(TestKitError::FatalError {
-                            error: String::from(
-                                "received '#request end' while not processing a request",
-                            ),
-                        }
-                        .into());
-                    }
-                    self.process_request(request)?;
-                    break;
-                }
-                _ => {
-                    if in_request {
-                        request += &line;
-                    }
-                }
-            }
-        }
+impl Backend {
+    fn handle_request(&self) -> Result<(), DynError> {
+        let request = self.io.borrow_mut().read_request()?;
+        self.process_request(request)?;
         Ok(())
     }
 
-    fn process_request(&mut self, request: String) -> TestKitResult {
+    fn process_request(&self, request: String) -> TestKitResult {
         debug!("<<< {request}");
         let request: Request = match serde_json::from_str(&request) {
             Ok(req) => req,
@@ -172,6 +146,69 @@ impl Backend {
         Ok(())
     }
 
+    fn send<S: Serialize>(&self, message: &S) -> TestKitResult {
+        self.io.borrow_mut().send(message)
+    }
+
+    fn send_err(&self, err: TestKitError) -> TestKitResult {
+        self.io.borrow_mut().send_err(err, &self.id_generator)
+    }
+
+    fn next_id(&self) -> BackendId {
+        self.id_generator.next_id()
+    }
+}
+
+impl BackendIo {
+    fn read_request(&mut self) -> Result<String, TestKitError> {
+        let mut in_request = false;
+        let mut request = String::new();
+        loop {
+            let mut line = String::new();
+            let read = self
+                .reader
+                .read_line(&mut line)
+                .map_err(|e| TestKitError::FatalError {
+                    error: format!("{:?}", e),
+                })?;
+            if read == 0 {
+                return Err(TestKitError::FatalError {
+                    error: String::from("end of stream"),
+                });
+            }
+            while line.ends_with(char::is_whitespace) {
+                line.pop();
+            }
+            match line.as_str() {
+                "#request begin" => {
+                    if in_request {
+                        return Err(TestKitError::FatalError {
+                            error: String::from(
+                                "received '#request begin' while processing a request",
+                            ),
+                        });
+                    }
+                    in_request = true;
+                }
+                "#request end" => {
+                    if !in_request {
+                        return Err(TestKitError::FatalError {
+                            error: String::from(
+                                "received '#request end' while not processing a request",
+                            ),
+                        });
+                    }
+                    return Ok(request);
+                }
+                _ => {
+                    if in_request {
+                        request += &line;
+                    }
+                }
+            }
+        }
+    }
+
     fn send<S: Serialize>(&mut self, message: &S) -> TestKitResult {
         let data = TestKitError::wrap_fatal(serde_json::to_string(message))?;
         debug!(">>> {data}");
@@ -182,17 +219,13 @@ impl Backend {
         Ok(())
     }
 
-    fn send_err(&mut self, err: TestKitError) -> TestKitResult {
-        let response = Response::try_from_testkit_error(err, &self.id_generator)?;
+    fn send_err(&mut self, err: TestKitError, id_generator: &Generator) -> TestKitResult {
+        let response = Response::try_from_testkit_error(err, id_generator)?;
         self.send(&response)
-    }
-
-    fn next_id(&mut self) -> BackendId {
-        self.id_generator.next_id()
     }
 }
 
-impl Drop for Backend {
+impl Drop for BackendData {
     fn drop(&mut self) {
         for (_, driver) in self.drivers.drain() {
             driver.map(|mut d| _ = d.close());

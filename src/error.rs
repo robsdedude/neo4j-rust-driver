@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::error::Error as StdError;
 // use std::backtrace::Backtrace;
 use std::fmt::{Display, Formatter};
 use std::io;
@@ -52,6 +53,7 @@ pub enum Neo4jError {
     ///    `Value::BrokenValue`)
     ///  * Can be generated using `GetSingleRecordError::into()`
     ///    (the driver itself won't perform this conversion)
+    ///  * Trying to use a `DriverConfig::resolver` that returns no addresses.
     #[error("invalid configuration: {message}")]
     #[non_exhaustive]
     InvalidConfig {
@@ -64,10 +66,14 @@ pub enum Neo4jError {
     #[non_exhaustive]
     ServerError { error: ServerError },
     /// used when
-    ///  * `Config::connection_acquisition_timeout` is exceeded
+    ///  * `DriverConfig::connection_acquisition_timeout` is exceeded
     #[error("{message}")]
     #[non_exhaustive]
     Timeout { message: String },
+    /// used when user-provided callback fails
+    #[error("{error}")]
+    #[non_exhaustive]
+    UserCallback { error: UserCallbackError },
     #[error(
         "the driver encountered a protocol violation, \
         this is likely a bug in the driver or the server: {message}"
@@ -279,6 +285,13 @@ impl Display for ServerError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "server error {}: {}", self.code, self.message)
     }
+}
+
+#[derive(Debug, Error)]
+pub enum UserCallbackError {
+    /// `DriverConfig::resolver` returned an error
+    #[error("resolver callback failed: {0}")]
+    ResolverError(Box<dyn StdError + Send + Sync>),
 }
 
 pub type Result<T> = std::result::Result<T, Neo4jError>;
