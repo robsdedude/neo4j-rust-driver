@@ -238,8 +238,12 @@ impl ServerError {
     }
 
     pub(crate) fn is_retryable(&self) -> bool {
-        self.code() == "Neo.ClientError.Security.AuthorizationExpired"
-            || self.classification() == "TransientError"
+        match self.code() {
+            "Neo.ClientError.Security.AuthorizationExpired"
+            | "Neo.ClientError.Cluster.NotALeader"
+            | "Neo.ClientError.General.ForbiddenOnReadOnlyDatabase" => true,
+            _ => self.classification() == "TransientError",
+        }
     }
 
     pub(crate) fn fatal_during_discovery(&self) -> bool {
@@ -256,6 +260,10 @@ impl ServerError {
                     && code != "Neo.ClientError.Security.AuthorizationExpired"
             }
         }
+    }
+
+    pub(crate) fn deactivates_server(&self) -> bool {
+        self.code.as_str() == "Neo.TransientError.General.DatabaseUnavailable"
     }
 
     pub(crate) fn invalidates_writer(&self) -> bool {

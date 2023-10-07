@@ -60,7 +60,9 @@ impl<'pool> PooledBolt<'pool> {
         self.wrap_io(|this| {
             let address = this.deref().address();
             let mut cb = |error: &ServerError| {
-                if error.invalidates_writer() {
+                if error.deactivates_server() {
+                    self.pool.deactivate_server(&address)
+                } else if error.invalidates_writer() {
                     self.pool.deactivate_writer(&address)
                 }
             };
@@ -77,7 +79,9 @@ impl<'pool> PooledBolt<'pool> {
         self.wrap_io(|this| {
             let address = this.deref().address();
             let mut cb = |error: &ServerError| {
-                if error.invalidates_writer() {
+                if error.deactivates_server() {
+                    self.pool.deactivate_server(&address)
+                } else if error.invalidates_writer() {
                     self.pool.deactivate_writer(&address)
                 }
             };
@@ -557,28 +561,32 @@ impl RoutingPool {
             args.bookmarks.as_deref(),
             args.db.as_deref(),
             args.imp_user.as_deref(),
-            ResponseCallbacks::new().with_on_success({
-                let rt = Arc::clone(&rt);
-                move |meta| {
-                    let new_rt = RoutingTable::try_parse(meta);
-                    let mut res;
-                    match new_rt {
-                        Ok(new_rt) => res = Some(Ok(new_rt)),
-                        Err(e) => {
-                            warn!("failed to parse routing table: {}", e);
-                            res = Some(Err(Neo4jError::protocol_error(format!("{}", e))));
+            ResponseCallbacks::new()
+                .with_on_success({
+                    let rt = Arc::clone(&rt);
+                    move |meta| {
+                        let new_rt = RoutingTable::try_parse(meta);
+                        let mut res;
+                        match new_rt {
+                            Ok(new_rt) => res = Some(Ok(new_rt)),
+                            Err(e) => {
+                                warn!("failed to parse routing table: {}", e);
+                                res = Some(Err(Neo4jError::protocol_error(format!("{}", e))));
+                            }
                         }
+                        mem::swap(rt.deref().borrow_mut().deref_mut(), &mut res);
+                        Ok(())
                     }
-                    mem::swap(rt.deref().borrow_mut().deref_mut(), &mut res);
-                    Ok(())
-                }
-            }),
+                })
+                .with_on_failure(|err| Err(err.into())),
         )?;
         con.write_all(None)?;
         con.read_all(None, None)?;
         let rt = Arc::try_unwrap(rt).expect("read_all flushes all ResponseCallbacks");
         rt.into_inner().ok_or_else(|| {
-            Neo4jError::protocol_error("server did not reply with SUCCESS to ROUTE request")
+            Neo4jError::protocol_error(
+                "server did not reply with SUCCESS or FAILURE to ROUTE request",
+            )
         })?
     }
 
