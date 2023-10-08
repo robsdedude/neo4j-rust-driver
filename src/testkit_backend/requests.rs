@@ -451,13 +451,16 @@ impl Request {
         if auth_token_manager_id.is_some() {
             return Err(TestKitError::backend_err("auth token manager unsupported"));
         }
-        if resolver_registered.unwrap_or(false) {
-            let resolver =
-                TestKitResolver::new(Arc::clone(&backend.io), backend.id_generator.clone());
+        let resolver_registered = resolver_registered.unwrap_or_default();
+        let dns_registered = dns_registered.unwrap_or_default();
+        if resolver_registered || dns_registered {
+            let resolver = TestKitResolver::new(
+                Arc::clone(&backend.io),
+                backend.id_generator.clone(),
+                resolver_registered,
+                dns_registered,
+            );
             driver_config = driver_config.with_resolver(Box::new(resolver));
-        }
-        if dns_registered.unwrap_or(false) {
-            return Err(TestKitError::backend_err("DNS resolver unsupported"));
         }
         if let Some(connection_timeout_ms) = connection_timeout_ms {
             driver_config =
