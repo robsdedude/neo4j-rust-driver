@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::io::{Error as IoError, Result as IoResult};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
+use log::error;
 
 use crate::address::{AddressResolver, AddressResolverReturn};
 use crate::Address;
@@ -24,12 +28,6 @@ use super::requests::Request;
 use super::responses::Response;
 use super::BackendIo;
 use super::Generator;
-
-/// This solution (putting custom resolution together with DNS resolution
-/// into one function) only works because this driver driver calls the custom
-/// resolver function for every connection, which is not true for all
-/// drivers. Properly exposing a way to change the DNS lookup behavior is not
-/// possible without changing the driver's code.
 
 #[derive(Debug)]
 pub(super) struct TestKitResolver {
@@ -54,7 +52,7 @@ impl TestKitResolver {
         }
     }
 
-    fn custom_resolve(&self, address: Arc<Address>) -> AddressResolverReturn {
+    fn custom_resolve(&self, address: &Address) -> AddressResolverReturn {
         let mut io = self.backend_io.borrow_mut();
         let id = self.id_generator.next_id();
         io.send(&Response::ResolverResolutionRequired {
@@ -90,63 +88,73 @@ impl TestKitResolver {
             .iter()
             .map(String::as_str)
             .map(Address::from)
-            .map(Arc::new)
             .collect())
     }
 
-    fn dns_resolve(&self, addresses: Vec<Arc<Address>>) -> AddressResolverReturn {
+    fn dns_resolve(&self, address: &Address) -> IoResult<Vec<SocketAddr>> {
         let mut io = self.backend_io.borrow_mut();
         let id = self.id_generator.next_id();
-        let mut resolved_names = Vec::with_capacity(addresses.len());
-        for address in &addresses {
-            io.send(&Response::DomainNameResolutionRequired {
-                id,
-                name: address.host().to_string(),
-            })?;
-            let request = io.read_request()?;
-            let request: Request = match serde_json::from_str(&request) {
-                Ok(req) => req,
-                Err(err) => return Err(Box::new(TestKitError::from(err))),
-            };
-            let addresses_out = match request {
-                Request::DomainNameResolutionCompleted {
-                    request_id,
-                    addresses,
-                } => {
-                    if request_id != id {
-                        return Err(Box::new(TestKitError::backend_err(format!(
-                            "expected DomainNameResolutionCompleted for id {}, received for {}",
-                            id, request_id
-                        ))));
-                    }
-                    addresses
+        testkit_to_io_error(io.send(&Response::DomainNameResolutionRequired {
+            id,
+            name: address.host().to_string(),
+        }))?;
+        let request = testkit_to_io_error(io.read_request())?;
+        let request: Request = match serde_json::from_str(&request) {
+            Ok(req) => req,
+            Err(err) => return testkit_to_io_error(Err(TestKitError::from(err))),
+        };
+        let addresses_out = match request {
+            Request::DomainNameResolutionCompleted {
+                request_id,
+                addresses,
+            } => {
+                if request_id != id {
+                    return testkit_to_io_error(Err(TestKitError::backend_err(format!(
+                        "expected DomainNameResolutionCompleted for id {}, received for {}",
+                        id, request_id
+                    ))));
                 }
-                _ => {
-                    return Err(Box::new(TestKitError::backend_err(format!(
-                        "expected DomainNameResolutionCompleted, received {:?}",
-                        request
-                    ))))
-                }
-            };
-            resolved_names.extend(
-                addresses_out
-                    .into_iter()
-                    .map(|name| Arc::new((name, address.port()).into())),
-            );
-        }
-        Ok(resolved_names)
+                addresses
+            }
+            _ => {
+                return testkit_to_io_error(Err(TestKitError::backend_err(format!(
+                    "expected DomainNameResolutionCompleted, received {request:?}",
+                ))))
+            }
+        };
+        testkit_to_io_error(
+            addresses_out
+                .into_iter()
+                .map(|name| match IpAddr::from_str(&name) {
+                    Ok(ip_addr) => Ok(SocketAddr::from((ip_addr, address.port()))),
+                    Err(err) => Err(TestKitError::backend_err(format!(
+                        "invalid IP address received from backend: {err}"
+                    ))),
+                })
+                .collect(),
+        )
     }
 }
 
+fn testkit_to_io_error<T>(res: Result<T, TestKitError>) -> IoResult<T> {
+    res.map_err(|err| {
+        error!("TestKit messed up DNS resolution request: {err:?}");
+        IoError::new(std::io::ErrorKind::Other, err)
+    })
+}
+
 impl AddressResolver for TestKitResolver {
-    fn resolve(&self, address: Arc<Address>) -> AddressResolverReturn {
-        let resolved_addresses = match self.resolver_registered {
-            true => self.custom_resolve(address)?,
-            false => vec![address],
-        };
+    fn resolve(&self, address: &Address) -> AddressResolverReturn {
+        match self.resolver_registered {
+            true => self.custom_resolve(address),
+            false => Ok(vec![address.clone()]),
+        }
+    }
+
+    fn dns_resolve(&self, address: &Address) -> IoResult<Vec<SocketAddr>> {
         match self.dns_resolver_registered {
-            true => self.dns_resolve(resolved_addresses),
-            false => Ok(resolved_addresses),
+            true => self.dns_resolve(address),
+            false => address.to_socket_addrs().map(|addrs| addrs.collect()),
         }
     }
 }

@@ -23,7 +23,6 @@ use parking_lot::{Condvar, Mutex, RawMutex};
 
 use super::super::bolt::{self, TcpBolt};
 use super::PoolConfig;
-use crate::address::resolve_address_fully;
 use crate::{Address, Neo4jError, Result};
 
 type PoolElement = TcpBolt;
@@ -84,7 +83,7 @@ impl InnerPool {
 
     fn open_socket(&self, address: Arc<Address>, deadline: Option<Instant>) -> Result<TcpBolt> {
         let mut last_err = None;
-        for address in resolve_address_fully(address, self.config.resolver.as_deref())? {
+        for address in address.fully_resolve(self.config.resolver.as_deref())? {
             last_err = match address {
                 Ok(address) => {
                     match bolt::open(address, deadline, self.config.connection_timeout) {

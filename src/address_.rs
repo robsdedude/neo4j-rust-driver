@@ -14,11 +14,17 @@
 
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
+use std::io::Result as IoResult;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::vec::IntoIter;
 
+use crate::Result;
+
 pub(crate) mod resolution;
+
+use resolution::{AddressResolver, CustomResolution, DnsResolution};
 
 pub(crate) const DEFAULT_PORT: u16 = 7687;
 const COLON_BYTES: usize = ':'.len_utf8();
@@ -28,7 +34,8 @@ pub struct Address {
     host: String,
     port: u16,
     key: String,
-    pub(crate) is_resolved: bool,
+    pub(crate) is_custom_resolved: bool,
+    pub(crate) is_dns_resolved: bool,
 }
 
 impl PartialEq for Address {
@@ -48,17 +55,42 @@ impl Hash for Address {
 }
 
 impl Address {
-    fn resolve(&self) -> std::io::Result<Vec<Address>> {
-        if self.is_resolved {
-            return Ok(vec![self.clone()]);
-        }
-        Ok(self.to_socket_addrs()?.map(Address::from).collect())
+    pub(crate) fn fully_resolve<'resolver>(
+        self: Arc<Self>,
+        resolver: Option<&'resolver dyn AddressResolver>,
+    ) -> Result<impl Iterator<Item = IoResult<Arc<Self>>> + 'resolver> {
+        self.custom_resolve(resolver).map(move |addrs| {
+            addrs.flat_map(move |a| {
+                a.dns_resolve(
+                    #[cfg(feature = "_internal_testkit_backend")]
+                    resolver,
+                )
+            })
+        })
+    }
+
+    pub(crate) fn custom_resolve(
+        self: Arc<Self>,
+        resolver: Option<&dyn AddressResolver>,
+    ) -> Result<impl Iterator<Item = Arc<Self>>> {
+        CustomResolution::new(self, resolver)
+    }
+
+    pub(crate) fn dns_resolve(
+        self: Arc<Self>,
+        #[cfg(feature = "_internal_testkit_backend")] resolver: Option<&dyn AddressResolver>,
+    ) -> impl Iterator<Item = IoResult<Arc<Self>>> {
+        DnsResolution::new(
+            self,
+            #[cfg(feature = "_internal_testkit_backend")]
+            resolver,
+        )
     }
 
     fn normalize_ip(host: &str) -> (bool, String) {
         IpAddr::from_str(host)
-            .map(|addr| (true, format!("{addr}")))
-            .unwrap_or_else(|_| (false, String::from(host)))
+            .map(|addr| (true, addr.to_string()))
+            .unwrap_or_else(|_| (false, host.to_string()))
     }
 
     pub fn host(&self) -> &str {
@@ -87,7 +119,8 @@ impl From<(String, u16)> for Address {
             host,
             port,
             key,
-            is_resolved,
+            is_custom_resolved: false,
+            is_dns_resolved: is_resolved,
         }
     }
 }
@@ -99,7 +132,8 @@ impl From<(&str, u16)> for Address {
             host: String::from(host),
             port,
             key,
-            is_resolved,
+            is_custom_resolved: false,
+            is_dns_resolved: is_resolved,
         }
     }
 }
@@ -145,7 +179,8 @@ impl From<&str> for Address {
             host,
             port,
             key,
-            is_resolved,
+            is_custom_resolved: false,
+            is_dns_resolved: is_resolved,
         }
     }
 }

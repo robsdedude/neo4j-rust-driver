@@ -16,148 +16,158 @@ use log::debug;
 use std::error::Error as StdError;
 use std::fmt::Debug;
 use std::io::Result as IoResult;
-use std::mem;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::result::Result as StdResult;
 use std::sync::Arc;
+use std::vec::IntoIter;
 
 use super::Address;
 use crate::error::UserCallbackError;
 use crate::{Neo4jError, Result};
 
 type BoxError = Box<dyn StdError + Send + Sync>;
-pub type AddressResolverReturn = StdResult<Vec<Arc<Address>>, BoxError>;
+pub type AddressResolverReturn = StdResult<Vec<Address>, BoxError>;
 
 pub trait AddressResolver: Debug + Send + Sync {
     /// must not return an empty vector
-    fn resolve(&self, address: Arc<Address>) -> AddressResolverReturn;
+    fn resolve(&self, address: &Address) -> AddressResolverReturn;
+    #[cfg(feature = "_internal_testkit_backend")]
+    fn dns_resolve(&self, address: &Address) -> IoResult<Vec<SocketAddr>>;
 }
 
-pub(crate) fn custom_resolve_address(
-    address: Arc<Address>,
-    resolver: Option<&dyn AddressResolver>,
-) -> Result<Vec<Arc<Address>>> {
-    match resolver {
-        None => Ok(vec![address]),
-        Some(resolver) => custom_resolve(address, resolver),
-    }
+#[derive(Debug)]
+pub(super) enum CustomResolution {
+    NoResolver(Option<Arc<Address>>),
+    Resolver(Vec<Arc<Address>>),
 }
 
-pub(crate) fn resolve_address_fully(
-    address: Arc<Address>,
-    resolver: Option<&dyn AddressResolver>,
-) -> Result<impl Iterator<Item = IoResult<Arc<Address>>>> {
-    AddressResolution::new(address, resolver)
-}
-
-enum AddressResolution {
-    NoResolver {
-        dns_buffer: IoResult<Vec<Arc<Address>>>,
-    },
-    Resolver {
-        resolver_buffer: Vec<Arc<Address>>,
-        dns_buffer: IoResult<Vec<Arc<Address>>>,
-    },
-}
-
-impl AddressResolution {
-    fn new(address: Arc<Address>, resolver: Option<&dyn AddressResolver>) -> Result<Self> {
-        debug!("resolve in: {address:?}");
+impl CustomResolution {
+    pub(super) fn new(
+        address: Arc<Address>,
+        resolver: Option<&dyn AddressResolver>,
+    ) -> Result<Self> {
         match resolver {
-            None => {
-                let dns_buffer = dns_resolve(address);
-                Ok(AddressResolution::NoResolver { dns_buffer })
-            }
+            None => Ok(Self::NoResolver(Some(address))),
+            Some(_) if address.is_custom_resolved => Ok(Self::NoResolver(Some(address))),
             Some(resolver) => {
-                let resolver_buffer = custom_resolve(address, resolver)?
-                    .into_iter()
-                    .rev()
-                    .collect::<Vec<_>>();
-                if resolver_buffer.is_empty() {
-                    return Err(Neo4jError::InvalidConfig {
-                        message: String::from("DriverConfig::resolver returned no addresses."),
-                    });
+                debug!("custom resolver in: {address}");
+                let res = resolver.resolve(&address);
+                match res {
+                    Ok(mut addrs) => {
+                        addrs.iter_mut().for_each(|a| a.is_custom_resolved = true);
+                        let addrs = addrs.into_iter().rev().map(Arc::new).collect::<Vec<_>>();
+                        debug!(
+                            "custom resolver out: {:?}",
+                            addrs.iter().map(|a| format!("{a}")).collect::<Vec<_>>()
+                        );
+                        if addrs.is_empty() {
+                            return Err(Neo4jError::InvalidConfig {
+                                message: String::from(
+                                    "DriverConfig::resolver returned no addresses.",
+                                ),
+                            });
+                        }
+                        Ok(Self::Resolver(addrs))
+                    }
+                    Err(err) => {
+                        debug!("custom resolver failed: {:?}", err);
+                        Err(Neo4jError::UserCallback {
+                            error: UserCallbackError::ResolverError(err),
+                        })
+                    }
                 }
-                Ok(AddressResolution::Resolver {
-                    resolver_buffer,
-                    dns_buffer: Ok(Default::default()),
-                })
             }
         }
     }
 }
 
-impl Iterator for AddressResolution {
+impl Iterator for CustomResolution {
+    type Item = Arc<Address>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            CustomResolution::NoResolver(address) => address.take(),
+            CustomResolution::Resolver(addresses) => addresses.pop(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) enum DnsResolution {
+    AlreadyResolved(Option<Arc<Address>>),
+    RealResolution(Option<IoResult<Vec<Arc<Address>>>>),
+}
+
+fn dns_resolve(
+    address: &Address,
+    #[cfg(feature = "_internal_testkit_backend")] resolver: Option<&dyn AddressResolver>,
+) -> IoResult<IntoIter<SocketAddr>> {
+    #[cfg(feature = "_internal_testkit_backend")]
+    {
+        match resolver {
+            None => address.to_socket_addrs(),
+            Some(resolver) => resolver.dns_resolve(address).map(|addrs| addrs.into_iter()),
+        }
+    }
+    #[cfg(not(feature = "_internal_testkit_backend"))]
+    {
+        address.to_socket_addrs()
+    }
+}
+
+impl DnsResolution {
+    pub(super) fn new(
+        address: Arc<Address>,
+        #[cfg(feature = "_internal_testkit_backend")] resolver: Option<&dyn AddressResolver>,
+    ) -> Self {
+        if address.is_dns_resolved {
+            Self::AlreadyResolved(Some(address))
+        } else {
+            debug!("dns resolver in: {address}");
+            let res = dns_resolve(
+                &address,
+                #[cfg(feature = "_internal_testkit_backend")]
+                resolver,
+            )
+            .map(|resolved| {
+                resolved
+                    .map(|resolved| Address {
+                        host: resolved.ip().to_string(),
+                        port: resolved.port(),
+                        key: address.host.clone(),
+                        is_custom_resolved: address.is_custom_resolved,
+                        is_dns_resolved: true,
+                    })
+                    .map(Arc::new)
+                    .collect::<Vec<_>>()
+            });
+            match &res {
+                Ok(addrs) => {
+                    debug!(
+                        "dns resolver out: {:?}",
+                        addrs.iter().map(|a| format!("{a}")).collect::<Vec<_>>()
+                    );
+                }
+                Err(err) => {
+                    debug!("dns resolver out: {:?}", err);
+                }
+            }
+            Self::RealResolution(Some(res))
+        }
+    }
+}
+
+impl Iterator for DnsResolution {
     type Item = IoResult<Arc<Address>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            AddressResolution::NoResolver { dns_buffer } => from_dns_buffer(dns_buffer),
-            AddressResolution::Resolver {
-                resolver_buffer,
-                dns_buffer,
-            } => loop {
-                if let Some(res) = from_dns_buffer(dns_buffer) {
-                    return Some(res);
-                }
-                if let Some(resolved) = resolver_buffer.pop() {
-                    *dns_buffer = dns_resolve(resolved);
-                    continue;
-                }
-                return None;
+            DnsResolution::AlreadyResolved(address) => address.take().map(Ok),
+            DnsResolution::RealResolution(res) => match res {
+                None => None,
+                Some(Err(_)) => Some(Err(res.take().unwrap().unwrap_err())),
+                Some(Ok(resolved)) => resolved.pop().map(Ok),
             },
-        }
-    }
-}
-
-fn custom_resolve(
-    address: Arc<Address>,
-    resolver: &dyn AddressResolver,
-) -> Result<Vec<Arc<Address>>> {
-    debug!("custom resolver in: {address}");
-    let res = resolver.resolve(address);
-    match res {
-        Ok(addrs) => {
-            debug!(
-                "custom resolver out: {:?}",
-                addrs.iter().map(|a| format!("{a}")).collect::<Vec<_>>()
-            );
-            Ok(addrs)
-        }
-        Err(err) => {
-            debug!("custom resolver failed: {:?}", err);
-            Err(Neo4jError::UserCallback {
-                error: UserCallbackError::ResolverError(err),
-            })
-        }
-    }
-}
-
-pub(crate) fn dns_resolve(address: Arc<Address>) -> IoResult<Vec<Arc<Address>>> {
-    debug!("dns resolver in: {address}");
-    let res = address
-        .resolve()
-        .map(|addrs| addrs.into_iter().map(Arc::new).collect::<Vec<_>>());
-    match &res {
-        Ok(addrs) => {
-            debug!(
-                "dns resolver out: {:?}",
-                addrs.iter().map(|a| format!("{a}")).collect::<Vec<_>>()
-            );
-        }
-        Err(err) => {
-            debug!("dns resolver out: {:?}", err);
-        }
-    }
-    res
-}
-
-fn from_dns_buffer(dns_buffer: &mut IoResult<Vec<Arc<Address>>>) -> Option<IoResult<Arc<Address>>> {
-    match dns_buffer {
-        Ok(buff) => buff.pop().map(Ok),
-        Err(_) => {
-            let mut taken_err = Ok(vec![]);
-            mem::swap(dns_buffer, &mut taken_err);
-            Some(Err(taken_err.unwrap_err()))
         }
     }
 }

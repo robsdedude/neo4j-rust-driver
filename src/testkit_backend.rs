@@ -131,7 +131,6 @@ impl Backend {
     }
 
     fn process_request(&self, request: String) -> TestKitResult {
-        debug!("<<< {request}");
         let request: Request = match serde_json::from_str(&request) {
             Ok(req) => req,
             Err(err) => return self.send_err(TestKitError::from(err)),
@@ -198,6 +197,7 @@ impl BackendIo {
                             ),
                         });
                     }
+                    debug!("<<< {request}");
                     return Ok(request);
                 }
                 _ => {

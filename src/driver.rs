@@ -24,8 +24,9 @@ pub mod transaction;
 pub use config::{ConfigureFetchSizeError, ConnectionConfig, DriverConfig};
 use std::sync::Arc;
 
+use crate::Result;
 pub use eager_result::EagerResult;
-use io::{Pool, PoolConfig};
+use io::{AcquireConfig, Pool, PoolConfig, UpdateRtArgs};
 pub use record::Record;
 use session::{Session, SessionConfig};
 
@@ -33,6 +34,7 @@ use session::{Session, SessionConfig};
 pub struct Driver {
     pub(crate) config: ReducedDriverConfig,
     pub(crate) pool: Pool,
+    capability_check_db: Option<String>,
 }
 
 impl Driver {
@@ -61,11 +63,25 @@ impl Driver {
                 fetch_size: config.fetch_size,
             },
             pool: Pool::new(Arc::new(connection_config.address), pool_config),
+            capability_check_db: Some(String::from("system")),
         }
     }
 
     pub fn session<C: AsRef<SessionConfig>>(&self, config: C) -> Session<C> {
         Session::new(config, &self.pool, &self.config)
+    }
+
+    pub fn supports_multi_db(&self) -> Result<bool> {
+        self.pool
+            .acquire(AcquireConfig {
+                mode: RoutingControl::Read,
+                update_rt_args: UpdateRtArgs {
+                    db: &self.capability_check_db,
+                    bookmarks: &None,
+                    imp_user: &None,
+                },
+            })
+            .map(|connection| connection.protocol_version() >= (4, 0))
     }
 }
 

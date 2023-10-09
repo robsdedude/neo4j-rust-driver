@@ -177,8 +177,9 @@ impl Neo4jError {
 
     pub(crate) fn fatal_during_discovery(&self) -> bool {
         match self {
-            Neo4jError::InvalidConfig { .. } => true,
             Neo4jError::ServerError { error } => error.fatal_during_discovery(),
+            Neo4jError::InvalidConfig { .. } => true,
+            Neo4jError::UserCallback { .. } => true,
             _ => false,
         }
     }

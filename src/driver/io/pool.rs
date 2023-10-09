@@ -28,7 +28,7 @@ use log::{debug, info, warn};
 use parking_lot::{Condvar, Mutex, RwLockReadGuard};
 
 use super::bolt::ResponseCallbacks;
-use crate::address::{custom_resolve_address, dns_resolve, AddressResolver};
+use crate::address::AddressResolver;
 use crate::driver::RoutingControl;
 use crate::error::ServerError;
 use crate::sync::MostlyRLock;
@@ -520,34 +520,19 @@ impl RoutingPool {
     ) -> Result<Result<RoutingTable>> {
         let mut last_err = None;
         for router in routers {
-            if router.is_resolved {
+            for resolution in Arc::clone(router).fully_resolve(self.config.resolver.as_deref())? {
+                let Ok(resolved) = resolution else {
+                    self.deactivate_server_locked_rts(router, rts);
+                    continue;
+                };
                 match Self::wrap_discovery_error(
-                    self.acquire_routing_address(router)
+                    self.acquire_routing_address(&resolved)
                         .and_then(|mut con| self.fetch_rt_from_router(&mut con, args)),
                 )? {
                     Ok(rt) => return Ok(Ok(rt)),
                     Err(err) => last_err = Some(err),
                 };
-                self.deactivate_server_locked_rts(router, rts);
-            } else {
-                for custom_resolved_address in
-                    custom_resolve_address(Arc::clone(router), self.config.resolver.as_deref())?
-                {
-                    let Ok(resolved_addresses) = dns_resolve(custom_resolved_address) else {
-                        self.deactivate_server_locked_rts(router, rts);
-                        continue;
-                    };
-                    for resolved_address in resolved_addresses.into_iter().map(Arc::new) {
-                        match Self::wrap_discovery_error(
-                            self.acquire_routing_address(&resolved_address)
-                                .and_then(|mut con| self.fetch_rt_from_router(&mut con, args)),
-                        )? {
-                            Ok(rt) => return Ok(Ok(rt)),
-                            Err(err) => last_err = Some(err),
-                        };
-                        self.deactivate_server_locked_rts(&resolved_address, rts);
-                    }
-                }
+                self.deactivate_server_locked_rts(&resolved, rts);
             }
         }
         Ok(Err(match last_err {
@@ -589,11 +574,31 @@ impl RoutingPool {
         con.write_all(None)?;
         con.read_all(None, None)?;
         let rt = Arc::try_unwrap(rt).expect("read_all flushes all ResponseCallbacks");
-        rt.into_inner().ok_or_else(|| {
+        let rt = rt.into_inner().ok_or_else(|| {
             Neo4jError::protocol_error(
                 "server did not reply with SUCCESS or FAILURE to ROUTE request",
             )
-        })?
+        })?;
+        if let Ok(rt) = &rt {
+            if rt.routers.is_empty() {
+                debug!("received routing table without readers -> discarded");
+                // It's not technically a disconnect error, but we need to signal that this RT
+                // should not be used, the server should be invalidated, and another server, if
+                // available, should be tried.
+                return Err(Neo4jError::disconnect(
+                    "received routing table without readers",
+                ));
+            }
+            if rt.readers.is_empty() {
+                debug!("received routing table without readers -> discarded");
+                return Err(Neo4jError::disconnect(
+                    "received routing table without readers",
+                ));
+            }
+            // If no writers are available, this likely indicates a temporary state, such as leader
+            // switching, so we should not signal an error.
+        }
+        rt
     }
 
     fn empty_rt(&self) -> RoutingTable {
