@@ -71,24 +71,21 @@ enum ReaderErrorDuring {
     IO,
 }
 
-pub(crate) struct DeadlineIO<'tcp, R, W> {
-    reader: R,
-    writer: W,
+pub(crate) struct DeadlineIO<'tcp, S> {
+    stream: S,
     deadline: Option<Instant>,
     socket: Option<&'tcp TcpStream>,
     error_during: Option<ReaderErrorDuring>,
 }
 
-impl<'tcp, R: Read, W: Write> DeadlineIO<'tcp, R, W> {
+impl<'tcp, S: Read + Write> DeadlineIO<'tcp, S> {
     pub(crate) fn new(
-        reader: R,
-        writer: W,
+        stream: S,
         deadline: Option<Instant>,
         socket: Option<&'tcp TcpStream>,
     ) -> Self {
         Self {
-            reader,
-            writer,
+            stream,
             deadline,
             socket,
             error_during: None,
@@ -156,7 +153,7 @@ fn set_socket_timeout(socket: &TcpStream, timeout: Option<Duration>) -> io::Resu
     socket.set_write_timeout(timeout)
 }
 
-impl<'tcp, R, W> Debug for DeadlineIO<'tcp, R, W> {
+impl<'tcp, S> Debug for DeadlineIO<'tcp, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DeadlineIO")
             .field("deadline", &self.deadline)
@@ -165,18 +162,18 @@ impl<'tcp, R, W> Debug for DeadlineIO<'tcp, R, W> {
     }
 }
 
-impl<'tcp, R: Read, W: Write> Read for DeadlineIO<'tcp, R, W> {
+impl<'tcp, S: Read + Write> Read for DeadlineIO<'tcp, S> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.with_deadline(|self_| self_.reader.read(buf))
+        self.with_deadline(|self_| self_.stream.read(buf))
     }
 }
 
-impl<'tcp, R: Read, W: Write> Write for DeadlineIO<'tcp, R, W> {
+impl<'tcp, S: Read + Write> Write for DeadlineIO<'tcp, S> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.with_deadline(|self_| self_.writer.write(buf))
+        self.with_deadline(|self_| self_.stream.write(buf))
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.with_deadline(|self_| self_.writer.flush())
+        self.with_deadline(|self_| self_.stream.flush())
     }
 }

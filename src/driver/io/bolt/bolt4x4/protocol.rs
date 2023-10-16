@@ -55,9 +55,9 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> Bolt4x4<T> {
 }
 
 impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol for Bolt4x4<T> {
-    fn hello<R: Read, W: Write>(
+    fn hello<RW: Read + Write>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         user_agent: &str,
         auth: &HashMap<String, ValueSend>,
         routing_context: Option<&HashMap<String, ValueSend>>,
@@ -165,26 +165,26 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
         Ok(())
     }
 
-    fn goodbye<R: Read, W: Write>(&mut self, data: &mut BoltData<R, W>) -> Result<()> {
+    fn goodbye<RW: Read + Write>(&mut self, data: &mut BoltData<RW>) -> Result<()> {
         self.bolt5x0.goodbye(data)
     }
 
-    fn reset<R: Read, W: Write>(&mut self, data: &mut BoltData<R, W>) -> Result<()> {
+    fn reset<RW: Read + Write>(&mut self, data: &mut BoltData<RW>) -> Result<()> {
         self.bolt5x0.reset(data)
     }
 
-    fn run<R: Read, W: Write, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
+    fn run<RW: Read + Write, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         parameters: RunParameters<KP, KM>,
         callbacks: ResponseCallbacks,
     ) -> Result<()> {
         self.bolt5x0.run(data, parameters, callbacks)
     }
 
-    fn discard<R: Read, W: Write>(
+    fn discard<RW: Read + Write>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         n: i64,
         qid: i64,
         callbacks: ResponseCallbacks,
@@ -192,9 +192,9 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
         self.bolt5x0.discard(data, n, qid, callbacks)
     }
 
-    fn pull<R: Read, W: Write>(
+    fn pull<RW: Read + Write>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         n: i64,
         qid: i64,
         callbacks: ResponseCallbacks,
@@ -202,9 +202,9 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
         self.bolt5x0.pull(data, n, qid, callbacks)
     }
 
-    fn begin<R: Read, W: Write, K: Borrow<str> + Debug>(
+    fn begin<RW: Read + Write, K: Borrow<str> + Debug>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         bookmarks: Option<&[String]>,
         tx_timeout: Option<i64>,
         tx_metadata: Option<&HashMap<K, ValueSend>>,
@@ -216,21 +216,21 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
             .begin(data, bookmarks, tx_timeout, tx_metadata, mode, db, imp_user)
     }
 
-    fn commit<R: Read, W: Write>(
+    fn commit<RW: Read + Write>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         callbacks: ResponseCallbacks,
     ) -> Result<()> {
         self.bolt5x0.commit(data, callbacks)
     }
 
-    fn rollback<R: Read, W: Write>(&mut self, data: &mut BoltData<R, W>) -> Result<()> {
+    fn rollback<RW: Read + Write>(&mut self, data: &mut BoltData<RW>) -> Result<()> {
         self.bolt5x0.rollback(data)
     }
 
-    fn route<R: Read, W: Write>(
+    fn route<RW: Read + Write>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         routing_context: &HashMap<String, ValueSend>,
         bookmarks: Option<&[String]>,
         db: Option<&str>,
@@ -245,9 +245,9 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
         self.bolt5x0.load_value(reader)
     }
 
-    fn handle_response<R: Read, W: Write>(
+    fn handle_response<RW: Read + Write>(
         &mut self,
-        bolt_data: &mut BoltData<R, W>,
+        bolt_data: &mut BoltData<RW>,
         message: BoltMessage<ValueReceive>,
         on_server_error: OnServerErrorCb,
     ) -> Result<()> {

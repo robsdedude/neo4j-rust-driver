@@ -16,6 +16,7 @@ use neo4j::testkit_backend;
 
 fn main() {
     env_logger::builder()
+        .target(env_logger::Target::Stdout)
         .format_timestamp_millis()
         .format_module_path(false)
         .format_target(false)

@@ -14,27 +14,33 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::fs::File;
+use std::io::{BufReader, Result as IoResult};
 use std::path::Path;
 use std::result::Result as StdResult;
+use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
+#[cfg(feature = "rustls_dangerous_configuration")]
+use std::time::SystemTime;
 
-use openssl::error::ErrorStack;
-#[cfg(not(test))]
-use openssl::ssl::{SslContext, SslContextBuilder};
-use openssl::ssl::{SslMethod, SslVerifyMode, SslVersion};
-#[cfg(test)]
-use tests::{MockSslContext as SslContext, MockSslContextBuilder as SslContextBuilder};
+#[cfg(feature = "rustls_dangerous_configuration")]
+use rustls::client::{ServerCertVerified, ServerCertVerifier, ServerName};
+#[cfg(feature = "rustls_dangerous_configuration")]
+use rustls::Error as RustlsError;
+use rustls::{Certificate, ClientConfig, RootCertStore};
 use thiserror::Error;
 use uriparse::{Query, URIError, URI};
 
 use crate::address::AddressResolver;
 use crate::address_::DEFAULT_PORT;
-use crate::{Address, Neo4jError, Result, ValueSend};
+use crate::{Address, ValueSend};
 
 const DEFAULT_USER_AGENT: &str = env!("NEO4J_DEFAULT_USER_AGENT");
 pub(crate) const DEFAULT_FETCH_SIZE: i64 = 1000;
 pub(crate) const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const DEFAULT_CONNECTION_ACQUISITION_TIMEOUT: Duration = Duration::from_secs(60);
+static SYSTEM_CERTIFICATES: OnceLock<StdResult<Arc<RootCertStore>, String>> = OnceLock::new();
 
 #[derive(Debug)]
 pub struct DriverConfig {
@@ -45,11 +51,7 @@ pub struct DriverConfig {
     pub(crate) fetch_size: i64,
     pub(crate) connection_timeout: Option<Duration>,
     pub(crate) connection_acquisition_timeout: Option<Duration>,
-    // trust
     pub(crate) resolver: Option<Box<dyn AddressResolver>>,
-    // encrypted
-    // trusted_certificates
-    // ssl_context
     // keep_alive
 }
 
@@ -57,7 +59,7 @@ pub struct DriverConfig {
 pub struct ConnectionConfig {
     pub(crate) address: Address,
     pub(crate) routing_context: Option<HashMap<String, ValueSend>>,
-    pub(crate) ssl_context: Option<SslContext>,
+    pub(crate) tls_config: Option<ClientConfig>,
 }
 
 impl Default for DriverConfig {
@@ -173,7 +175,7 @@ impl ConnectionConfig {
         Self {
             address,
             routing_context: Some(HashMap::new()),
-            ssl_context: None,
+            tls_config: None,
         }
     }
 
@@ -211,75 +213,95 @@ impl ConnectionConfig {
         Ok(self)
     }
 
-    pub fn with_encryption_trust_system_cas(mut self) -> Result<Self> {
-        self.ssl_context = Some(Self::secure_ssl_context()?);
+    pub fn with_encryption_trust_default_cas(mut self) -> StdResult<Self, TlsConfigError> {
+        self.tls_config = Some(match Self::secure_tls_config() {
+            Ok(config) => config,
+            Err(message) => {
+                return Err(TlsConfigError {
+                    message,
+                    config: self,
+                })
+            }
+        });
         Ok(self)
     }
 
-    pub fn with_encryption_trust_custom_cas<P: AsRef<Path>>(mut self, path: P) -> Result<Self> {
-        self.ssl_context = Some(Self::custom_ca_ssl_context(path.as_ref())?);
+    pub fn with_encryption_trust_custom_cas<P: AsRef<Path>>(
+        self,
+        paths: &[P],
+    ) -> StdResult<Self, TlsConfigError> {
+        fn inner<'a>(
+            mut config: ConnectionConfig,
+            paths: impl Iterator<Item = &'a Path>,
+        ) -> StdResult<ConnectionConfig, TlsConfigError> {
+            config.tls_config = Some(match ConnectionConfig::custom_ca_tls_config(paths) {
+                Ok(config) => config,
+                Err(message) => return Err(TlsConfigError { message, config }),
+            });
+            Ok(config)
+        }
+        inner(self, paths.iter().map(|path| path.as_ref()))
+    }
+
+    #[cfg(feature = "rustls_dangerous_configuration")]
+    pub fn with_encryption_trust_any_certificate(mut self) -> StdResult<Self, TlsConfigError> {
+        self.tls_config = Some(Self::self_signed_tls_config());
         Ok(self)
     }
 
-    pub fn with_encryption_trust_any_certificate(mut self) -> Result<Self> {
-        self.ssl_context = Some(Self::self_signed_ssl_context()?);
-        Ok(self)
-    }
-
-    pub fn with_encryption_custom_ssl_context(mut self, ssl_context: SslContext) -> Self {
-        self.ssl_context = Some(ssl_context);
+    pub fn with_encryption_custom_tls_config(mut self, tls_config: ClientConfig) -> Self {
+        self.tls_config = Some(tls_config);
         self
     }
 
     pub fn with_encryption_disabled(mut self) -> Self {
-        self.ssl_context = None;
+        self.tls_config = None;
         self
     }
 
-    fn parse_uri(uri: &str) -> Result<ConnectionConfig> {
+    fn parse_uri(uri: &str) -> StdResult<ConnectionConfig, ConnectionConfigParseError> {
         let uri = URI::try_from(uri)?;
 
-        let (routing, ssl_context) = match uri.scheme().as_str() {
+        let (routing, tls_config) = match uri.scheme().as_str() {
             "neo4j" => (true, None),
-            "neo4j+s" => (true, Some(Self::secure_ssl_context()?)),
-            "neo4j+ssc" => (true, Some(Self::self_signed_ssl_context()?)),
+            "neo4j+s" => (true, Some(Self::secure_tls_config()?)),
+            "neo4j+ssc" => (true, Some(Self::try_self_signed_tls_config()?)),
             "bolt" => (false, None),
-            "bolt+s" => (false, Some(Self::secure_ssl_context()?)),
-            "bolt+ssc" => (false, Some(Self::self_signed_ssl_context()?)),
+            "bolt+s" => (false, Some(Self::secure_tls_config()?)),
+            "bolt+ssc" => (false, Some(Self::try_self_signed_tls_config()?)),
             scheme => {
-                return Err(Neo4jError::InvalidConfig {
-                    message: format!(
+                return Err(ConnectionConfigParseError(format!(
                     "unknown scheme in URI {} expected `neo4j`, `neo4j`, `neo4j+s`, `neo4j+ssc`, \
                          `bolt`, `bolt+s`, or `bolt+ssc`",
                     scheme
-                ),
-                })
+                )))
             }
         };
 
-        let authority = uri.authority().ok_or(Neo4jError::InvalidConfig {
-            message: String::from("missing host in URI"),
-        })?;
+        let authority = uri
+            .authority()
+            .ok_or(ConnectionConfigParseError(String::from(
+                "missing host in URI",
+            )))?;
         if authority.has_username() {
-            return Err(Neo4jError::InvalidConfig {
-                message: format!(
-                    "URI cannot contain a username, found: {}",
-                    authority.username().unwrap()
-                ),
-            });
+            return Err(ConnectionConfigParseError(format!(
+                "URI cannot contain a username, found: {}",
+                authority.username().unwrap()
+            )));
         }
         if authority.has_password() {
-            return Err(Neo4jError::InvalidConfig {
-                message: String::from("URI cannot contain a password"),
-            });
+            return Err(ConnectionConfigParseError(String::from(
+                "URI cannot contain a password",
+            )));
         }
         let host = authority.host().to_string();
         let port = authority.port().unwrap_or(DEFAULT_PORT);
 
         if uri.path() != "/" {
-            return Err(Neo4jError::InvalidConfig {
-                message: format!("URI cannot contain a path, found: {}", uri.path()),
-            });
+            return Err(ConnectionConfigParseError(format!(
+                "URI cannot contain a path, found: {}",
+                uri.path()
+            )));
         }
 
         let routing_context = match uri.query() {
@@ -295,13 +317,11 @@ impl ConnectionConfig {
                     Some(HashMap::new())
                 } else {
                     if !routing {
-                        return Err(Neo4jError::InvalidConfig {
-                            message: format!(
-                                "URI with bolt scheme cannot contain a query \
+                        return Err(ConnectionConfigParseError(format!(
+                            "URI with bolt scheme cannot contain a query \
                                                   (routing context), found: {}",
-                                query,
-                            ),
-                        });
+                            query,
+                        )));
                     }
                     Some(Self::parse_query(query)?)
                 }
@@ -309,78 +329,161 @@ impl ConnectionConfig {
         };
 
         if let Some(fragment) = uri.fragment() {
-            return Err(Neo4jError::InvalidConfig {
-                message: format!("URI cannot contain a fragment, found: {}", fragment),
-            });
+            return Err(ConnectionConfigParseError(format!(
+                "URI cannot contain a fragment, found: {}",
+                fragment
+            )));
         }
 
         Ok(ConnectionConfig {
             address: (host, port).into(),
             routing_context,
-            ssl_context,
+            tls_config,
         })
     }
 
-    fn parse_query(query: &Query) -> Result<HashMap<String, ValueSend>> {
+    fn parse_query(
+        query: &Query,
+    ) -> StdResult<HashMap<String, ValueSend>, ConnectionConfigParseError> {
         let mut result = HashMap::new();
         let mut query = query.to_owned();
         query.normalize();
         for key_value in query.split('&') {
             let mut elements: Vec<_> = key_value.split('=').take(3).collect();
             if elements.len() != 2 {
-                return Err(Neo4jError::InvalidConfig {
-                    message: format!(
-                        "couldn't parse key=value pair '{}' in '{}'",
-                        key_value, query
-                    ),
-                });
+                return Err(ConnectionConfigParseError(format!(
+                    "couldn't parse key=value pair '{}' in '{}'",
+                    key_value, query
+                )));
             }
             let value = elements.pop().unwrap();
             let key = elements.pop().unwrap();
             if key == "address" {
-                return Err(Neo4jError::InvalidConfig {
-                    message: format!(
-                        "routing context cannot contain key 'address', found: {}",
-                        value
-                    ),
-                });
+                return Err(ConnectionConfigParseError(format!(
+                    "routing context cannot contain key 'address', found: {}",
+                    value
+                )));
             }
             result.insert(key.into(), value.into());
         }
         Ok(result)
     }
 
-    fn secure_ssl_context() -> Result<SslContext> {
-        let mut context_builder = Self::ssl_context_base()?;
-        context_builder.set_default_verify_paths()?;
-        Ok(context_builder.build())
+    fn secure_tls_config() -> StdResult<ClientConfig, String> {
+        let root_store = SYSTEM_CERTIFICATES.get_or_init(|| {
+            let mut root_store = RootCertStore::empty();
+            // root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+            //     rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+            //         ta.subject,
+            //         ta.spki,
+            //         ta.name_constraints,
+            //     )
+            // }));
+            let native_certs = rustls_native_certs::load_native_certs()
+                .map_err(|e| format!("failed to load system certificates: {e}"))?;
+            let (_, _) = root_store.add_parsable_certificates(&native_certs);
+            Ok(Arc::new(root_store))
+        });
+        let root_store = Arc::clone(root_store.as_ref().map_err(Clone::clone)?);
+        Ok(ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(root_store)
+            .with_no_client_auth())
     }
 
-    fn custom_ca_ssl_context(path: &Path) -> Result<SslContext> {
-        let mut context_builder = Self::ssl_context_base()?;
-        context_builder.set_ca_file(path)?;
-        Ok(context_builder.build())
+    fn custom_ca_tls_config<'a>(
+        paths: impl Iterator<Item = &'a Path>,
+    ) -> StdResult<ClientConfig, String> {
+        fn load_certificates_from_pem(path: &Path) -> IoResult<Vec<Certificate>> {
+            let file = File::open(path)?;
+            let mut reader = BufReader::new(file);
+            let certs = rustls_pemfile::certs(&mut reader)?;
+
+            Ok(certs.into_iter().map(Certificate).collect())
+        }
+
+        let mut root_store = RootCertStore::empty();
+        for path in paths {
+            let certs = load_certificates_from_pem(path)
+                .map_err(|e| format!("failed to load certificates from PEM file: {e}"))?;
+            for cert in certs.into_iter() {
+                root_store.add(&cert).map_err(|e| {
+                    format!("failed to add certificate(s) from {path:?} to root store: {e}")
+                })?;
+            }
+        }
+        Ok(ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(root_store)
+            .with_no_client_auth())
     }
 
-    fn self_signed_ssl_context() -> Result<SslContext> {
-        let mut context_builder = Self::ssl_context_base()?;
-        context_builder.set_verify(SslVerifyMode::NONE);
-        Ok(context_builder.build())
+    fn try_self_signed_tls_config() -> StdResult<ClientConfig, ConnectionConfigParseError> {
+        #[cfg(feature = "rustls_dangerous_configuration")]
+        {
+            Ok(Self::self_signed_tls_config())
+        }
+        #[cfg(not(feature = "rustls_dangerous_configuration"))]
+        {
+            return Err(ConnectionConfigParseError(String::from(
+                "`neo4j+ssc` and `bolt+ssc` schemes require crate feature \
+                    `rustls_dangerous_configuration",
+            )));
+        }
     }
 
-    fn ssl_context_base() -> Result<SslContextBuilder> {
-        let mut context_builder = SslContextBuilder::new(SslMethod::tls_client())?;
-        context_builder.set_min_proto_version(Some(SslVersion::TLS1_2))?;
-        Ok(context_builder)
+    #[cfg(feature = "rustls_dangerous_configuration")]
+    fn self_signed_tls_config() -> ClientConfig {
+        let root_store = RootCertStore::empty();
+        let mut config = ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        config
+            .dangerous()
+            .set_certificate_verifier(Arc::new(NonVerifyingVerifier {}));
+        config
     }
 }
 
 impl TryFrom<&str> for ConnectionConfig {
-    type Error = Neo4jError;
+    type Error = ConnectionConfigParseError;
 
     fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
         Self::parse_uri(value)
     }
+}
+
+/// As the name suggests, this verifier happily accepts any certificate.
+/// This is not secure and should only be used for testing.
+#[cfg(feature = "rustls_dangerous_configuration")]
+struct NonVerifyingVerifier {}
+
+#[cfg(feature = "rustls_dangerous_configuration")]
+impl ServerCertVerifier for NonVerifyingVerifier {
+    /// Will verify the certificate is valid in the following ways:
+    /// - Signed by a  trusted `RootCertStore` CA
+    /// - Not Expired
+    /// - Valid for DNS entry
+    fn verify_server_cert(
+        &self,
+        _end_entity: &Certificate,
+        _intermediates: &[Certificate],
+        _server_name: &ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp_response: &[u8],
+        _now: SystemTime,
+    ) -> StdResult<ServerCertVerified, RustlsError> {
+        Ok(ServerCertVerified::assertion())
+    }
+}
+
+#[derive(Debug, Error)]
+#[non_exhaustive]
+#[error("{message}")]
+pub struct TlsConfigError {
+    pub message: String,
+    pub config: ConnectionConfig,
 }
 
 #[derive(Debug, Error)]
@@ -389,20 +492,35 @@ pub struct ConnectionConfigParseError(String);
 
 impl ConnectionConfigParseError {}
 
-impl From<URIError> for Neo4jError {
-    fn from(err: URIError) -> Self {
-        Neo4jError::InvalidConfig {
-            message: format!("couldn't parse URI {}", err),
-        }
+impl From<URIError> for ConnectionConfigParseError {
+    fn from(e: URIError) -> Self {
+        ConnectionConfigParseError(format!("couldn't parse URI {e}"))
     }
 }
 
-impl From<ErrorStack> for Neo4jError {
-    fn from(err: ErrorStack) -> Self {
-        Neo4jError::InvalidConfig {
-            message: format!("failed to load SSL config {}", err),
-        }
+impl From<TlsConfigError> for ConnectionConfigParseError {
+    fn from(e: TlsConfigError) -> Self {
+        ConnectionConfigParseError(format!("couldn't configure TLS {e}"))
     }
+}
+
+impl From<String> for ConnectionConfigParseError {
+    fn from(e: String) -> Self {
+        ConnectionConfigParseError(e)
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("fetch size must be <= i64::MAX")]
+pub struct ConfigureFetchSizeError<Builder> {
+    pub builder: Builder,
+}
+
+#[derive(Debug, Error)]
+#[error("routing context invalid because it {it}")]
+pub struct InvalidRoutingContextError<Builder> {
+    pub builder: Builder,
+    it: &'static str,
 }
 
 #[cfg(test)]
@@ -453,7 +571,7 @@ mod tests {
         let address = ("localhost", 7687).into();
         let connection_config = ConnectionConfig::new(address);
 
-        assert!(connection_config.ssl_context.is_none());
+        assert!(connection_config.tls_config.is_none());
     }
 
     #[rstest]
@@ -468,7 +586,7 @@ mod tests {
             Some(uri) => ConnectionConfig::try_from(uri).unwrap(),
         };
 
-        assert!(connection_config.ssl_context.is_none());
+        assert!(connection_config.tls_config.is_none());
     }
 
     fn expect_tls(mock: &mut MockSslContextBuilder) {
@@ -508,7 +626,7 @@ mod tests {
             Some(uri) => ConnectionConfig::try_from(uri).unwrap(),
         };
 
-        connection_config.ssl_context.unwrap();
+        connection_config.tls_config.unwrap();
     }
 
     fn expect_self_signed_tls(mock: &mut MockSslContextBuilder) {
@@ -548,7 +666,7 @@ mod tests {
             Some(uri) => ConnectionConfig::try_from(uri).unwrap(),
         };
 
-        connection_config.ssl_context.unwrap();
+        connection_config.tls_config.unwrap();
     }
 
     fn expect_custom_ca_tls(mock: &mut MockSslContextBuilder, path: &'static str) {
@@ -582,7 +700,7 @@ mod tests {
             .with_encryption_trust_custom_cas("/foo/bar")
             .unwrap();
 
-        connection_config.ssl_context.unwrap();
+        connection_config.tls_config.unwrap();
     }
 
     #[rstest]
@@ -683,17 +801,4 @@ mod tests {
         let connection_config = connection_config.unwrap();
         assert_eq!(connection_config.routing_context, Some(routing_context));
     }
-}
-
-#[derive(Debug, Error)]
-#[error("fetch size must be <= i64::MAX")]
-pub struct ConfigureFetchSizeError<Builder> {
-    pub builder: Builder,
-}
-
-#[derive(Debug, Error)]
-#[error("routing context invalid because it {it}")]
-pub struct InvalidRoutingContextError<Builder> {
-    pub builder: Builder,
-    it: &'static str,
 }

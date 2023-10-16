@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use atomic_refcell::AtomicRefCell;
-use log::debug;
-use serde::Serialize;
 use std::collections::HashMap;
 use std::error::Error;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
+
+use atomic_refcell::AtomicRefCell;
+use log::debug;
+use serde::Serialize;
 
 mod backend_id;
 mod cypher_value;

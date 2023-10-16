@@ -17,6 +17,7 @@ mod single_pool;
 
 use atomic_refcell::AtomicRefCell;
 use itertools::Itertools;
+use rustls::ClientConfig;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::mem;
@@ -142,9 +143,8 @@ impl<'pool> Drop for PooledBolt<'pool> {
 
 #[derive(Debug)]
 pub(crate) struct PoolConfig {
-    // pub(crate) routing: bool,
     pub(crate) routing_context: Option<HashMap<String, ValueSend>>,
-    // pub(crate) ssl_context: Option<SslContext>,
+    pub(crate) tls_config: Option<Arc<ClientConfig>>,
     pub(crate) user_agent: String,
     pub(crate) auth: HashMap<String, ValueSend>,
     pub(crate) max_connection_pool_size: usize,

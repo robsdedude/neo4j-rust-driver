@@ -100,6 +100,10 @@ impl Address {
     pub fn port(&self) -> u16 {
         self.port
     }
+
+    pub(crate) fn unresolved_host(&self) -> &str {
+        &self.key
+    }
 }
 
 impl Display for Address {

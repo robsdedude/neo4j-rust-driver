@@ -86,7 +86,12 @@ impl InnerPool {
         for address in address.fully_resolve(self.config.resolver.as_deref())? {
             last_err = match address {
                 Ok(address) => {
-                    match bolt::open(address, deadline, self.config.connection_timeout) {
+                    match bolt::open(
+                        address,
+                        deadline,
+                        self.config.connection_timeout,
+                        self.config.tls_config.as_ref().map(Arc::clone),
+                    ) {
                         Ok(connection) => return Ok(connection),
                         Err(err) => {
                             info!("failed to open connection: {}", err);

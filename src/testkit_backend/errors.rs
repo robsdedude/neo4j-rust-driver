@@ -15,7 +15,7 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
-use crate::driver::ConfigureFetchSizeError;
+use crate::driver::{ConfigureFetchSizeError, ConnectionConfigParseError, TlsConfigError};
 use crate::error::UserCallbackError;
 use crate::retry::RetryableError;
 use crate::session::ConfigureTimeoutError;
@@ -170,6 +170,28 @@ impl<Builder> From<ConfigureTimeoutError<Builder>> for TestKitError {
     fn from(e: ConfigureTimeoutError<Builder>) -> Self {
         TestKitError::DriverError {
             error_type: String::from("ConfigureTimeoutError"),
+            msg: format!("{e}"),
+            code: None,
+            id: None,
+        }
+    }
+}
+
+impl From<ConnectionConfigParseError> for TestKitError {
+    fn from(e: ConnectionConfigParseError) -> Self {
+        TestKitError::DriverError {
+            error_type: String::from("ConnectionConfigParseError"),
+            msg: format!("{e}"),
+            code: None,
+            id: None,
+        }
+    }
+}
+
+impl From<TlsConfigError> for TestKitError {
+    fn from(e: TlsConfigError) -> Self {
+        TestKitError::DriverError {
+            error_type: String::from("TlsConfigError"),
             msg: format!("{e}"),
             code: None,
             id: None,

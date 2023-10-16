@@ -26,7 +26,7 @@ Feature Progress:
      * [x] `resolver`
      * [x] routing and direct connections
      * [ ] `keep_alive`
-     * [ ] `TLS` (**IMPORTANT**)
+     * [x] `TLS`
    * [x] `.session`
    * [x] `.supports_multi_db`
    * [ ] `.execute_query`

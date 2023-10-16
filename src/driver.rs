@@ -21,7 +21,10 @@ pub(crate) mod session;
 pub(crate) mod summary;
 pub mod transaction;
 
-pub use config::{ConfigureFetchSizeError, ConnectionConfig, DriverConfig};
+pub use config::{
+    ConfigureFetchSizeError, ConnectionConfig, ConnectionConfigParseError, DriverConfig,
+    TlsConfigError,
+};
 use std::sync::Arc;
 
 use crate::Result;
@@ -51,6 +54,7 @@ impl Driver {
         }
         let pool_config = PoolConfig {
             routing_context: connection_config.routing_context,
+            tls_config: connection_config.tls_config.map(Arc::new),
             user_agent: config.user_agent,
             auth: config.auth,
             max_connection_pool_size: config.max_connection_pool_size,

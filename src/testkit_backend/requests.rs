@@ -69,7 +69,7 @@ pub(super) enum Request {
         notifications_min_severity: Option<String>,
         notifications_disabled_categories: Option<Vec<String>>,
         encrypted: Option<bool>,
-        trusted_certificates: Option<RequestTrustedCertificates>,
+        trusted_certificates: Option<Vec<String>>,
     },
     #[serde(rename_all = "camelCase")]
     VerifyConnectivity {
@@ -441,7 +441,7 @@ impl Request {
         else {
             panic!("expected Request::NewDriver");
         };
-        let connection_config: ConnectionConfig = uri.as_str().try_into()?;
+        let mut connection_config: ConnectionConfig = uri.as_str().try_into()?;
         let mut driver_config = DriverConfig::new();
         let mut emulated_config = EmulatedDriverConfig::default();
         driver_config = set_auth(driver_config, auth)?;
@@ -501,13 +501,23 @@ impl Request {
                 "notification category filter unsupported",
             ));
         }
-        if encrypted.is_some() {
-            return Err(TestKitError::backend_err(
-                "explicit encryption config unsupported",
-            ));
-        }
-        if trusted_certificates.is_some() {
-            return Err(TestKitError::backend_err("CA config unsupported"));
+        if let Some(encrypted) = encrypted {
+            connection_config = match encrypted {
+                true => match trusted_certificates {
+                    None => connection_config.with_encryption_trust_default_cas()?,
+                    Some(mut cas) => {
+                        cas = cas
+                            .into_iter()
+                            .map(|name| format!("/usr/local/share/custom-ca-certificates/{name}"))
+                            .collect::<Vec<_>>();
+                        match cas.is_empty() {
+                            true => connection_config.with_encryption_trust_any_certificate()?,
+                            false => connection_config.with_encryption_trust_custom_cas(&cas)?,
+                        }
+                    }
+                },
+                false => connection_config.with_encryption_disabled(),
+            }
         }
         let id = backend.next_id();
         let driver_holder = DriverHolder::new(

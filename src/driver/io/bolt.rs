@@ -20,11 +20,12 @@ mod message;
 pub(crate) mod message_parameters;
 mod packstream;
 mod response;
+mod socket;
 
 use std::borrow::Borrow;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Formatter};
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::ops::Deref;
 use std::result;
@@ -33,7 +34,9 @@ use std::time::{Duration, Instant};
 
 use atomic_refcell::AtomicRefCell;
 use enum_dispatch::enum_dispatch;
-use log::debug;
+use log::Level::Trace;
+use log::{debug, log_enabled, trace};
+use rustls::ClientConfig;
 use usize_cast::FromUsize;
 
 use super::deadline::DeadlineIO;
@@ -48,6 +51,7 @@ use packstream::PackStreamSerializer;
 pub(crate) use response::{
     BoltMeta, BoltRecordFields, BoltResponse, ResponseCallbacks, ResponseMessage,
 };
+pub(crate) use socket::{BufTcpStream, Socket};
 
 macro_rules! debug_buf_start {
     ($name:ident) => {
@@ -127,27 +131,26 @@ fn dbg_extra(port: Option<u16>, bolt_id: Option<&str>) -> String {
     )
 }
 
-pub(crate) type TcpBolt = Bolt<BufReader<TcpStream>, BufWriter<TcpStream>>;
+pub(crate) type TcpBolt = Bolt<Socket<BufTcpStream>>;
 
 pub(crate) type OnServerErrorCb<'a, 'b> = Option<&'a mut (dyn FnMut(&ServerError) + 'b)>;
 
 #[derive(Debug)]
-pub(crate) struct Bolt<R: Read, W: Write> {
-    data: BoltData<R, W>,
+pub(crate) struct Bolt<RW: Read + Write> {
+    data: BoltData<RW>,
     protocol: BoltProtocolVersion,
 }
 
-impl<R: Read, W: Write> Bolt<R, W> {
+impl<RW: Read + Write> Bolt<RW> {
     fn new(
         version: (u8, u8),
-        reader: R,
-        writer: W,
+        stream: RW,
         socket: Option<TcpStream>,
         local_port: Option<u16>,
         address: Arc<Address>,
     ) -> Self {
         Self {
-            data: BoltData::new(version, reader, writer, socket, local_port, address),
+            data: BoltData::new(version, stream, socket, local_port, address),
             protocol: match version {
                 (5, 0) => Bolt5x0::<Bolt5x0StructTranslator>::default().into(),
                 (4, 4) => Bolt4x4::<Bolt4x4StructTranslator>::default().into(),
@@ -265,12 +268,8 @@ impl<R: Read, W: Write> Bolt<R, W> {
         deadline: Option<Instant>,
         on_server_error: OnServerErrorCb,
     ) -> Result<()> {
-        let mut reader = DeadlineIO::new(
-            &mut self.data.reader,
-            &mut self.data.writer,
-            deadline,
-            self.data.socket.as_ref(),
-        );
+        let mut reader =
+            DeadlineIO::new(&mut self.data.stream, deadline, self.data.socket.as_ref());
         let mut dechunker = Dechunker::new(&mut reader);
         let message_result: Result<BoltMessage<ValueReceive>> =
             BoltMessage::load(&mut dechunker, |r| self.protocol.load_value(r));
@@ -320,39 +319,39 @@ impl<R: Read, W: Write> Bolt<R, W> {
 
 #[enum_dispatch]
 trait BoltProtocol: Debug {
-    fn hello<R: Read, W: Write>(
+    fn hello<RW: Read + Write>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         user_agent: &str,
         auth: &HashMap<String, ValueSend>,
         routing_context: Option<&HashMap<String, ValueSend>>,
     ) -> Result<()>;
-    fn goodbye<R: Read, W: Write>(&mut self, data: &mut BoltData<R, W>) -> Result<()>;
-    fn reset<R: Read, W: Write>(&mut self, data: &mut BoltData<R, W>) -> Result<()>;
-    fn run<R: Read, W: Write, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
+    fn goodbye<RW: Read + Write>(&mut self, data: &mut BoltData<RW>) -> Result<()>;
+    fn reset<RW: Read + Write>(&mut self, data: &mut BoltData<RW>) -> Result<()>;
+    fn run<RW: Read + Write, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         parameters: RunParameters<KP, KM>,
         callbacks: ResponseCallbacks,
     ) -> Result<()>;
-    fn discard<R: Read, W: Write>(
+    fn discard<RW: Read + Write>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         n: i64,
         qid: i64,
         callbacks: ResponseCallbacks,
     ) -> Result<()>;
-    fn pull<R: Read, W: Write>(
+    fn pull<RW: Read + Write>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         n: i64,
         qid: i64,
         callbacks: ResponseCallbacks,
     ) -> Result<()>;
     #[allow(clippy::too_many_arguments)]
-    fn begin<R: Read, W: Write, K: Borrow<str> + Debug>(
+    fn begin<RW: Read + Write, K: Borrow<str> + Debug>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         bookmarks: Option<&[String]>,
         tx_timeout: Option<i64>,
         tx_metadata: Option<&HashMap<K, ValueSend>>,
@@ -360,15 +359,15 @@ trait BoltProtocol: Debug {
         db: Option<&str>,
         imp_user: Option<&str>,
     ) -> Result<()>;
-    fn commit<R: Read, W: Write>(
+    fn commit<RW: Read + Write>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         callbacks: ResponseCallbacks,
     ) -> Result<()>;
-    fn rollback<R: Read, W: Write>(&mut self, data: &mut BoltData<R, W>) -> Result<()>;
-    fn route<R: Read, W: Write>(
+    fn rollback<RW: Read + Write>(&mut self, data: &mut BoltData<RW>) -> Result<()>;
+    fn route<RW: Read + Write>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         routing_context: &HashMap<String, ValueSend>,
         bookmarks: Option<&[String]>,
         db: Option<&str>,
@@ -377,9 +376,9 @@ trait BoltProtocol: Debug {
     ) -> Result<()>;
 
     fn load_value<R: Read>(&mut self, reader: &mut R) -> Result<ValueReceive>;
-    fn handle_response<R: Read, W: Write>(
+    fn handle_response<RW: Read + Write>(
         &mut self,
-        data: &mut BoltData<R, W>,
+        data: &mut BoltData<RW>,
         message: BoltMessage<ValueReceive>,
         on_server_error: OnServerErrorCb,
     ) -> Result<()>;
@@ -399,11 +398,10 @@ enum ConnectionState {
     Closed,
 }
 
-struct BoltData<R: Read, W: Write> {
+struct BoltData<RW: Read + Write> {
     message_buff: VecDeque<Vec<Vec<u8>>>,
     responses: VecDeque<BoltResponse>,
-    reader: R,
-    writer: W,
+    stream: RW,
     socket: Option<TcpStream>,
     local_port: Option<u16>,
     version: (u8, u8),
@@ -416,11 +414,10 @@ struct BoltData<R: Read, W: Write> {
     last_qid: Arc<AtomicRefCell<Option<i64>>>,
 }
 
-impl<R: Read, W: Write> BoltData<R, W> {
+impl<RW: Read + Write> BoltData<RW> {
     fn new(
         version: (u8, u8),
-        reader: R,
-        writer: W,
+        stream: RW,
         socket: Option<TcpStream>,
         local_port: Option<u16>,
         address: Arc<Address>,
@@ -429,8 +426,7 @@ impl<R: Read, W: Write> BoltData<R, W> {
         Self {
             message_buff: VecDeque::with_capacity(2048),
             responses: VecDeque::with_capacity(10),
-            reader,
-            writer,
+            stream,
             socket,
             local_port,
             version,
@@ -527,12 +523,7 @@ impl<R: Read, W: Write> BoltData<R, W> {
     fn write_one(&mut self, deadline: Option<Instant>) -> Result<()> {
         if let Some(message_buff) = self.message_buff.pop_front() {
             let chunker = Chunker::new(&message_buff);
-            let mut writer = DeadlineIO::new(
-                &mut self.reader,
-                &mut self.writer,
-                deadline,
-                self.socket.as_ref(),
-            );
+            let mut writer = DeadlineIO::new(&mut self.stream, deadline, self.socket.as_ref());
             for chunk in chunker {
                 let res = Neo4jError::wrap_write(writer.write_all(&chunk));
                 let res = writer.rewrite_error(res);
@@ -546,12 +537,7 @@ impl<R: Read, W: Write> BoltData<R, W> {
     }
 
     fn flush(&mut self, deadline: Option<Instant>) -> Result<()> {
-        let mut writer = DeadlineIO::new(
-            &mut self.reader,
-            &mut self.writer,
-            deadline,
-            self.socket.as_ref(),
-        );
+        let mut writer = DeadlineIO::new(&mut self.stream, deadline, self.socket.as_ref());
         let res = Neo4jError::wrap_write(writer.flush());
         let res = writer.rewrite_error(res);
         if let Err(err) = &res {
@@ -594,7 +580,7 @@ impl<R: Read, W: Write> BoltData<R, W> {
     }
 }
 
-impl<R: Read, W: Write> Debug for BoltData<R, W> {
+impl<RW: Read + Write> Debug for BoltData<RW> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BoltData")
             .field("message_buff", &self.message_buff)
@@ -603,7 +589,7 @@ impl<R: Read, W: Write> Debug for BoltData<R, W> {
     }
 }
 
-impl<R: Read, W: Write> Drop for Bolt<R, W> {
+impl<RW: Read + Write> Drop for Bolt<RW> {
     fn drop(&mut self) {
         if self.data.closed() {
             return;
@@ -658,12 +644,21 @@ pub(crate) fn open(
     address: Arc<Address>,
     deadline: Option<Instant>,
     mut connect_timeout: Option<Duration>,
+    tls_config: Option<Arc<ClientConfig>>,
 ) -> Result<TcpBolt> {
-    debug!(
-        "{}{}",
-        dbg_extra(None, None),
-        format!("C: <OPEN> {}", address)
-    );
+    if log_enabled!(Trace) {
+        trace!(
+            "{}{}",
+            dbg_extra(None, None),
+            format!("C: <OPEN> {address:?}")
+        );
+    } else {
+        debug!(
+            "{}{}",
+            dbg_extra(None, None),
+            format!("C: <OPEN> {address}")
+        );
+    }
     if let Some(deadline) = deadline {
         let mut time_left = deadline.saturating_duration_since(Instant::now());
         if time_left == Duration::from_secs(0) {
@@ -674,38 +669,40 @@ pub(crate) fn open(
             Some(timeout) => connect_timeout = Some(timeout.min(time_left)),
         }
     }
-    let stream = Neo4jError::wrap_connect(match connect_timeout {
+    let raw_socket = Neo4jError::wrap_connect(match connect_timeout {
         None => TcpStream::connect(&*address),
         Some(timeout) => each_addr(&*address, |addr| TcpStream::connect_timeout(addr?, timeout)),
     })?;
-    let local_port = stream
+    let local_port = raw_socket
         .local_addr()
         .map(|addr| addr.port())
         .unwrap_or_default();
 
-    // TODO: TLS
+    // don't use a buffered socket if TLS is enabled
+    // https://github.com/rustls/rustls/issues/1537
+    let buffered = tls_config.is_none();
+    let buffered_socket = BufTcpStream::new(&raw_socket, buffered)?;
+    let mut socket = Socket::new(buffered_socket, address.unresolved_host(), tls_config)?;
 
-    let mut reader = BufReader::new(Neo4jError::wrap_connect(stream.try_clone())?);
-    let mut writer = BufWriter::new(Neo4jError::wrap_connect(stream.try_clone())?);
-    let mut deadline_io = DeadlineIO::new(&mut reader, &mut writer, deadline, Some(&stream));
+    let mut deadline_io = DeadlineIO::new(&mut socket, deadline, Some(&raw_socket));
 
     socket_debug!(local_port, "C: <HANDSHAKE> {:02X?}", BOLT_MAGIC_PREAMBLE);
     wrap_write_socket(
-        &stream,
+        &raw_socket,
         local_port,
         deadline_io.write_all(&BOLT_MAGIC_PREAMBLE),
     )?;
     socket_debug!(local_port, "C: <BOLT> {:02X?}", BOLT_VERSION_OFFER);
     wrap_write_socket(
-        &stream,
+        &raw_socket,
         local_port,
         deadline_io.write_all(&BOLT_VERSION_OFFER),
     )?;
-    wrap_write_socket(&stream, local_port, deadline_io.flush())?;
+    wrap_write_socket(&raw_socket, local_port, deadline_io.flush())?;
 
     let mut negotiated_version = [0u8; 4];
     wrap_read_socket(
-        &stream,
+        &raw_socket,
         local_port,
         deadline_io.read_exact(&mut negotiated_version),
     )?;
@@ -736,9 +733,8 @@ pub(crate) fn open(
 
     Ok(Bolt::new(
         version,
-        reader,
-        writer,
-        Some(stream),
+        socket,
+        Some(raw_socket),
         Some(local_port),
         address,
     ))
