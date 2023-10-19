@@ -35,12 +35,6 @@ pub mod address {
 pub mod bookmarks {
     pub use super::driver::session::bookmarks::*;
 }
-pub mod graph {
-    pub use super::value::graph::*;
-}
-pub mod spatial {
-    pub use super::value::spatial::*;
-}
 pub mod session {
     pub use super::driver::session::*;
 }
@@ -50,7 +44,8 @@ pub mod retry {
 pub mod transaction {
     pub use super::driver::transaction::*;
 }
-/// Query summary structs (metadata) received via [`driver::RecordStream::consume()`].
+/// Query summary structs (metadata) received via
+/// [`driver::record_stream::RecordStream::consume()`].
 pub mod summary {
     pub use super::driver::summary::*;
 }

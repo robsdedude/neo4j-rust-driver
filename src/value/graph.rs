@@ -71,7 +71,7 @@ pub struct Path {
     pub nodes: Vec<Node>,
     pub relationships: Vec<UnboundRelationship>,
     /// complicated stuff, explain properly!
-    /// https://neo4j.com/docs/bolt/current/bolt/structure-semantics/#structure-path
+    /// <https://neo4j.com/docs/bolt/current/bolt/structure-semantics/#structure-path>
     pub indices: Vec<isize>,
 }
 

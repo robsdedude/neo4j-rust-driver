@@ -44,7 +44,7 @@ rustls-pemfile = "1.0.3"
 log = "0.4.17"
 usize_cast = "1.1.0"
 duplicate = "1.0.0"
-itertools = "0.10.5"
+itertools = "0.11.0"
 atomic_refcell = "0.1.9"
 parking_lot = "0.12.1"
 enum_dispatch = "0.3.12"
@@ -52,12 +52,13 @@ rand = "0.8.5"
 # TestKit Backend Dependencies
 base64 = { version = "0.21.0", optional = true }
 env_logger = { version = "0.10.0", optional = true }
-flume = { version = "0.10.14", optional = true }
+flume = { version = "0.11.0", optional = true }
 serde = { version = "1.0.159", optional = true, features = ["derive"] }
 serde_json = { version = "1.0.95", optional = true }
 snowflaked = { version = "1.0.1", optional = true }
+mockall_double = "0.3.0"
 
 [dev-dependencies]
-rstest = "0.17.0"
+rstest = "0.18.2"
 mockall = "0.11.3"
 lazy_static = "1.4.0"

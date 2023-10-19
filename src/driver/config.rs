@@ -14,21 +14,12 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::fs::File;
-use std::io::{BufReader, Result as IoResult};
 use std::path::Path;
 use std::result::Result as StdResult;
-use std::sync::Arc;
-use std::sync::OnceLock;
 use std::time::Duration;
-#[cfg(feature = "rustls_dangerous_configuration")]
-use std::time::SystemTime;
 
-#[cfg(feature = "rustls_dangerous_configuration")]
-use rustls::client::{ServerCertVerified, ServerCertVerifier, ServerName};
-#[cfg(feature = "rustls_dangerous_configuration")]
-use rustls::Error as RustlsError;
-use rustls::{Certificate, ClientConfig, RootCertStore};
+use mockall_double::double;
+use rustls::ClientConfig;
 use thiserror::Error;
 use uriparse::{Query, URIError, URI};
 
@@ -40,7 +31,6 @@ const DEFAULT_USER_AGENT: &str = env!("NEO4J_DEFAULT_USER_AGENT");
 pub(crate) const DEFAULT_FETCH_SIZE: i64 = 1000;
 pub(crate) const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const DEFAULT_CONNECTION_ACQUISITION_TIMEOUT: Duration = Duration::from_secs(60);
-static SYSTEM_CERTIFICATES: OnceLock<StdResult<Arc<RootCertStore>, String>> = OnceLock::new();
 
 #[derive(Debug)]
 pub struct DriverConfig {
@@ -214,7 +204,7 @@ impl ConnectionConfig {
     }
 
     pub fn with_encryption_trust_default_cas(mut self) -> StdResult<Self, TlsConfigError> {
-        self.tls_config = Some(match Self::secure_tls_config() {
+        self.tls_config = Some(match tls_helper::secure_tls_config() {
             Ok(config) => config,
             Err(message) => {
                 return Err(TlsConfigError {
@@ -230,22 +220,23 @@ impl ConnectionConfig {
         self,
         paths: &[P],
     ) -> StdResult<Self, TlsConfigError> {
-        fn inner<'a>(
+        fn inner(
             mut config: ConnectionConfig,
-            paths: impl Iterator<Item = &'a Path>,
+            paths: &[&Path],
         ) -> StdResult<ConnectionConfig, TlsConfigError> {
-            config.tls_config = Some(match ConnectionConfig::custom_ca_tls_config(paths) {
+            config.tls_config = Some(match tls_helper::custom_ca_tls_config(paths) {
                 Ok(config) => config,
                 Err(message) => return Err(TlsConfigError { message, config }),
             });
             Ok(config)
         }
-        inner(self, paths.iter().map(|path| path.as_ref()))
+        let paths = paths.iter().map(|path| path.as_ref()).collect::<Vec<_>>();
+        inner(self, &paths)
     }
 
     #[cfg(feature = "rustls_dangerous_configuration")]
     pub fn with_encryption_trust_any_certificate(mut self) -> StdResult<Self, TlsConfigError> {
-        self.tls_config = Some(Self::self_signed_tls_config());
+        self.tls_config = Some(tls_helper::self_signed_tls_config());
         Ok(self)
     }
 
@@ -264,10 +255,10 @@ impl ConnectionConfig {
 
         let (routing, tls_config) = match uri.scheme().as_str() {
             "neo4j" => (true, None),
-            "neo4j+s" => (true, Some(Self::secure_tls_config()?)),
+            "neo4j+s" => (true, Some(tls_helper::secure_tls_config()?)),
             "neo4j+ssc" => (true, Some(Self::try_self_signed_tls_config()?)),
             "bolt" => (false, None),
-            "bolt+s" => (false, Some(Self::secure_tls_config()?)),
+            "bolt+s" => (false, Some(tls_helper::secure_tls_config()?)),
             "bolt+ssc" => (false, Some(Self::try_self_signed_tls_config()?)),
             scheme => {
                 return Err(ConnectionConfigParseError(format!(
@@ -369,112 +360,22 @@ impl ConnectionConfig {
         Ok(result)
     }
 
-    fn secure_tls_config() -> StdResult<ClientConfig, String> {
-        let root_store = SYSTEM_CERTIFICATES.get_or_init(|| {
-            let mut root_store = RootCertStore::empty();
-            // root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-            //     rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-            //         ta.subject,
-            //         ta.spki,
-            //         ta.name_constraints,
-            //     )
-            // }));
-            let native_certs = rustls_native_certs::load_native_certs()
-                .map_err(|e| format!("failed to load system certificates: {e}"))?;
-            let (_, _) = root_store.add_parsable_certificates(&native_certs);
-            Ok(Arc::new(root_store))
-        });
-        let root_store = Arc::clone(root_store.as_ref().map_err(Clone::clone)?);
-        Ok(ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(root_store)
-            .with_no_client_auth())
-    }
-
-    fn custom_ca_tls_config<'a>(
-        paths: impl Iterator<Item = &'a Path>,
-    ) -> StdResult<ClientConfig, String> {
-        fn load_certificates_from_pem(path: &Path) -> IoResult<Vec<Certificate>> {
-            let file = File::open(path)?;
-            let mut reader = BufReader::new(file);
-            let certs = rustls_pemfile::certs(&mut reader)?;
-
-            Ok(certs.into_iter().map(Certificate).collect())
-        }
-
-        let mut root_store = RootCertStore::empty();
-        for path in paths {
-            let certs = load_certificates_from_pem(path)
-                .map_err(|e| format!("failed to load certificates from PEM file: {e}"))?;
-            for cert in certs.into_iter() {
-                root_store.add(&cert).map_err(|e| {
-                    format!("failed to add certificate(s) from {path:?} to root store: {e}")
-                })?;
-            }
-        }
-        Ok(ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(root_store)
-            .with_no_client_auth())
-    }
-
     fn try_self_signed_tls_config() -> StdResult<ClientConfig, ConnectionConfigParseError> {
         #[cfg(feature = "rustls_dangerous_configuration")]
-        {
-            Ok(Self::self_signed_tls_config())
-        }
+        return Ok(tls_helper::self_signed_tls_config());
         #[cfg(not(feature = "rustls_dangerous_configuration"))]
-        {
-            return Err(ConnectionConfigParseError(String::from(
-                "`neo4j+ssc` and `bolt+ssc` schemes require crate feature \
-                    `rustls_dangerous_configuration",
-            )));
-        }
-    }
-
-    #[cfg(feature = "rustls_dangerous_configuration")]
-    fn self_signed_tls_config() -> ClientConfig {
-        let root_store = RootCertStore::empty();
-        let mut config = ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
-        config
-            .dangerous()
-            .set_certificate_verifier(Arc::new(NonVerifyingVerifier {}));
-        config
+        return Err(ConnectionConfigParseError(String::from(
+            "`neo4j+ssc` and `bolt+ssc` schemes require crate feature \
+                `rustls_dangerous_configuration",
+        )));
     }
 }
 
 impl TryFrom<&str> for ConnectionConfig {
     type Error = ConnectionConfigParseError;
 
-    fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
+    fn try_from(value: &str) -> StdResult<Self, Self::Error> {
         Self::parse_uri(value)
-    }
-}
-
-/// As the name suggests, this verifier happily accepts any certificate.
-/// This is not secure and should only be used for testing.
-#[cfg(feature = "rustls_dangerous_configuration")]
-struct NonVerifyingVerifier {}
-
-#[cfg(feature = "rustls_dangerous_configuration")]
-impl ServerCertVerifier for NonVerifyingVerifier {
-    /// Will verify the certificate is valid in the following ways:
-    /// - Signed by a  trusted `RootCertStore` CA
-    /// - Not Expired
-    /// - Valid for DNS entry
-    fn verify_server_cert(
-        &self,
-        _end_entity: &Certificate,
-        _intermediates: &[Certificate],
-        _server_name: &ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
-        _ocsp_response: &[u8],
-        _now: SystemTime,
-    ) -> StdResult<ServerCertVerified, RustlsError> {
-        Ok(ServerCertVerified::assertion())
     }
 }
 
@@ -523,47 +424,163 @@ pub struct InvalidRoutingContextError<Builder> {
     it: &'static str,
 }
 
+#[double]
+use mockable::tls_helper;
+
+mod mockable {
+    #[cfg(test)]
+    use mockall::automock;
+
+    #[cfg_attr(test, automock)]
+    pub(super) mod tls_helper {
+        use rustls::ClientConfig;
+        use rustls::{Certificate, RootCertStore};
+        use std::fs::File;
+        use std::io::{BufReader, Result as IoResult};
+        use std::path::Path;
+        use std::result::Result as StdResult;
+        use std::sync::Arc;
+        use std::sync::OnceLock;
+
+        #[cfg(feature = "rustls_dangerous_configuration")]
+        use super::NonVerifyingVerifier;
+
+        static SYSTEM_CERTIFICATES: OnceLock<StdResult<Arc<RootCertStore>, String>> =
+            OnceLock::new();
+
+        pub fn secure_tls_config() -> StdResult<ClientConfig, String> {
+            let root_store = SYSTEM_CERTIFICATES.get_or_init(|| {
+                let mut root_store = RootCertStore::empty();
+                // root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+                //     rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+                //         ta.subject,
+                //         ta.spki,
+                //         ta.name_constraints,
+                //     )
+                // }));
+                let native_certs = rustls_native_certs::load_native_certs()
+                    .map_err(|e| format!("failed to load system certificates: {e}"))?;
+                let (_, _) = root_store.add_parsable_certificates(&native_certs);
+                Ok(Arc::new(root_store))
+            });
+            let root_store = Arc::clone(root_store.as_ref().map_err(Clone::clone)?);
+            Ok(ClientConfig::builder()
+                .with_safe_defaults()
+                .with_root_certificates(root_store)
+                .with_no_client_auth())
+        }
+
+        #[allow(clippy::needless_lifetimes)] // explicit lifetimes required for automock
+        pub fn custom_ca_tls_config<'a, 'b>(
+            paths: &'a [&'b Path],
+        ) -> StdResult<ClientConfig, String> {
+            fn load_certificates_from_pem(path: &Path) -> IoResult<Vec<Certificate>> {
+                let file = File::open(path)?;
+                let mut reader = BufReader::new(file);
+                let certs = rustls_pemfile::certs(&mut reader)?;
+
+                Ok(certs.into_iter().map(Certificate).collect())
+            }
+
+            let mut root_store = RootCertStore::empty();
+            for path in paths {
+                let certs = load_certificates_from_pem(path)
+                    .map_err(|e| format!("failed to load certificates from PEM file: {e}"))?;
+                for cert in certs.into_iter() {
+                    root_store.add(&cert).map_err(|e| {
+                        format!("failed to add certificate(s) from {path:?} to root store: {e}")
+                    })?;
+                }
+            }
+            Ok(ClientConfig::builder()
+                .with_safe_defaults()
+                .with_root_certificates(root_store)
+                .with_no_client_auth())
+        }
+
+        #[cfg(feature = "rustls_dangerous_configuration")]
+        pub fn self_signed_tls_config() -> ClientConfig {
+            let root_store = RootCertStore::empty();
+            let mut config = ClientConfig::builder()
+                .with_safe_defaults()
+                .with_root_certificates(root_store)
+                .with_no_client_auth();
+            config
+                .dangerous()
+                .set_certificate_verifier(Arc::new(NonVerifyingVerifier {}));
+            config
+        }
+    }
+
+    #[cfg(feature = "rustls_dangerous_configuration")]
+    mod dangerous {
+        use std::result::Result as StdResult;
+        use std::time::SystemTime;
+
+        use rustls::client::{ServerCertVerified, ServerCertVerifier, ServerName};
+        use rustls::Certificate;
+        use rustls::Error as RustlsError;
+
+        /// As the name suggests, this verifier happily accepts any certificate.
+        /// This is not secure and should only be used for testing.
+        pub(super) struct NonVerifyingVerifier {}
+
+        impl ServerCertVerifier for NonVerifyingVerifier {
+            /// Will verify the certificate is valid in the following ways:
+            /// - Signed by a  trusted `RootCertStore` CA
+            /// - Not Expired
+            /// - Valid for DNS entry
+            fn verify_server_cert(
+                &self,
+                _end_entity: &Certificate,
+                _intermediates: &[Certificate],
+                _server_name: &ServerName,
+                _scts: &mut dyn Iterator<Item = &[u8]>,
+                _ocsp_response: &[u8],
+                _now: SystemTime,
+            ) -> StdResult<ServerCertVerified, RustlsError> {
+                Ok(ServerCertVerified::assertion())
+            }
+        }
+    }
+
+    #[cfg(feature = "rustls_dangerous_configuration")]
+    use dangerous::NonVerifyingVerifier;
+}
+
 #[cfg(test)]
 mod tests {
-    use mockall::predicate::*;
-    use mockall::*;
+    use std::ops::Deref;
+    use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+
+    use rustls::RootCertStore;
+
     use rstest::*;
 
     use crate::macros::hash_map;
 
     use super::*;
 
-    #[derive(Debug)]
-    pub struct MockSslContext {}
-
-    mock! {
-        pub SslContextBuilder {
-            pub fn new(method: SslMethod) -> std::result::Result<Self, ErrorStack>;
-            pub fn build(self) -> MockSslContext;
-            pub fn set_min_proto_version(&mut self, version: Option<SslVersion>) -> std::result::Result<(), ErrorStack>;
-            pub fn set_default_verify_paths(&mut self) -> std::result::Result<(), ErrorStack>;
-            pub fn set_ca_file(&mut self, file: &Path) -> std::result::Result<(), ErrorStack>;
-            pub fn set_verify(&mut self, mode: SslVerifyMode);
-        }
-    }
-
-    use lazy_static::lazy_static;
-    use std::sync::{Mutex, MutexGuard};
-
-    lazy_static! {
-        static ref MTX: Mutex<()> = Mutex::new(());
-    }
-
+    static TLS_HELPER_MTX: OnceLock<Mutex<()>> = OnceLock::new();
     // When a test panics, it will poison the Mutex. Since we don't actually
     // care about the state of the data we ignore that it is poisoned and grab
     // the lock regardless.  If you just do `let _m = &MTX.lock().unwrap()`, one
     // test panicking will cause all other tests that try and acquire a lock on
     // that Mutex to also panic.
-    fn get_ssl_context_mock_lock(m: &'static Mutex<()>) -> MutexGuard<'static, ()> {
-        match m.lock() {
+    fn get_tls_helper_lock() -> MutexGuard<'static, ()> {
+        let mutex = TLS_HELPER_MTX.get_or_init(Default::default);
+        match mutex.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         }
+    }
+
+    fn get_test_client_config() -> ClientConfig {
+        let root_store = RootCertStore::empty();
+        ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(root_store)
+            .with_no_client_auth()
     }
 
     #[rstest]
@@ -589,115 +606,80 @@ mod tests {
         assert!(connection_config.tls_config.is_none());
     }
 
-    fn expect_tls(mock: &mut MockSslContextBuilder) {
-        mock.expect_set_min_proto_version()
-            .with(eq(Some(SslVersion::TLS1_2)))
-            .times(1)
-            .returning(|_| Ok(()));
-        mock.expect_set_default_verify_paths()
-            .times(1)
-            .returning(|| Ok(()));
-        mock.expect_build().times(1).returning(|| SslContext {});
-    }
-
     #[rstest]
     #[case(None)]
     #[case(Some("bolt+s://localhost:7687"))]
     #[case(Some("neo4j+s://localhost:7687"))]
     fn test_tls(#[case] uri: Option<&str>) {
-        let _m = get_ssl_context_mock_lock(&MTX);
-
-        let ctx = MockSslContextBuilder::new_context();
-        ctx.expect()
-            // would require mocking SslMethod
-            // .with(predicate::eq(SslMethod::tls_client()))
-            .returning(|_| {
-                let mut mock = MockSslContextBuilder::default();
-                expect_tls(&mut mock);
-                Ok(mock)
-            });
+        let _m = get_tls_helper_lock();
+        let ctx = tls_helper::secure_tls_config_context();
+        ctx.expect().returning(|| Ok(get_test_client_config()));
 
         let address = ("localhost", 7687).into();
 
         let connection_config = match uri {
             None => ConnectionConfig::new(address)
-                .with_encryption_trust_system_cas()
+                .with_encryption_trust_default_cas()
                 .unwrap(),
             Some(uri) => ConnectionConfig::try_from(uri).unwrap(),
         };
 
         connection_config.tls_config.unwrap();
-    }
-
-    fn expect_self_signed_tls(mock: &mut MockSslContextBuilder) {
-        mock.expect_set_min_proto_version()
-            .with(eq(Some(SslVersion::TLS1_2)))
-            .times(1)
-            .returning(|_| Ok(()));
-        mock.expect_set_verify()
-            .times(1)
-            .with(eq(SslVerifyMode::NONE))
-            .returning(|_| ());
-        mock.expect_build().times(1).returning(|| SslContext {});
+        // testing the tls_config to be the right on, would require mocking rustls::ClientConfig
     }
 
     #[rstest]
-    #[case(None)]
+    #[cfg_attr(feature = "rustls_dangerous_configuration", case(None))]
     #[case(Some("bolt+ssc://localhost:7687"))]
     #[case(Some("neo4j+ssc://localhost:7687"))]
     fn test_self_signed_tls(#[case] uri: Option<&str>) {
-        let _m = get_ssl_context_mock_lock(&MTX);
+        #[cfg(feature = "rustls_dangerous_configuration")]
+        {
+            let _m = get_tls_helper_lock();
+            let ctx = tls_helper::self_signed_tls_config_context();
+            ctx.expect().returning(get_test_client_config);
 
-        let ctx = MockSslContextBuilder::new_context();
-        ctx.expect()
-            // would require mocking SslMethod
-            // .with(eq(SslMethod::tls_client()))
-            .returning(|_| {
-                let mut mock = MockSslContextBuilder::default();
-                expect_self_signed_tls(&mut mock);
-                Ok(mock)
-            });
+            let address = ("localhost", 7687).into();
+            let connection_config = match uri {
+                None => ConnectionConfig::new(address)
+                    .with_encryption_trust_any_certificate()
+                    .unwrap(),
+                Some(uri) => ConnectionConfig::try_from(uri).unwrap(),
+            };
 
-        let address = ("localhost", 7687).into();
-        let connection_config = match uri {
-            None => ConnectionConfig::new(address)
-                .with_encryption_trust_any_certificate()
-                .unwrap(),
-            Some(uri) => ConnectionConfig::try_from(uri).unwrap(),
-        };
-
-        connection_config.tls_config.unwrap();
-    }
-
-    fn expect_custom_ca_tls(mock: &mut MockSslContextBuilder, path: &'static str) {
-        mock.expect_set_min_proto_version()
-            .with(eq(Some(SslVersion::TLS1_2)))
-            .times(1)
-            .returning(|_| Ok(()));
-        mock.expect_set_ca_file()
-            .times(1)
-            .with(eq(Path::new(path)))
-            .returning(|_| Ok(()));
-        mock.expect_build().times(1).returning(|| SslContext {});
+            connection_config.tls_config.unwrap();
+        }
+        #[cfg(not(feature = "rustls_dangerous_configuration"))]
+        {
+            let uri = uri.unwrap();
+            let tls_error = ConnectionConfig::try_from(uri).unwrap_err();
+            assert!(tls_error
+                .to_string()
+                .contains("rustls_dangerous_configuration"))
+        }
     }
 
     #[rstest]
     fn test_custom_ca_tls() {
-        let _m = get_ssl_context_mock_lock(&MTX);
+        let test_paths = Arc::new(
+            ["/foo", "/bar.pem"]
+                .into_iter()
+                .map(Path::new)
+                .collect::<Vec<_>>(),
+        );
 
-        let ctx = MockSslContextBuilder::new_context();
+        let _m = get_tls_helper_lock();
+        let ctx = tls_helper::custom_ca_tls_config_context();
         ctx.expect()
-            // would require mocking SslMethod
-            // .with(eq(SslMethod::tls_client()))
-            .returning(|_| {
-                let mut mock = MockSslContextBuilder::default();
-                expect_custom_ca_tls(&mut mock, "/foo/bar");
-                Ok(mock)
-            });
+            .withf({
+                let test_paths = Arc::clone(&test_paths);
+                move |paths| paths == test_paths.deref()
+            })
+            .returning(|_paths| Ok(get_test_client_config()));
 
         let address = ("localhost", 7687).into();
         let connection_config = ConnectionConfig::new(address)
-            .with_encryption_trust_custom_cas("/foo/bar")
+            .with_encryption_trust_custom_cas(&test_paths)
             .unwrap();
 
         connection_config.tls_config.unwrap();

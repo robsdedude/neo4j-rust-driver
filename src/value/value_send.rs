@@ -14,9 +14,9 @@
 
 use std::collections::HashMap;
 
+use super::spatial;
 use super::value_receive::ValueReceive;
 use super::ValueConversionError;
-use crate::spatial;
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]

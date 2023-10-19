@@ -54,7 +54,7 @@ pub(crate) use hash_map;
 /// assert_eq!(ValueSend::Boolean(false), value!(false));
 /// ```
 ///
-/// Any value that implements `Into<Value>`:
+/// Any value that implements [`Into<ValueSend>`] (see also [`ValueSend`]):
 /// ```
 /// use neo4j::{value, ValueSend};
 ///
@@ -70,7 +70,7 @@ pub(crate) use hash_map;
 /// assert_eq!(ValueSend::String(foo.clone()), value!(foo));
 ///
 /// // spatial types
-/// use neo4j::spatial::Cartesian2D;
+/// use neo4j::value::spatial::Cartesian2D;
 ///
 /// assert_eq!(
 ///     ValueSend::Cartesian2D(Cartesian2D::new(1., 2.)),
@@ -124,6 +124,35 @@ macro_rules! value {
 }
 
 /// Short notation for creating a `[HashMap<String, neo4j::ValueSend>`].
+///
+/// This macro can be useful, for example, for specifying query parameters.
+///
+/// The format is either `value_map!()` for an empty map:
+/// ```
+/// use std::collections::HashMap;
+/// use neo4j::{value_map, ValueSend};
+///
+/// assert_eq!(
+///     HashMap::new(),
+///     value_map!()
+/// );
+/// ```
+/// or `value_map!({"key": value, ...})` where value is anything accepted by [`value!`]:
+/// ```
+/// use std::collections::HashMap;
+/// use neo4j::{value_map, ValueSend};
+///
+/// let mut map = HashMap::new();
+/// map.insert(String::from("foo"), ValueSend::Integer(1));
+/// map.insert(String::from("bar"), ValueSend::Null);
+/// map.insert(String::from("baz"), ValueSend::List(vec![ValueSend::Integer(1)]));
+/// let map = map;
+///
+/// assert_eq!(
+///     map,
+///     value_map!({"foo": 1, "bar": null, "baz": [1]})
+/// );
+/// ```
 #[macro_export(local_inner_macros)]
 macro_rules! value_map {
     ($(,)?) => {
@@ -354,7 +383,7 @@ macro_rules! __value_unexpected {
 mod tests {
     use rstest::rstest;
 
-    use crate::spatial::*;
+    use crate::value::spatial::*;
     use crate::ValueSend;
 
     #[test]

@@ -18,7 +18,7 @@ use usize_cast::IntoIsize;
 use super::super::bolt5x0::Bolt5x0StructTranslator;
 use super::super::{BoltStructTranslator, BoltStructTranslatorWithUtcPatch};
 use crate::driver::io::bolt::PackStreamSerializer;
-use crate::graph::{Node, Path, Relationship, UnboundRelationship};
+use crate::value::graph::{Node, Path, Relationship, UnboundRelationship};
 use crate::value::value_receive::{BrokenValue, BrokenValueInner};
 use crate::{ValueReceive, ValueSend};
 

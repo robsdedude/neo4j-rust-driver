@@ -108,20 +108,3 @@ impl RoutingControl {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // #[test]
-    // fn test_session() {
-    //     let driver = Driver::new(
-    //         ConnectionConfig::new("localhost".into()),
-    //         DriverConfig::new(),
-    //     );
-    //     let db = String::from("foo_bar");
-    //     let session_config = Box::new(SessionConfig::new().with_database(db.as_str()));
-    //     let session = driver.session(&session_config);
-    //     dbg!(&session);
-    // }
-}

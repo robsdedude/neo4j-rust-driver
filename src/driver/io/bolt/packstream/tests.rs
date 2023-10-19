@@ -13,240 +13,104 @@
 // limitations under the License.
 
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
 
-use crate::driver::io::bolt::BoltStructTranslator;
+use crate::value;
+use crate::value::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
+use crate::{ValueReceive, ValueSend};
+
 use rstest::rstest;
 
+use super::super::super::bolt::BoltStructTranslator;
+use super::super::bolt5x0::Bolt5x0StructTranslator;
 use super::deserialize::{PackStreamDeserializer, PackStreamDeserializerImpl};
-use super::serialize::{PackStreamSerializer, PackStreamSerializerImpl};
-use super::*;
+use super::error::{PackStreamDeserializeError, PackStreamSerializeError};
+use super::serialize::PackStreamSerializerImpl;
 use crate::macros::hash_map;
-
-const TAG_2D: u8 = 0;
-const TAG_3D: u8 = 1;
-const TAG_UNKNOWN: u8 = 255;
-
-#[derive(Debug, PartialEq)]
-pub enum PackStreamTestValue {
-    Null,
-    Boolean(bool),
-    Integer(i64),
-    Float(f64),
-    Bytes(Vec<u8>),
-    String(String),
-    List(Vec<PackStreamTestValue>),
-    Dictionary(HashMap<String, PackStreamTestValue>),
-    Structure(PackStreamTestStructure),
-    Broken(String),
-}
-
-macro_rules! impl_into_test_value {
-    ( $pack_stream_ty:expr, $($ty:ty),* ) => {
-        $(
-            impl From<$ty> for PackStreamTestValue {
-                fn from(value: $ty) -> Self {
-                    $pack_stream_ty(value.into())
-                }
-            }
-        )*
-    };
-}
-
-impl_into_test_value!(PackStreamTestValue::Boolean, bool);
-impl_into_test_value!(PackStreamTestValue::Integer, i8, i16, i32, i64);
-impl_into_test_value!(PackStreamTestValue::Float, f64);
-impl_into_test_value!(PackStreamTestValue::Bytes, Vec<u8>);
-impl_into_test_value!(PackStreamTestValue::String, String);
-impl_into_test_value!(PackStreamTestValue::List, Vec<PackStreamTestValue>);
-impl_into_test_value!(PackStreamTestValue::Dictionary, HashMap<String, PackStreamTestValue>);
-impl_into_test_value!(PackStreamTestValue::Structure, PackStreamTestStructure);
-
-#[derive(Debug, PartialEq)]
-pub struct PackStreamTestStructure {
-    pub tag: u8,
-    pub fields: Vec<PackStreamTestValue>,
-}
-
-pub struct BoltStructTestTranslator {}
-
-fn unknown_tag_message(tag: u8) -> String {
-    format!("unknown tag {:02X?}", tag)
-}
-
-impl BoltStructTranslator for BoltStructTestTranslator {
-    fn serialize_point_2d<S: PackStreamSerializer>(
-        &self,
-        serializer: &mut S,
-        srid: i64,
-        x: f64,
-        y: f64,
-    ) -> Result<(), S::Error> {
-        serializer.write_struct_header(TAG_2D, 3)?;
-        serializer.write_int(srid)?;
-        serializer.write_float(x)?;
-        serializer.write_float(y)
-    }
-
-    fn serialize_point_3d<S: PackStreamSerializer>(
-        &self,
-        serializer: &mut S,
-        srid: i64,
-        x: f64,
-        y: f64,
-        z: f64,
-    ) -> Result<(), S::Error> {
-        serializer.write_struct_header(TAG_3D, 4)?;
-        serializer.write_int(srid)?;
-        serializer.write_float(x)?;
-        serializer.write_float(y)?;
-        serializer.write_float(z)
-    }
-
-    fn deserialize_struct<V: PackStreamDeserialize>(
-        &self,
-        tag: u8,
-        fields: Vec<V::Value>,
-    ) -> V::Value {
-        match tag {
-            TAG_2D => V::load_point_2d_v1(fields),
-            TAG_3D => V::load_point_3d_v1(fields),
-            _ => V::load_broken(unknown_tag_message(tag)),
-        }
-    }
-}
 
 // =============
 // Test Decoding
 // =============
 
-impl PackStreamDeserialize for PackStreamTestValue {
-    type Value = Self;
-
-    fn load_null() -> Self::Value {
-        PackStreamTestValue::Null
-    }
-
-    fn load_bool(b: bool) -> Self::Value {
-        PackStreamTestValue::Boolean(b)
-    }
-
-    fn load_int(i: i64) -> Self::Value {
-        PackStreamTestValue::Integer(i)
-    }
-
-    fn load_float(f: f64) -> Self::Value {
-        PackStreamTestValue::Float(f)
-    }
-
-    fn load_bytes(b: Vec<u8>) -> Self::Value {
-        PackStreamTestValue::Bytes(b)
-    }
-
-    fn load_string(s: String) -> Self::Value {
-        PackStreamTestValue::String(s)
-    }
-
-    fn load_list(l: Vec<Self::Value>) -> Self::Value {
-        PackStreamTestValue::List(l)
-    }
-
-    fn load_dict(d: HashMap<String, Self::Value>) -> Self::Value {
-        PackStreamTestValue::Dictionary(d)
-    }
-
-    fn load_point_2d_v1(fields: Vec<Self::Value>) -> Self::Value {
-        PackStreamTestValue::Structure(PackStreamTestStructure {
-            tag: TAG_2D,
-            fields,
-        })
-    }
-
-    fn load_point_3d_v1(fields: Vec<Self::Value>) -> Self::Value {
-        PackStreamTestValue::Structure(PackStreamTestStructure {
-            tag: TAG_3D,
-            fields,
-        })
-    }
-
-    fn load_broken(reason: String) -> Self::Value {
-        PackStreamTestValue::Broken(reason)
-    }
+fn mk_value<V: Into<ValueSend>>(v: V) -> ValueReceive {
+    ValueReceive::from(v.into())
 }
 
-fn decode(input: Vec<u8>) -> (PackStreamTestValue, Vec<u8>) {
-    let translator = BoltStructTestTranslator {};
+fn decode_raw(input: Vec<u8>) -> (Result<ValueReceive, PackStreamDeserializeError>, Vec<u8>) {
+    let translator = Bolt5x0StructTranslator {};
     let mut reader = input.as_slice();
     let mut deserializer = PackStreamDeserializerImpl::new(&mut reader);
-    let result = deserializer
-        .load::<PackStreamTestValue, _>(&translator)
-        .unwrap();
+    let result = deserializer.load(&translator);
     let rest = reader.iter().cloned().collect();
     (result, rest)
 }
 
-#[rstest]
-#[case(vec![0xC0], PackStreamTestValue::Null)]
-fn test_decode_null(#[case] input: Vec<u8>, #[case] output: PackStreamTestValue) {
-    dbg!(&input);
-    let (result, rest) = decode(input);
-    assert_eq!(result, output);
-    assert_eq!(rest, Vec::<u8>::new());
+fn decode(input: Vec<u8>) -> (ValueReceive, Vec<u8>) {
+    let (result, rest) = decode_raw(input);
+    (result.unwrap(), rest)
 }
 
 #[rstest]
-#[case(vec![0xC2], PackStreamTestValue::Boolean(false))]
-#[case(vec![0xC3], PackStreamTestValue::Boolean(true))]
-fn test_decode_bool(#[case] input: Vec<u8>, #[case] output: PackStreamTestValue) {
+#[case(vec![0xC0], ValueReceive::Null)]
+fn test_decode_null(#[case] input: Vec<u8>, #[case] output: ValueReceive) {
     dbg!(&input);
     let (result, rest) = decode(input);
     assert_eq!(result, output);
-    assert_eq!(rest, Vec::<u8>::new());
+    assert!(rest.is_empty());
 }
 
 #[rstest]
-#[case(vec![0xF0], PackStreamTestValue::Integer(-16))]
-#[case(vec![0xFF], PackStreamTestValue::Integer(-1))]
-#[case(vec![0x00], PackStreamTestValue::Integer(0))]
-#[case(vec![0x01], PackStreamTestValue::Integer(1))]
-#[case(vec![0x7F], PackStreamTestValue::Integer(127))]
-#[case(vec![0xC8, 0x80], PackStreamTestValue::Integer(-128))]
-#[case(vec![0xC8, 0xD6], PackStreamTestValue::Integer(-42))]
-#[case(vec![0xC8, 0x00], PackStreamTestValue::Integer(0))]
-#[case(vec![0xC8, 0x2A], PackStreamTestValue::Integer(42))]
-#[case(vec![0xC8, 0x7F], PackStreamTestValue::Integer(127))]
-#[case(vec![0xC9, 0x80, 0x00], PackStreamTestValue::Integer(-32768))]
-#[case(vec![0xC9, 0xFF, 0x80], PackStreamTestValue::Integer(-128))]
-#[case(vec![0xC9, 0xFF, 0xD6], PackStreamTestValue::Integer(-42))]
-#[case(vec![0xC9, 0x00, 0x00], PackStreamTestValue::Integer(0))]
-#[case(vec![0xC9, 0x00, 0x2A], PackStreamTestValue::Integer(42))]
-#[case(vec![0xC9, 0x00, 0x7F], PackStreamTestValue::Integer(127))]
-#[case(vec![0xC9, 0x7F, 0xFF], PackStreamTestValue::Integer(32767))]
-#[case(vec![0xCA, 0x80, 0x00, 0x00, 0x00], PackStreamTestValue::Integer(-2147483648))]
-#[case(vec![0xCA, 0xFF, 0xFF, 0x80, 0x00], PackStreamTestValue::Integer(-32768))]
-#[case(vec![0xCA, 0xFF, 0xFF, 0xFF, 0x80], PackStreamTestValue::Integer(-128))]
-#[case(vec![0xCA, 0xFF, 0xFF, 0xFF, 0xD6], PackStreamTestValue::Integer(-42))]
-#[case(vec![0xCA, 0x00, 0x00, 0x00, 0x00], PackStreamTestValue::Integer(0))]
-#[case(vec![0xCA, 0x00, 0x00, 0x00, 0x2A], PackStreamTestValue::Integer(42))]
-#[case(vec![0xCA, 0x00, 0x00, 0x00, 0x7F], PackStreamTestValue::Integer(127))]
-#[case(vec![0xCA, 0x00, 0x00, 0x7F, 0xFF], PackStreamTestValue::Integer(32767))]
-#[case(vec![0xCA, 0x7F, 0xFF, 0xFF, 0xFF], PackStreamTestValue::Integer(2147483647))]
-#[case(vec![0xCB, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], PackStreamTestValue::Integer(-9223372036854775808))]
-#[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0x00], PackStreamTestValue::Integer(-2147483648))]
-#[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x00], PackStreamTestValue::Integer(-32768))]
-#[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80], PackStreamTestValue::Integer(-128))]
-#[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xD6], PackStreamTestValue::Integer(-42))]
-#[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], PackStreamTestValue::Integer(0))]
-#[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2A], PackStreamTestValue::Integer(42))]
-#[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7F], PackStreamTestValue::Integer(127))]
-#[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFF], PackStreamTestValue::Integer(32767))]
-#[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFF, 0xFF, 0xFF], PackStreamTestValue::Integer(2147483647))]
-#[case(vec![0xCB, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], PackStreamTestValue::Integer(9223372036854775807))]
-fn test_decode_integer(#[case] input: Vec<u8>, #[case] output: PackStreamTestValue) {
+#[case(vec![0xC2], ValueReceive::Boolean(false))]
+#[case(vec![0xC3], ValueReceive::Boolean(true))]
+fn test_decode_bool(#[case] input: Vec<u8>, #[case] output: ValueReceive) {
     dbg!(&input);
     let (result, rest) = decode(input);
     assert_eq!(result, output);
-    assert_eq!(rest, Vec::<u8>::new());
+    assert!(rest.is_empty());
+}
+
+#[rstest]
+#[case(vec![0xF0], ValueReceive::Integer(-16))]
+#[case(vec![0xFF], ValueReceive::Integer(-1))]
+#[case(vec![0x00], ValueReceive::Integer(0))]
+#[case(vec![0x01], ValueReceive::Integer(1))]
+#[case(vec![0x7F], ValueReceive::Integer(127))]
+#[case(vec![0xC8, 0x80], ValueReceive::Integer(-128))]
+#[case(vec![0xC8, 0xD6], ValueReceive::Integer(-42))]
+#[case(vec![0xC8, 0x00], ValueReceive::Integer(0))]
+#[case(vec![0xC8, 0x2A], ValueReceive::Integer(42))]
+#[case(vec![0xC8, 0x7F], ValueReceive::Integer(127))]
+#[case(vec![0xC9, 0x80, 0x00], ValueReceive::Integer(-32768))]
+#[case(vec![0xC9, 0xFF, 0x80], ValueReceive::Integer(-128))]
+#[case(vec![0xC9, 0xFF, 0xD6], ValueReceive::Integer(-42))]
+#[case(vec![0xC9, 0x00, 0x00], ValueReceive::Integer(0))]
+#[case(vec![0xC9, 0x00, 0x2A], ValueReceive::Integer(42))]
+#[case(vec![0xC9, 0x00, 0x7F], ValueReceive::Integer(127))]
+#[case(vec![0xC9, 0x7F, 0xFF], ValueReceive::Integer(32767))]
+#[case(vec![0xCA, 0x80, 0x00, 0x00, 0x00], ValueReceive::Integer(-2147483648))]
+#[case(vec![0xCA, 0xFF, 0xFF, 0x80, 0x00], ValueReceive::Integer(-32768))]
+#[case(vec![0xCA, 0xFF, 0xFF, 0xFF, 0x80], ValueReceive::Integer(-128))]
+#[case(vec![0xCA, 0xFF, 0xFF, 0xFF, 0xD6], ValueReceive::Integer(-42))]
+#[case(vec![0xCA, 0x00, 0x00, 0x00, 0x00], ValueReceive::Integer(0))]
+#[case(vec![0xCA, 0x00, 0x00, 0x00, 0x2A], ValueReceive::Integer(42))]
+#[case(vec![0xCA, 0x00, 0x00, 0x00, 0x7F], ValueReceive::Integer(127))]
+#[case(vec![0xCA, 0x00, 0x00, 0x7F, 0xFF], ValueReceive::Integer(32767))]
+#[case(vec![0xCA, 0x7F, 0xFF, 0xFF, 0xFF], ValueReceive::Integer(2147483647))]
+#[case(vec![0xCB, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], ValueReceive::Integer(-9223372036854775808))]
+#[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0x00], ValueReceive::Integer(-2147483648))]
+#[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x00], ValueReceive::Integer(-32768))]
+#[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80], ValueReceive::Integer(-128))]
+#[case(vec![0xCB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xD6], ValueReceive::Integer(-42))]
+#[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], ValueReceive::Integer(0))]
+#[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2A], ValueReceive::Integer(42))]
+#[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7F], ValueReceive::Integer(127))]
+#[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFF], ValueReceive::Integer(32767))]
+#[case(vec![0xCB, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFF, 0xFF, 0xFF], ValueReceive::Integer(2147483647))]
+#[case(vec![0xCB, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], ValueReceive::Integer(9223372036854775807))]
+fn test_decode_integer(#[case] input: Vec<u8>, #[case] output: ValueReceive) {
+    dbg!(&input);
+    let (result, rest) = decode(input);
+    assert_eq!(result, output);
+    assert!(rest.is_empty());
 }
 
 #[rstest]
@@ -261,13 +125,13 @@ fn test_decode_float(#[case] input: Vec<u8>, #[case] output: f64) {
     let (result, rest) = decode(input);
     if output.is_nan() {
         match result {
-            PackStreamTestValue::Float(result) => assert!(result.is_nan()),
+            ValueReceive::Float(result) => assert!(result.is_nan()),
             _ => panic!("output was not float"),
         }
     } else {
-        assert_eq!(result, PackStreamTestValue::Float(output));
+        assert_eq!(result, ValueReceive::Float(output));
     }
-    assert_eq!(rest, Vec::<u8>::new());
+    assert!(rest.is_empty());
 }
 
 fn damn_long_vec(header: Option<Vec<u8>>, size: usize) -> Vec<u8> {
@@ -302,8 +166,8 @@ fn test_decode_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
     }
     let (result, rest) = decode(input);
 
-    assert_eq!(result, PackStreamTestValue::Bytes(output));
-    assert_eq!(rest, Vec::<u8>::new());
+    assert_eq!(result, ValueReceive::Bytes(output));
+    assert!(rest.is_empty());
 }
 
 // this test is only feasible with a release build
@@ -315,8 +179,8 @@ fn test_decode_max_len_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
 
     let (result, rest) = decode(input);
 
-    assert_eq!(result, PackStreamTestValue::Bytes(output));
-    assert_eq!(rest, Vec::<u8>::new());
+    assert_eq!(result, ValueReceive::Bytes(output));
+    assert!(rest.is_empty());
 }
 
 #[rstest]
@@ -335,8 +199,8 @@ fn test_decode_string(#[case] input: Vec<u8>, #[case] output: &str) {
     dbg!(&input);
     let (result, rest) = decode(input);
 
-    assert_eq!(result, PackStreamTestValue::String(String::from(output)));
-    assert_eq!(rest, Vec::<u8>::new());
+    assert_eq!(result, ValueReceive::String(String::from(output)));
+    assert!(rest.is_empty());
 }
 
 // this test is only feasible with a release build
@@ -352,8 +216,8 @@ fn test_decode_max_len_string() {
 
     let (result, rest) = decode(input);
 
-    assert_eq!(result, PackStreamTestValue::String(output));
-    assert_eq!(rest, Vec::<u8>::new());
+    assert_eq!(result, ValueReceive::String(output));
+    assert!(rest.is_empty());
 }
 
 #[rstest]
@@ -361,73 +225,81 @@ fn test_decode_max_len_string() {
 #[case(vec![0xD4, 0x00], vec![])]
 #[case(vec![0xD5, 0x00, 0x00], vec![])]
 #[case(vec![0xD6, 0x00, 0x00, 0x00, 0x00], vec![])]
-#[case(vec![0x91, 0x01], vec![1.into()])]
-#[case(vec![0xD4, 0x01, 0x01], vec![1.into()])]
-#[case(vec![0xD4, 0x03, 0x01, 0x02, 0x03], vec![1.into(), 2.into(), 3.into()])]
-#[case(vec![0xD5, 0x00, 0x01, 0x01], vec![1.into()])]
-#[case(vec![0xD6, 0x00, 0x00, 0x00, 0x01, 0x01], vec![1.into()])]
-#[case(vec![0x91, 0x91, 0x01], vec![vec![PackStreamTestValue::Integer(1)].into()])]
+#[case(vec![0x91, 0x01], vec![mk_value(1)])]
+#[case(vec![0xD4, 0x01, 0x01], vec![mk_value(1)])]
+#[case(vec![0xD4, 0x03, 0x01, 0x02, 0x03], vec![mk_value(1), mk_value(2), mk_value(3)])]
+#[case(vec![0xD5, 0x00, 0x01, 0x01], vec![mk_value(1)])]
+#[case(vec![0xD6, 0x00, 0x00, 0x00, 0x01, 0x01], vec![mk_value(1)])]
+#[case(vec![0x91, 0x91, 0x01], vec![mk_value(value!([1]))])]
 #[case(vec![0x93,
             0x01,
             0xC1, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x85, 0x74, 0x68, 0x72, 0x65, 0x65],
-        vec![1.into(), 2.0.into(), String::from("three").into()])]
-fn test_decode_list(#[case] input: Vec<u8>, #[case] output: Vec<PackStreamTestValue>) {
+        vec![mk_value(1), mk_value(2.0), mk_value(String::from("three"))])]
+fn test_decode_list(#[case] input: Vec<u8>, #[case] output: Vec<ValueReceive>) {
     dbg!(&input);
     let (result, rest) = decode(input);
 
-    assert_eq!(result, PackStreamTestValue::List(output));
-    assert_eq!(rest, Vec::<u8>::new());
+    assert_eq!(result, ValueReceive::List(output));
+    assert!(rest.is_empty());
 }
 
 #[rstest]
 #[case(vec![0xA0], hash_map!())]
-#[case(vec![0xA1, 0x81, 0x41, 0x01], hash_map!("A".into() => 1.into()))]
+#[case(vec![0xA1, 0x81, 0x41, 0x01], hash_map!("A".into() => mk_value(1)))]
 #[case(vec![0xA1, 0x83, 0x6F, 0x6E, 0x65, 0x84, 0x65, 0x69, 0x6E, 0x73],
-       hash_map!("one".into() => String::from("eins").into()))]
+       hash_map!("one".into() => mk_value(String::from("eins"))))]
 #[case(vec![0xD8, 0x03, 0x81, 0x41, 0x01, 0x81, 0x42, 0x02, 0x81, 0x41, 0x03],
-       hash_map!("A".into() => 3.into(), "B".into() => 2.into()))]
+       hash_map!("A".into() => mk_value(3), "B".into() => mk_value(2)))]
 #[case(vec![0xD9, 0x00, 0x03, 0x81, 0x41, 0x01, 0x81, 0x42, 0x02, 0x81, 0x41, 0x03],
-       hash_map!("A".into() => 3.into(), "B".into() => 2.into()))]
+       hash_map!("A".into() => mk_value(3), "B".into() => mk_value(2)))]
 #[case(vec![0xDA, 0x00, 0x00, 0x00, 0x03, 0x81, 0x41, 0x01, 0x81, 0x42, 0x02, 0x81, 0x41, 0x03],
-       hash_map!("A".into() => 3.into(), "B".into() => 2.into()))]
-fn test_decode_dict(#[case] input: Vec<u8>, #[case] output: HashMap<String, PackStreamTestValue>) {
+       hash_map!("A".into() => mk_value(3), "B".into() => mk_value(2)))]
+fn test_decode_dict(#[case] input: Vec<u8>, #[case] output: HashMap<String, ValueReceive>) {
     dbg!(&input);
     let (result, rest) = decode(input);
 
-    assert_eq!(result, PackStreamTestValue::Dictionary(output));
-    assert_eq!(rest, Vec::<u8>::new());
+    assert_eq!(result, ValueReceive::Map(output));
+    assert!(rest.is_empty());
 }
 
 #[rstest]
-#[case(vec![0xB0, TAG_2D],
-       PackStreamTestStructure { tag: TAG_2D, fields: vec![] })]
-#[case(vec![0xB1, TAG_2D, 0x01],
-       PackStreamTestStructure { tag: TAG_2D, fields: vec![1.into()] })]
-#[case(vec![0xB0, TAG_3D],
-       PackStreamTestStructure { tag: TAG_3D, fields: vec![] })]
-#[case(vec![0xB1, TAG_3D, 0x01],
-       PackStreamTestStructure { tag: TAG_3D, fields: vec![1.into()] })]
-fn test_decode_struct(#[case] input: Vec<u8>, #[case] output: PackStreamTestStructure) {
+#[case(vec![0xB3, 0x58, 0xC9, 0x1C, 0x23,
+            0xC1, 0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC1, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+       mk_value(Cartesian2D::new(1., 2.)))]
+#[case(vec![0xB4, 0x59, 0xC9, 0x23, 0xC5,
+            0xC1, 0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC1, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC1, 0x40, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+       mk_value(Cartesian3D::new(1., 2., 3.)))]
+#[case(vec![0xB3, 0x58, 0xC9, 0x10, 0xE6,
+            0xC1, 0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC1, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+       mk_value(WGS84_2D::new(1., 2.)))]
+#[case(vec![0xB4, 0x59, 0xC9, 0x13, 0x73,
+            0xC1, 0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC1, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC1, 0x40, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+       mk_value(WGS84_3D::new(1., 2., 3.)))]
+// TODO: all other struct types
+fn test_decode_struct(#[case] input: Vec<u8>, #[case] output: ValueReceive) {
     dbg!(&input);
     let (result, rest) = decode(input);
 
-    assert_eq!(result, PackStreamTestValue::Structure(output));
-    assert_eq!(rest, Vec::<u8>::new());
+    assert_eq!(result, output);
+    assert!(rest.is_empty());
 }
 
 #[rstest]
-#[case(vec![0xB0, TAG_UNKNOWN])]
-#[case(vec![0xB1, TAG_UNKNOWN, 0x01])]
+#[case(vec![0xB0, 0xFF])]
+#[case(vec![0xB1, 0xFF, 0xC3])]
 fn test_decode_unknown_struct(#[case] input: Vec<u8>) {
     dbg!(&input);
     let (result, rest) = decode(input);
 
-    assert_eq!(
-        result,
-        PackStreamTestValue::Broken(unknown_tag_message(TAG_UNKNOWN))
-    );
-    assert_eq!(rest, Vec::<u8>::new());
+    assert!(matches!(result, ValueReceive::BrokenValue(_)));
+    assert!(rest.is_empty());
 }
 
 #[rstest]
@@ -435,55 +307,35 @@ fn test_decode_unknown_struct(#[case] input: Vec<u8>) {
 // TODO: cover all error cases
 fn test_decode_error(#[case] input: Vec<u8>, #[case] error: &'static str) {
     dbg!(&input);
-    let translator = BoltStructTestTranslator {};
-    let mut input: Box<dyn Read> = Box::new(input.as_slice());
-    let mut deserializer = PackStreamDeserializerImpl::new(&mut input);
-    let result = deserializer.load::<PackStreamTestValue, _>(&translator);
-    let rest: Vec<u8> = input.bytes().map(|b| b.unwrap()).collect();
+    let (result, rest) = decode_raw(input);
+
     result.expect_err("expected to fail");
 
     dbg!(error);
-    let message = format!("{}", error);
+    let message = error.to_string();
     assert!(message.to_lowercase().contains(error));
-    assert_eq!(rest, Vec::<u8>::new());
+    assert!(rest.is_empty());
 }
 
 // =============
 // Test Encoding
 // =============
 
-impl PackStreamSerialize for PackStreamTestValue {
-    fn serialize<S: PackStreamSerializer, B: BoltStructTranslator>(
-        &self,
-        serializer: &mut S,
-        bolt: &B,
-    ) -> Result<(), S::Error> {
-        match self {
-            PackStreamTestValue::Null => serializer.write_null(),
-            PackStreamTestValue::Boolean(b) => serializer.write_bool(*b),
-            PackStreamTestValue::Integer(i) => serializer.write_int(*i),
-            PackStreamTestValue::Float(f) => serializer.write_float(*f),
-            PackStreamTestValue::Bytes(b) => serializer.write_bytes(b),
-            PackStreamTestValue::String(s) => serializer.write_string(s),
-            PackStreamTestValue::List(l) => serializer.write_list(bolt, l),
-            PackStreamTestValue::Dictionary(d) => serializer.write_dict(bolt, d),
-            PackStreamTestValue::Structure(s) => serializer.write_struct(bolt, s.tag, &s.fields),
-            PackStreamTestValue::Broken(reason) => serializer.error(reason.clone()),
-        }
-    }
-}
-
-fn encode(input: &PackStreamTestValue) -> Vec<u8> {
-    let translator = BoltStructTestTranslator {};
+fn encode_raw(input: &ValueSend) -> Result<Vec<u8>, PackStreamSerializeError> {
+    let translator = Bolt5x0StructTranslator {};
     let mut output = Vec::new();
     let mut serializer = PackStreamSerializerImpl::new(&mut output);
-    input.serialize(&mut serializer, &translator).unwrap();
-    output
+    translator.serialize(&mut serializer, input)?;
+    Ok(output)
+}
+
+fn encode(input: &ValueSend) -> Vec<u8> {
+    encode_raw(input).unwrap()
 }
 
 #[rstest]
-#[case(PackStreamTestValue::Null, vec![0xC0])]
-fn test_encode_null(#[case] input: PackStreamTestValue, #[case] output: Vec<u8>) {
+#[case(ValueSend::Null, vec![0xC0])]
+fn test_encode_null(#[case] input: ValueSend, #[case] output: Vec<u8>) {
     let result = encode(&input);
 
     assert_eq!(result, output);
@@ -493,7 +345,7 @@ fn test_encode_null(#[case] input: PackStreamTestValue, #[case] output: Vec<u8>)
 #[case(false, vec![0xC2])]
 #[case(true, vec![0xC3])]
 fn test_encode_bool(#[case] input: bool, #[case] output: Vec<u8>) {
-    let result = encode(&PackStreamTestValue::Boolean(input));
+    let result = encode(&ValueSend::Boolean(input));
 
     assert_eq!(result, output);
 }
@@ -514,7 +366,7 @@ fn test_encode_bool(#[case] input: bool, #[case] output: Vec<u8>) {
 fn test_encode_integer(#[case] input: i64, #[case] output: Vec<u8>) {
     dbg!(&input);
 
-    let result = encode(&PackStreamTestValue::Integer(input));
+    let result = encode(&ValueSend::Integer(input));
 
     assert_eq!(result, output);
 }
@@ -529,7 +381,7 @@ fn test_encode_integer(#[case] input: i64, #[case] output: Vec<u8>) {
 fn test_encode_float(#[case] input: f64, #[case] output: Vec<u8>) {
     dbg!(&input);
 
-    let result = encode(&PackStreamTestValue::Float(input));
+    let result = encode(&ValueSend::Float(input));
 
     assert_eq!(result, output);
 }
@@ -548,7 +400,7 @@ fn test_encode_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
     } else {
         println!("bytes of length {}", input.len());
     }
-    let result = encode(&PackStreamTestValue::Bytes(input));
+    let result = encode(&ValueSend::Bytes(input));
 
     assert_eq!(result, output);
 }
@@ -560,7 +412,7 @@ fn test_encode_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
 fn test_encode_max_len_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
     println!("bytes of length {}", input.len());
 
-    let result = encode(&PackStreamTestValue::Bytes(input));
+    let result = encode(&ValueSend::Bytes(input));
 
     assert_eq!(result, output);
 }
@@ -578,7 +430,7 @@ fn test_encode_max_len_bytes(#[case] input: Vec<u8>, #[case] output: Vec<u8>) {
 fn test_encode_string(#[case] input: &str, #[case] output: Vec<u8>) {
     dbg!(&input);
 
-    let result = encode(&PackStreamTestValue::String(String::from(input)));
+    let result = encode(&ValueSend::String(String::from(input)));
 
     assert_eq!(result, output);
 }
@@ -593,7 +445,7 @@ fn test_encode_long_string(#[case] size: usize, #[case] mut header: Vec<u8>) {
     let mut input = String::with_capacity(size);
     input.extend(std::iter::repeat('A').take(size));
 
-    let result = encode(&PackStreamTestValue::String(input));
+    let result = encode(&ValueSend::String(input));
 
     assert_eq!(result, output);
 }
@@ -609,7 +461,7 @@ fn test_encode_max_len_string() {
     let mut input = String::with_capacity(size);
     input.extend(std::iter::repeat('A').take(size));
 
-    let result = encode(&PackStreamTestValue::String(input));
+    let result = encode(&ValueSend::String(input));
 
     assert_eq!(result, output);
 }
@@ -618,16 +470,16 @@ fn test_encode_max_len_string() {
 #[case(vec![], vec![0x90])]
 #[case(vec![1.into()], vec![0x91, 0x01])]
 #[case(vec![1.into(), 2.into(), 3.into()], vec![0x93, 0x01, 0x02, 0x03])]
-#[case(vec![vec![PackStreamTestValue::Integer(1)].into()], vec![0x91, 0x91, 0x01])]
+#[case(vec![vec![ValueSend::Integer(1)].into()], vec![0x91, 0x91, 0x01])]
 #[case(vec![1.into(), 2.0.into(), String::from("three").into()],
        vec![0x93,
             0x01,
             0xC1, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x85, 0x74, 0x68, 0x72, 0x65, 0x65])]
-fn test_encode_list(#[case] input: Vec<PackStreamTestValue>, #[case] output: Vec<u8>) {
+fn test_encode_list(#[case] input: Vec<ValueSend>, #[case] output: Vec<u8>) {
     dbg!(&input);
 
-    let result = encode(&PackStreamTestValue::List(input));
+    let result = encode(&ValueSend::List(input));
 
     assert_eq!(result, output);
 }
@@ -640,9 +492,9 @@ fn test_encode_long_list(#[case] size: usize, #[case] mut header: Vec<u8>) {
     header.extend(std::iter::repeat(0x01).take(size));
     let output = header;
     let mut input = Vec::with_capacity(size);
-    input.extend(std::iter::repeat_with(|| PackStreamTestValue::Integer(1)).take(size));
+    input.extend(std::iter::repeat_with(|| ValueSend::Integer(1)).take(size));
 
-    let result = encode(&PackStreamTestValue::List(input));
+    let result = encode(&ValueSend::List(input));
 
     assert_eq!(result, output);
 }
@@ -652,10 +504,10 @@ fn test_encode_long_list(#[case] size: usize, #[case] mut header: Vec<u8>) {
 #[case(hash_map!("A".into() => 1.into()), vec![0xA1, 0x81, 0x41, 0x01])]
 #[case(hash_map!(String::from("one") => String::from("eins").into()),
        vec![0xA1, 0x83, 0x6F, 0x6E, 0x65, 0x84, 0x65, 0x69, 0x6E, 0x73])]
-fn test_encode_dict(#[case] input: HashMap<String, PackStreamTestValue>, #[case] output: Vec<u8>) {
+fn test_encode_dict(#[case] input: HashMap<String, ValueSend>, #[case] output: Vec<u8>) {
     dbg!(&input);
 
-    let result = encode(&PackStreamTestValue::Dictionary(input));
+    let result = encode(&ValueSend::Map(input));
 
     assert_eq!(result, output);
 }
@@ -671,7 +523,7 @@ fn test_encode_long_dict(#[case] size: usize, #[case] header: Vec<u8>) {
     for i in 0..size {
         let key = format!("{:04X}", i);
         let value = i % 100;
-        input.insert(key.clone(), PackStreamTestValue::Integer(value as i64));
+        input.insert(key.clone(), ValueSend::Integer(value as i64));
 
         bytes.clear();
         bytes.push(0x84);
@@ -681,7 +533,7 @@ fn test_encode_long_dict(#[case] size: usize, #[case] header: Vec<u8>) {
         assert!(output.insert(bytes.clone()));
     }
 
-    let result = encode(&PackStreamTestValue::Dictionary(input));
+    let result = encode(&ValueSend::Map(input));
 
     assert_eq!(result[0..header.len()], header);
     let rest = &result[header.len()..];
@@ -691,14 +543,29 @@ fn test_encode_long_dict(#[case] size: usize, #[case] header: Vec<u8>) {
 }
 
 #[rstest]
-#[case(PackStreamTestStructure { tag: 0xFF, fields: vec![] },
-       vec![0xB0, 0xFF])]
-#[case(PackStreamTestStructure { tag: 0xAA, fields: vec![1.into()] },
-       vec![0xB1, 0xAA, 0x01])]
-fn test_encode_struct(#[case] input: PackStreamTestStructure, #[case] output: Vec<u8>) {
+#[case(Cartesian2D::new(1., 2.).into(),
+       vec![0xB3, 0x58, 0xC9, 0x1C, 0x23,
+            0xC1, 0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC1, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])]
+#[case(Cartesian3D::new(1., 2., 3.).into(),
+       vec![0xB4, 0x59, 0xC9, 0x23, 0xC5,
+            0xC1, 0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC1, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC1, 0x40, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])]
+#[case(WGS84_2D::new(1., 2.).into(),
+       vec![0xB3, 0x58, 0xC9, 0x10, 0xE6,
+            0xC1, 0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC1, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])]
+#[case(WGS84_3D::new(1., 2., 3.).into(),
+       vec![0xB4, 0x59, 0xC9, 0x13, 0x73,
+            0xC1, 0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC1, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC1, 0x40, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])]
+// TODO: all other struct types
+fn test_encode_struct(#[case] input: ValueSend, #[case] output: Vec<u8>) {
     dbg!(&input);
 
-    let result = encode(&PackStreamTestValue::Structure(input));
+    let result = encode(&input);
 
     assert_eq!(result, output);
 }

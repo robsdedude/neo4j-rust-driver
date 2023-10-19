@@ -99,7 +99,7 @@ pub struct WGS84_2D {
 impl WGS84_2D {
     pub fn new(longitude: f64, latitude: f64) -> Self {
         WGS84_2D {
-            srid: SRID_CARTESIAN_2D,
+            srid: SRID_WGS84_2D,
             coordinates: [longitude, latitude],
         }
     }
@@ -133,7 +133,7 @@ pub struct WGS84_3D {
 impl WGS84_3D {
     pub fn new(longitude: f64, latitude: f64, height: f64) -> Self {
         WGS84_3D {
-            srid: SRID_CARTESIAN_3D,
+            srid: SRID_WGS84_3D,
             coordinates: [longitude, latitude, height],
         }
     }

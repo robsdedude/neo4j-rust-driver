@@ -17,8 +17,8 @@ use usize_cast::{FromUsize, IntoIsize};
 
 use super::super::BoltStructTranslator;
 use crate::driver::io::bolt::PackStreamSerializer;
-use crate::graph::{Node, Path, Relationship, UnboundRelationship};
-use crate::spatial::{
+use crate::value::graph::{Node, Path, Relationship, UnboundRelationship};
+use crate::value::spatial::{
     Cartesian2D, Cartesian3D, SRID_CARTESIAN_2D, SRID_CARTESIAN_3D, SRID_WGS84_2D, SRID_WGS84_3D,
     WGS84_2D, WGS84_3D,
 };
@@ -42,7 +42,7 @@ impl Bolt5x0StructTranslator {
         srid: i64,
         coordinates: &[f64; 2],
     ) -> Result<(), S::Error> {
-        serializer.write_struct_header(TAG_2D_POINT, 2)?;
+        serializer.write_struct_header(TAG_2D_POINT, 3)?;
         serializer.write_int(srid)?;
         serializer.write_float(coordinates[0])?;
         serializer.write_float(coordinates[1])
@@ -54,7 +54,7 @@ impl Bolt5x0StructTranslator {
         srid: i64,
         coordinates: &[f64; 3],
     ) -> Result<(), S::Error> {
-        serializer.write_struct_header(TAG_3D_POINT, 3)?;
+        serializer.write_struct_header(TAG_3D_POINT, 4)?;
         serializer.write_int(srid)?;
         serializer.write_float(coordinates[0])?;
         serializer.write_float(coordinates[1])?;

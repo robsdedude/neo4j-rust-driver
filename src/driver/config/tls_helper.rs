@@ -11,27 +11,3 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-pub mod graph;
-pub mod spatial;
-pub(crate) mod value_receive;
-pub(crate) mod value_send;
-// mod de;
-// mod ser;
-
-use thiserror::Error;
-
-pub use value_receive::ValueReceive;
-pub use value_send::ValueSend;
-
-#[derive(Debug, Error)]
-#[error("{reason}")]
-pub struct ValueConversionError {
-    reason: &'static str,
-}
-
-impl From<&'static str> for ValueConversionError {
-    fn from(reason: &'static str) -> Self {
-        Self { reason }
-    }
-}

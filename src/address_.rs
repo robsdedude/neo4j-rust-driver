@@ -55,10 +55,10 @@ impl Hash for Address {
 }
 
 impl Address {
-    pub(crate) fn fully_resolve<'resolver>(
+    pub(crate) fn fully_resolve(
         self: Arc<Self>,
-        resolver: Option<&'resolver dyn AddressResolver>,
-    ) -> Result<impl Iterator<Item = IoResult<Arc<Self>>> + 'resolver> {
+        resolver: Option<&dyn AddressResolver>,
+    ) -> Result<impl Iterator<Item = IoResult<Arc<Self>>> + '_> {
         self.custom_resolve(resolver).map(move |addrs| {
             addrs.flat_map(move |a| {
                 a.dns_resolve(

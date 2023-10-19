@@ -17,8 +17,8 @@ use std::collections::{HashMap, VecDeque};
 use itertools::Itertools;
 
 use super::graph;
+use super::spatial;
 use super::value_send::ValueSend;
-use crate::spatial;
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
