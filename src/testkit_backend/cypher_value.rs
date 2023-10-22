@@ -13,21 +13,25 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::fmt::Formatter;
+use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use std::num::FpCategory;
+use std::str::FromStr;
 
+use chrono::{Datelike, Duration, LocalResult, Offset, TimeZone, Timelike};
 use serde::de::Unexpected;
-use serde::ser::SerializeMap;
 use serde::{de::Error as DeError, de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue};
 use thiserror::Error;
 
-use crate::graph::{
+use crate::driver::Record;
+use crate::testkit_backend::errors::TestKitError;
+use crate::value::graph::{
     Node as Neo4jNode, Relationship as Neo4jRelationship,
     UnboundRelationship as Neo4jUnboundRelationship,
 };
-use crate::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
+use crate::value::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
+use crate::value::time;
 use crate::{ValueReceive, ValueSend};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -49,11 +53,11 @@ pub(super) enum CypherValue {
     CypherBool {
         value: bool,
     },
-    #[serde(
-        serialize_with = "serialize_cypher_float",
-        deserialize_with = "deserialize_cypher_float"
-    )]
     CypherFloat {
+        #[serde(
+            serialize_with = "serialize_cypher_float",
+            deserialize_with = "deserialize_cypher_float"
+        )]
         value: f64,
     },
     CypherString {
@@ -156,20 +160,17 @@ where
     S: Serializer,
 {
     let v = *v;
-    let mut s = s.serialize_map(Some(1))?;
-    s.serialize_key("value")?;
     match v.classify() {
-        FpCategory::Nan => s.serialize_value("NaN"),
+        FpCategory::Nan => s.serialize_str("NaN"),
         FpCategory::Infinite => {
             if v < 0.0 {
-                s.serialize_value("-Infinity")
+                s.serialize_str("-Infinity")
             } else {
-                s.serialize_value("+Infinity")
+                s.serialize_str("+Infinity")
             }
         }
-        _ => s.serialize_value(&v),
-    }?;
-    s.end()
+        _ => s.serialize_f64(v),
+    }
 }
 
 fn deserialize_cypher_float<'de, D>(d: D) -> Result<f64, D::Error>
@@ -198,6 +199,20 @@ impl<'de> Visitor<'de> for CypherFloatVisitor {
         Ok(v)
     }
 
+    fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+    where
+        E: DeError,
+    {
+        Ok(v as f64)
+    }
+
+    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+    where
+        E: DeError,
+    {
+        Ok(v as f64)
+    }
+
     fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
     where
         E: DeError,
@@ -220,9 +235,9 @@ where
     }
     let mut repr = String::with_capacity(v.len() * 3 - 1);
     for b in &v[..v.len() - 1] {
-        repr.push_str(&format!("{b:X} "));
+        repr.push_str(&format!("{b:02x} "));
     }
-    repr.push_str(&format!("{:X}", &v[v.len() - 1]));
+    repr.push_str(&format!("{:02x}", &v[v.len() - 1]));
     s.serialize_str(&repr)
 }
 
@@ -319,15 +334,156 @@ impl TryFrom<CypherValue> for ValueSend {
                 y,
                 z: Some(z),
             } => WGS84_3D::new(x, y, z).into(),
-            CypherValue::CypherDate { .. }
-            | CypherValue::CypherTime { .. }
-            | CypherValue::CypherDateTime { .. }
-            | CypherValue::CypherDuration { .. } => {
-                return Err(NotADriverValueError {
-                    reason: String::from("Driver does not yet support temporal types"),
-                })
+            CypherValue::CypherDate { year, month, day } => {
+                let year = try_from_value(year, "CypherDate", "year")?;
+                let month = try_from_value(month, "CypherDate", "month")?;
+                let day = try_from_value(day, "CypherDate", "day")?;
+                time::Date::from_ymd_opt(year, month, day)
+                    .ok_or_else(|| NotADriverValueError {
+                        reason: String::from("CypherDate is out of range"),
+                    })?
+                    .into()
             }
+            CypherValue::CypherTime {
+                hour,
+                minute,
+                second,
+                nanosecond,
+                utc_offset_s,
+            } => {
+                let hour = try_from_value(hour, "CypherTime", "hour")?;
+                let minute = try_from_value(minute, "CypherTime", "minute")?;
+                let second = try_from_value(second, "CypherTime", "second")?;
+                let nanosecond = try_from_value(nanosecond, "CypherTime", "nanosecond")?;
+                let time = time::LocalTime::from_hms_nano_opt(hour, minute, second, nanosecond)
+                    .ok_or_else(|| NotADriverValueError {
+                        reason: String::from("CypherTime is out of range"),
+                    })?;
+                let Some(utc_offset_s) = utc_offset_s else {
+                    return Ok(time.into());
+                };
+                let utc_offset_s = try_from_value(utc_offset_s, "CypherTime", "utc_offset_s")?;
+                let offset = time::FixedOffset::east_opt(utc_offset_s).ok_or_else(|| {
+                    NotADriverValueError {
+                        reason: String::from("CypherTime utc_offset_s is out of range"),
+                    }
+                })?;
+                time::Time { time, offset }.into()
+            }
+            CypherValue::CypherDateTime {
+                year,
+                month,
+                day,
+                hour,
+                minute,
+                second,
+                nanosecond,
+                utc_offset_s,
+                timezone_id,
+            } => {
+                let year = try_from_value(year, "CypherDateTime", "year")?;
+                let month = try_from_value(month, "CypherDateTime", "month")?;
+                let day = try_from_value(day, "CypherDateTime", "day")?;
+                let hour = try_from_value(hour, "CypherDateTime", "hour")?;
+                let minute = try_from_value(minute, "CypherDateTime", "minute")?;
+                let second = try_from_value(second, "CypherDateTime", "second")?;
+                let nanosecond = try_from_value(nanosecond, "CypherDateTime", "nanosecond")?;
+                let mut dt = time::Date::from_ymd_opt(year, month, day)
+                    .and_then(|dt| dt.and_hms_nano_opt(hour, minute, second, nanosecond))
+                    .ok_or_else(|| NotADriverValueError {
+                        reason: String::from("CypherDateTime is out of range"),
+                    })?;
+                let Some(utc_offset_s) = utc_offset_s else {
+                    // LocalDateTime
+                    return Ok(dt.into());
+                };
+                let utc_offset_s = try_from_value(utc_offset_s, "CypherDateTime", "utc_offset_s")?;
+                let Some(timezone_id) = timezone_id else {
+                    // DateTimeFixed
+                    let tz = time::FixedOffset::east_opt(utc_offset_s).ok_or_else(|| {
+                        NotADriverValueError {
+                            reason: String::from("CypherDateTime utc_offset_s is out of range"),
+                        }
+                    })?;
+                    dt = dt
+                        .checked_sub_signed(Duration::seconds(utc_offset_s.into()))
+                        .ok_or_else(|| NotADriverValueError {
+                            reason: String::from("CypherDateTime out of range"),
+                        })?;
+                    return Ok(tz.from_utc_datetime(&dt).into());
+                };
+                // DateTime
+                let tz = time::Tz::from_str(&timezone_id).map_err(|_| NotADriverValueError {
+                    reason: String::from("CypherDateTime timezone_id is invalid"),
+                })?;
+                let dt = match tz.from_local_datetime(&dt) {
+                    LocalResult::None => None,
+                    LocalResult::Single(dt) => {
+                        if dt.offset().fix().local_minus_utc() == utc_offset_s {
+                            Some(dt)
+                        } else {
+                            return Err(NotADriverValueError {
+                                reason: String::from(
+                                    "CypherDateTime with given utc offset doesn't exist",
+                                ),
+                            });
+                        }
+                    }
+                    LocalResult::Ambiguous(dt1, dt2) => {
+                        if dt1.offset().fix().local_minus_utc() == utc_offset_s {
+                            Some(dt1)
+                        } else if dt2.offset().fix().local_minus_utc() == utc_offset_s {
+                            Some(dt2)
+                        } else {
+                            return Err(NotADriverValueError {
+                                reason: String::from(
+                                    "CypherDateTime with given utc offset doesn't exist",
+                                ),
+                            });
+                        }
+                    }
+                }
+                .ok_or_else(|| NotADriverValueError {
+                    reason: String::from("CypherDateTime non-existent local date time"),
+                })?;
+                dt.into()
+            }
+            CypherValue::CypherDuration {
+                months,
+                days,
+                seconds,
+                nanoseconds,
+            } => time::Duration::new(
+                months,
+                days,
+                seconds,
+                try_from_value(nanoseconds, "CypherDuration", "nanoseconds")?,
+            )
+            .into(),
         })
+    }
+}
+
+fn try_from_value<R>(
+    value: impl TryInto<R> + Display + Copy,
+    struct_name: &str,
+    value_name: &str,
+) -> Result<R, NotADriverValueError> {
+    value.try_into().map_err(|_| NotADriverValueError {
+        reason: format!("{struct_name} {value_name} {value} is out of range"),
+    })
+}
+
+impl TryFrom<Record> for Vec<CypherValue> {
+    type Error = TestKitError;
+
+    fn try_from(record: Record) -> Result<Self, Self::Error> {
+        record
+            .entries
+            .into_iter()
+            .map(|(_, v)| v.try_into())
+            .collect::<Result<_, _>>()
+            .map_err(Into::into)
     }
 }
 
@@ -370,6 +526,13 @@ impl From<ValueSend> for CypherValue {
                 y: value.longitude(),
                 z: Some(value.altitude()),
             },
+            ValueSend::Duration(value) => duration_to_cyper_value(value),
+            ValueSend::LocalTime(value) => local_time_to_cyper_value(value),
+            ValueSend::Time(value) => time_to_cyper_value(value),
+            ValueSend::Date(value) => date_to_cyper_value(value),
+            ValueSend::LocalDateTime(value) => local_date_time_to_cyper_value(value),
+            ValueSend::DateTime(value) => date_time_to_cyper_value(value),
+            ValueSend::DateTimeFixed(value) => date_time_fixed_to_cyper_value(value),
         }
     }
 }
@@ -448,12 +611,99 @@ impl TryFrom<ValueReceive> for CypherValue {
                     }),
                 }
             }
+            ValueReceive::Duration(value) => duration_to_cyper_value(value),
+            ValueReceive::LocalTime(value) => local_time_to_cyper_value(value),
+            ValueReceive::Time(value) => time_to_cyper_value(value),
+            ValueReceive::Date(value) => date_to_cyper_value(value),
+            ValueReceive::LocalDateTime(value) => local_date_time_to_cyper_value(value),
+            ValueReceive::DateTime(value) => date_time_to_cyper_value(value),
+            ValueReceive::DateTimeFixed(value) => date_time_fixed_to_cyper_value(value),
             ValueReceive::BrokenValue(v) => {
                 return Err(Self::Error {
                     reason: v.reason().into(),
                 })
             }
         })
+    }
+}
+
+fn duration_to_cyper_value(value: time::Duration) -> CypherValue {
+    CypherValue::CypherDuration {
+        months: value.months(),
+        days: value.days(),
+        seconds: value.seconds(),
+        nanoseconds: value.nanoseconds().into(),
+    }
+}
+
+fn local_time_to_cyper_value(value: time::LocalTime) -> CypherValue {
+    CypherValue::CypherTime {
+        hour: value.hour().into(),
+        minute: value.minute().into(),
+        second: value.second().into(),
+        nanosecond: value.nanosecond().into(),
+        utc_offset_s: None,
+    }
+}
+
+fn time_to_cyper_value(value: time::Time) -> CypherValue {
+    let time::Time { time, offset } = value;
+    CypherValue::CypherTime {
+        hour: time.hour().into(),
+        minute: time.minute().into(),
+        second: time.second().into(),
+        nanosecond: time.nanosecond().into(),
+        utc_offset_s: Some(offset.local_minus_utc().into()),
+    }
+}
+
+fn date_to_cyper_value(value: time::Date) -> CypherValue {
+    CypherValue::CypherDate {
+        year: value.year().into(),
+        month: value.month().into(),
+        day: value.day().into(),
+    }
+}
+
+fn local_date_time_to_cyper_value(value: time::LocalDateTime) -> CypherValue {
+    CypherValue::CypherDateTime {
+        year: value.year().into(),
+        month: value.month().into(),
+        day: value.day().into(),
+        hour: value.hour().into(),
+        minute: value.minute().into(),
+        second: value.second().into(),
+        nanosecond: value.nanosecond().into(),
+        utc_offset_s: None,
+        timezone_id: None,
+    }
+}
+
+fn date_time_to_cyper_value(value: time::DateTime) -> CypherValue {
+    CypherValue::CypherDateTime {
+        year: value.year().into(),
+        month: value.month().into(),
+        day: value.day().into(),
+        hour: value.hour().into(),
+        minute: value.minute().into(),
+        second: value.second().into(),
+        nanosecond: value.nanosecond().into(),
+        utc_offset_s: Some(value.offset().fix().local_minus_utc().into()),
+        timezone_id: Some(value.timezone().name().into()),
+    }
+}
+
+fn date_time_fixed_to_cyper_value(value: time::DateTimeFixed) -> CypherValue {
+    CypherValue::CypherDateTime {
+        year: value.year().into(),
+        month: value.month().into(),
+        day: value.day().into(),
+        hour: value.hour().into(),
+        minute: value.minute().into(),
+        second: value.second().into(),
+        nanosecond: value.nanosecond().into(),
+        utc_offset_s: Some(value.offset().fix().local_minus_utc().into()),
+        timezone_id: None,
     }
 }
 

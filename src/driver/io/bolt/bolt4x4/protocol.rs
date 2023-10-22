@@ -39,18 +39,26 @@ use crate::{Result, ValueReceive, ValueSend};
 const SERVER_AGENT_KEY: &str = "server";
 const PATCH_BOLT_KEY: &str = "patch_bolt";
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Bolt4x4<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> {
     translator: Arc<AtomicRefCell<T>>,
-    bolt5x0: Bolt5x0<T>,
+    bolt5x0: Bolt5x0<Arc<AtomicRefCell<T>>>,
 }
 
 impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> Bolt4x4<T> {
     pub(crate) fn new() -> Self {
+        let translator: Arc<AtomicRefCell<T>> = Default::default();
+        let bolt5x0 = Bolt5x0::new(Arc::clone(&translator));
         Bolt4x4 {
-            translator: Default::default(),
-            bolt5x0: Default::default(),
+            translator,
+            bolt5x0,
         }
+    }
+}
+
+impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> Default for Bolt4x4<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -140,8 +148,6 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
                         }
                     }
                 }
-                mem::swap(&mut *bolt_meta.borrow_mut(), &mut meta);
-
                 if let Some(value) = meta.get(PATCH_BOLT_KEY) {
                     match value {
                         ValueReceive::List(value) => {
@@ -159,6 +165,7 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
                         }
                     }
                 }
+                mem::swap(&mut *bolt_meta.borrow_mut(), &mut meta);
                 Ok(())
             }),
         ));

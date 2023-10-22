@@ -22,7 +22,7 @@ use super::error::PackStreamSerializeError;
 pub trait PackStreamSerializer {
     type Error: Error;
 
-    fn error(&self, message: String) -> Result<(), Self::Error>;
+    fn error(&self, message: String) -> Self::Error;
 
     fn write_null(&mut self) -> Result<(), Self::Error>;
     fn write_bool(&mut self, b: bool) -> Result<(), Self::Error>;
@@ -48,8 +48,8 @@ impl<'a, W: Write> PackStreamSerializerImpl<'a, W> {
 impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
     type Error = PackStreamSerializeError;
 
-    fn error(&self, message: String) -> Result<(), Self::Error> {
-        Err(message.into())
+    fn error(&self, message: String) -> Self::Error {
+        message.into()
     }
 
     fn write_null(&mut self) -> Result<(), Self::Error> {
@@ -225,8 +225,11 @@ impl PackStreamSerializerDebugImpl {
 impl PackStreamSerializer for PackStreamSerializerDebugImpl {
     type Error = Infallible;
 
-    fn error(&self, _: String) -> Result<(), Self::Error> {
-        Ok(())
+    fn error(&self, _: String) -> Self::Error {
+        unreachable!(
+            "PackStreamSerializerDebugImpl should never be used on a value that would fail to \
+             serialize because the real serializer would've failed first."
+        )
     }
 
     fn write_null(&mut self) -> Result<(), Self::Error> {

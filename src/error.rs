@@ -44,14 +44,18 @@ pub enum Neo4jError {
         /// whether the transaction should or shouldn't be retried.
         during_commit: bool,
     },
-    /// used when
-    ///  * Trying to send an unsupported parameter.  
-    ///    e.g., a too large Vec (max. `u32::MAX` elements).
+    /// Used when the driver encounters an error caused by user input.
+    /// For example:
+    ///  * Trying to send an unsupported [`crate::value::ValueSend`].
+    ///    * A too large Vec (max. [`i64::MAX`] elements).
+    ///    * A temporal type representing a leap-second.
+    ///    * A temporal value that is out of range.
+    ///      The exact conditions for this depend on the protocol version negotiated with the
+    ///      server.
+    ///    * ...
     ///  * Connecting with an incompatible server/using a feature that's not
     ///    supported over the negotiated protocol version.
-    ///  * Non-IO error occurs during serialization (e.g., trying to serialize
-    ///    `Value::BrokenValue`)
-    ///  * Can be generated using `GetSingleRecordError::into()`
+    ///  * Can be generated using [`Neo4jError::from::<GetSingleRecordError>`]
     ///    (the driver itself won't perform this conversion)
     ///  * Trying to use a `DriverConfig::resolver` that returns no addresses.
     #[error("invalid configuration: {message}")]

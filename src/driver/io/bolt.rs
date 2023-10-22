@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[macro_use]
+mod bolt_common;
 mod bolt4x4;
 mod bolt5x0;
 mod bolt_state;
@@ -613,6 +615,20 @@ pub(crate) trait BoltStructTranslator: Debug + Default {
     ) -> result::Result<(), S::Error>;
 
     fn deserialize_struct(&self, tag: u8, fields: Vec<ValueReceive>) -> ValueReceive;
+}
+
+impl<T: BoltStructTranslator> BoltStructTranslator for Arc<AtomicRefCell<T>> {
+    fn serialize<S: PackStreamSerializer>(
+        &self,
+        serializer: &mut S,
+        value: &ValueSend,
+    ) -> result::Result<(), S::Error> {
+        AtomicRefCell::borrow(self).serialize(serializer, value)
+    }
+
+    fn deserialize_struct(&self, tag: u8, fields: Vec<ValueReceive>) -> ValueReceive {
+        AtomicRefCell::borrow(self).deserialize_struct(tag, fields)
+    }
 }
 
 pub(crate) trait BoltStructTranslatorWithUtcPatch: BoltStructTranslator {

@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::driver::{ConnectionConfig, DriverConfig, Record, RoutingControl};
+use crate::driver::{ConnectionConfig, DriverConfig, RoutingControl};
 use crate::session::SessionConfig;
 use crate::testkit_backend::session_holder::RetryableOutcome;
 use crate::ValueSend;
@@ -368,8 +368,11 @@ mod tests {
 impl Request {
     pub(super) fn handle(self, backend: &Backend) -> TestKitResult {
         match self {
-            Request::StartTest { .. } => backend.send(&Response::RunTest)?,
-            // Request::StartSubTest
+            Request::StartTest { test_name } => backend.send(&Response::run_test(test_name))?,
+            Request::StartSubTest {
+                test_name,
+                arguments,
+            } => backend.send(&Response::run_sub_test(test_name, arguments)?)?,
             Request::GetFeatures { .. } => backend.send(&Response::feature_list())?,
             Request::NewDriver { .. } => self.new_driver(backend)?,
             // Request::VerifyConnectivity { .. } => {},
@@ -1034,16 +1037,10 @@ fn cypher_value_map_to_value_send_map(
         .collect::<Result<_, _>>()
 }
 
-fn write_record(record: Option<Record>) -> Result<Response, TestKitError> {
-    let response = match record {
+fn write_record(values: Option<Vec<CypherValue>>) -> Result<Response, TestKitError> {
+    let response = match values {
         None => Response::NullRecord,
-        Some(record) => Response::Record {
-            values: record
-                .entries
-                .into_iter()
-                .map(|(_, v)| v.try_into())
-                .collect::<Result<_, _>>()?,
-        },
+        Some(values) => Response::Record { values },
     };
     Ok(response)
 }

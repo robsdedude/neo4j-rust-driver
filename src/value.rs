@@ -14,6 +14,7 @@
 
 pub mod graph;
 pub mod spatial;
+pub mod time;
 pub(crate) mod value_receive;
 pub(crate) mod value_send;
 // mod de;

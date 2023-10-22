@@ -44,6 +44,12 @@ pub(crate) struct Bolt5x0<T: BoltStructTranslator> {
 }
 
 impl<T: BoltStructTranslator> Bolt5x0<T> {
+    pub(crate) fn new(translator: T) -> Self {
+        Bolt5x0 { translator }
+    }
+}
+
+impl<T: BoltStructTranslator> Bolt5x0<T> {
     fn pull_or_discard<RW: Read + Write>(
         &mut self,
         data: &mut BoltData<RW>,

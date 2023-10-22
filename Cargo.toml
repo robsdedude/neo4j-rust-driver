@@ -24,6 +24,7 @@ _internal_testkit_backend = [
     "serde",
     "serde_json",
     "snowflaked",
+    "lazy-regex",
     "rustls_dangerous_configuration",
 ]
 rustls_dangerous_configuration = [
@@ -49,6 +50,9 @@ atomic_refcell = "0.1.9"
 parking_lot = "0.12.1"
 enum_dispatch = "0.3.12"
 rand = "0.8.5"
+chrono = "0.4.31"
+chrono-tz = "0.8.3"
+mockall_double = "0.3.0"
 # TestKit Backend Dependencies
 base64 = { version = "0.21.0", optional = true }
 env_logger = { version = "0.10.0", optional = true }
@@ -56,7 +60,7 @@ flume = { version = "0.11.0", optional = true }
 serde = { version = "1.0.159", optional = true, features = ["derive"] }
 serde_json = { version = "1.0.95", optional = true }
 snowflaked = { version = "1.0.1", optional = true }
-mockall_double = "0.3.0"
+lazy-regex = { version = "3.0.2", optional = true }
 
 [dev-dependencies]
 rstest = "0.18.2"

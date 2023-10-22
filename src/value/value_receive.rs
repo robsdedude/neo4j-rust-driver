@@ -18,6 +18,7 @@ use itertools::Itertools;
 
 use super::graph;
 use super::spatial;
+use super::time;
 use super::value_send::ValueSend;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,6 +39,13 @@ pub enum ValueReceive {
     Cartesian3D(spatial::Cartesian3D),
     WGS84_2D(spatial::WGS84_2D),
     WGS84_3D(spatial::WGS84_3D),
+    Duration(time::Duration),
+    LocalTime(time::LocalTime),
+    Time(time::Time),
+    Date(time::Date),
+    LocalDateTime(time::LocalDateTime),
+    DateTime(time::DateTime),
+    DateTimeFixed(time::DateTimeFixed),
     BrokenValue(BrokenValue),
 }
 
@@ -510,6 +518,237 @@ impl ValueReceive {
     }
 }
 
+impl TryFrom<ValueReceive> for time::Duration {
+    type Error = ValueReceive;
+
+    #[inline]
+    fn try_from(value: ValueReceive) -> Result<Self, Self::Error> {
+        match value {
+            ValueReceive::Duration(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn is_duration(&self) -> bool {
+        matches!(self, ValueReceive::Duration(_))
+    }
+
+    #[inline]
+    pub fn as_duration(&self) -> Option<&time::Duration> {
+        match self {
+            ValueReceive::Duration(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_duration(self) -> Result<time::Duration, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<ValueReceive> for time::LocalTime {
+    type Error = ValueReceive;
+
+    #[inline]
+    fn try_from(value: ValueReceive) -> Result<Self, Self::Error> {
+        match value {
+            ValueReceive::LocalTime(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn is_local_time(&self) -> bool {
+        matches!(self, ValueReceive::LocalTime(_))
+    }
+
+    #[inline]
+    pub fn as_local_time(&self) -> Option<&time::LocalTime> {
+        match self {
+            ValueReceive::LocalTime(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_local_time(self) -> Result<time::LocalTime, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<ValueReceive> for time::Time {
+    type Error = ValueReceive;
+
+    #[inline]
+    fn try_from(value: ValueReceive) -> Result<Self, Self::Error> {
+        match value {
+            ValueReceive::Time(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn is_time(&self) -> bool {
+        matches!(self, ValueReceive::Time(_))
+    }
+
+    #[inline]
+    pub fn as_time(&self) -> Option<&time::Time> {
+        match self {
+            ValueReceive::Time(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_time(self) -> Result<time::Time, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<ValueReceive> for time::Date {
+    type Error = ValueReceive;
+
+    #[inline]
+    fn try_from(value: ValueReceive) -> Result<Self, Self::Error> {
+        match value {
+            ValueReceive::Date(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn is_date(&self) -> bool {
+        matches!(self, ValueReceive::Date(_))
+    }
+
+    #[inline]
+    pub fn as_date(&self) -> Option<&time::Date> {
+        match self {
+            ValueReceive::Date(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_date(self) -> Result<time::Date, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<ValueReceive> for time::LocalDateTime {
+    type Error = ValueReceive;
+
+    #[inline]
+    fn try_from(value: ValueReceive) -> Result<Self, Self::Error> {
+        match value {
+            ValueReceive::LocalDateTime(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn is_local_date_time(&self) -> bool {
+        matches!(self, ValueReceive::LocalDateTime(_))
+    }
+
+    #[inline]
+    pub fn as_local_date_time(&self) -> Option<&time::LocalDateTime> {
+        match self {
+            ValueReceive::LocalDateTime(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_local_date_time(self) -> Result<time::LocalDateTime, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<ValueReceive> for time::DateTime {
+    type Error = ValueReceive;
+
+    #[inline]
+    fn try_from(value: ValueReceive) -> Result<Self, Self::Error> {
+        match value {
+            ValueReceive::DateTime(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn is_date_time(&self) -> bool {
+        matches!(self, ValueReceive::DateTime(_))
+    }
+
+    #[inline]
+    pub fn as_date_time(&self) -> Option<&time::DateTime> {
+        match self {
+            ValueReceive::DateTime(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_date_time(self) -> Result<time::DateTime, Self> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<ValueReceive> for time::DateTimeFixed {
+    type Error = ValueReceive;
+
+    #[inline]
+    fn try_from(value: ValueReceive) -> Result<Self, Self::Error> {
+        match value {
+            ValueReceive::DateTimeFixed(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn is_date_time_fixed(&self) -> bool {
+        matches!(self, ValueReceive::DateTimeFixed(_))
+    }
+
+    #[inline]
+    pub fn as_date_time_fixed(&self) -> Option<&time::DateTimeFixed> {
+        match self {
+            ValueReceive::DateTimeFixed(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_date_time_fixed(self) -> Result<time::DateTimeFixed, Self> {
+        self.try_into()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BrokenValue {
     pub(crate) inner: BrokenValueInner,
@@ -559,11 +798,11 @@ impl ValueReceive {
     pub(crate) fn dbg_print(&self) -> String {
         match self {
             ValueReceive::Null => "null".into(),
-            ValueReceive::Boolean(v) => format!("{}", v),
-            ValueReceive::Integer(v) => format!("{}", v),
-            ValueReceive::Float(v) => format!("{}", v),
-            ValueReceive::Bytes(v) => format!("bytes{:02X?}", v),
-            ValueReceive::String(v) => format!("{:?}", v),
+            ValueReceive::Boolean(v) => v.to_string(),
+            ValueReceive::Integer(v) => v.to_string(),
+            ValueReceive::Float(v) => v.to_string(),
+            ValueReceive::Bytes(v) => format!("bytes{v:02X?}"),
+            ValueReceive::String(v) => format!("{v:?}"),
             ValueReceive::List(v) => format!("[{}]", v.iter().map(|e| e.dbg_print()).format(", ")),
             ValueReceive::Map(v) => format!(
                 "{{{}}}",
@@ -571,13 +810,20 @@ impl ValueReceive {
                     .map(|(k, e)| format!("{:?}: {}", k, e.dbg_print()))
                     .format(", ")
             ),
-            ValueReceive::Node(node) => format!("{}", node),
-            ValueReceive::Relationship(relationship) => format!("{}", relationship),
-            ValueReceive::Path(path) => format!("{}", path),
-            ValueReceive::Cartesian2D(v) => format!("{:?}", v),
-            ValueReceive::Cartesian3D(v) => format!("{:?}", v),
-            ValueReceive::WGS84_2D(v) => format!("{:?}", v),
-            ValueReceive::WGS84_3D(v) => format!("{:?}", v),
+            ValueReceive::Node(node) => node.to_string(),
+            ValueReceive::Relationship(relationship) => relationship.to_string(),
+            ValueReceive::Path(path) => path.to_string(),
+            ValueReceive::Cartesian2D(v) => format!("{v:?}"),
+            ValueReceive::Cartesian3D(v) => format!("{v:?}"),
+            ValueReceive::WGS84_2D(v) => format!("{v:?}"),
+            ValueReceive::WGS84_3D(v) => format!("{v:?}"),
+            ValueReceive::Duration(v) => format!("{v:?}"),
+            ValueReceive::LocalTime(v) => format!("{v:?}"),
+            ValueReceive::Time(v) => format!("{v:?}"),
+            ValueReceive::Date(v) => format!("{v:?}"),
+            ValueReceive::LocalDateTime(v) => format!("{v:?}"),
+            ValueReceive::DateTime(v) => format!("{v:?}"),
+            ValueReceive::DateTimeFixed(v) => format!("{v:?}"),
             ValueReceive::BrokenValue(broken_value) => {
                 format!("BrokenValue({})", broken_value.reason())
             }
@@ -600,6 +846,13 @@ impl From<ValueSend> for ValueReceive {
             ValueSend::Cartesian3D(v) => Self::Cartesian3D(v),
             ValueSend::WGS84_2D(v) => Self::WGS84_2D(v),
             ValueSend::WGS84_3D(v) => Self::WGS84_3D(v),
+            ValueSend::Duration(v) => Self::Duration(v),
+            ValueSend::LocalTime(v) => Self::LocalTime(v),
+            ValueSend::Time(v) => Self::Time(v),
+            ValueSend::Date(v) => Self::Date(v),
+            ValueSend::LocalDateTime(v) => Self::LocalDateTime(v),
+            ValueSend::DateTime(v) => Self::DateTime(v),
+            ValueSend::DateTimeFixed(v) => Self::DateTimeFixed(v),
         }
     }
 }

@@ -15,9 +15,14 @@
 use std::collections::HashMap;
 
 use super::spatial;
+use super::time;
 use super::value_receive::ValueReceive;
 use super::ValueConversionError;
+#[cfg(doc)]
+use crate::error::Neo4jError;
 
+/// For all temporal types: note that leap seconds are not supported and will result in a
+/// [`Neo4jError::InvalidConfig`] when trying to be sent.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum ValueSend {
@@ -33,6 +38,13 @@ pub enum ValueSend {
     Cartesian3D(spatial::Cartesian3D),
     WGS84_2D(spatial::WGS84_2D),
     WGS84_3D(spatial::WGS84_3D),
+    Duration(time::Duration),
+    LocalTime(time::LocalTime),
+    Time(time::Time),
+    Date(time::Date),
+    LocalDateTime(time::LocalDateTime),
+    DateTime(time::DateTime),
+    DateTimeFixed(time::DateTimeFixed),
 }
 
 macro_rules! impl_value_from_into {
@@ -71,6 +83,13 @@ impl_value_from_owned!(ValueSend::Cartesian2D, spatial::Cartesian2D);
 impl_value_from_owned!(ValueSend::Cartesian3D, spatial::Cartesian3D);
 impl_value_from_owned!(ValueSend::WGS84_2D, spatial::WGS84_2D);
 impl_value_from_owned!(ValueSend::WGS84_3D, spatial::WGS84_3D);
+impl_value_from_owned!(ValueSend::Duration, time::Duration);
+impl_value_from_owned!(ValueSend::LocalTime, time::LocalTime);
+impl_value_from_owned!(ValueSend::Time, time::Time);
+impl_value_from_owned!(ValueSend::Date, time::Date);
+impl_value_from_owned!(ValueSend::LocalDateTime, time::LocalDateTime);
+impl_value_from_owned!(ValueSend::DateTime, time::DateTime);
+impl_value_from_owned!(ValueSend::DateTimeFixed, time::DateTimeFixed);
 
 impl<T: Into<ValueSend>> From<HashMap<String, T>> for ValueSend {
     fn from(value: HashMap<String, T>) -> Self {
@@ -81,6 +100,15 @@ impl<T: Into<ValueSend>> From<HashMap<String, T>> for ValueSend {
 impl<T: Into<ValueSend>> From<Vec<T>> for ValueSend {
     fn from(value: Vec<T>) -> Self {
         ValueSend::List(value.into_iter().map(|v| v.into()).collect())
+    }
+}
+
+impl<T: Into<ValueSend>> From<Option<T>> for ValueSend {
+    fn from(value: Option<T>) -> Self {
+        match value {
+            None => ValueSend::Null,
+            Some(v) => v.into(),
+        }
     }
 }
 
@@ -109,6 +137,13 @@ impl TryFrom<ValueReceive> for ValueSend {
             ValueReceive::Cartesian3D(v) => Self::Cartesian3D(v),
             ValueReceive::WGS84_2D(v) => Self::WGS84_2D(v),
             ValueReceive::WGS84_3D(v) => Self::WGS84_3D(v),
+            ValueReceive::Duration(v) => Self::Duration(v),
+            ValueReceive::LocalTime(v) => Self::LocalTime(v),
+            ValueReceive::Time(v) => Self::Time(v),
+            ValueReceive::Date(v) => Self::Date(v),
+            ValueReceive::LocalDateTime(v) => Self::LocalDateTime(v),
+            ValueReceive::DateTime(v) => Self::DateTime(v),
+            ValueReceive::DateTimeFixed(v) => Self::DateTimeFixed(v),
             ValueReceive::BrokenValue { .. } => return Err("cannot convert BrokenValue".into()),
             ValueReceive::Node(_) => return Err("cannot convert Node".into()),
             ValueReceive::Relationship(_) => return Err("cannot convert Relationship".into()),

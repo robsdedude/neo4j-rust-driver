@@ -13,8 +13,12 @@
 // limitations under the License.
 
 use std::collections::VecDeque;
+use std::str::FromStr;
+
+use chrono::{Datelike, Offset, TimeZone, Timelike};
 use usize_cast::{FromUsize, IntoIsize};
 
+use super::super::bolt_common::*;
 use super::super::BoltStructTranslator;
 use crate::driver::io::bolt::PackStreamSerializer;
 use crate::value::graph::{Node, Path, Relationship, UnboundRelationship};
@@ -22,15 +26,9 @@ use crate::value::spatial::{
     Cartesian2D, Cartesian3D, SRID_CARTESIAN_2D, SRID_CARTESIAN_3D, SRID_WGS84_2D, SRID_WGS84_3D,
     WGS84_2D, WGS84_3D,
 };
+use crate::value::time::{Date, Duration, FixedOffset, LocalDateTime, LocalTime, Time, Tz};
 use crate::value::value_receive::{BrokenValue, BrokenValueInner};
 use crate::{ValueReceive, ValueSend};
-
-const TAG_2D_POINT: u8 = b'X';
-const TAG_3D_POINT: u8 = b'Y';
-const TAG_NODE: u8 = b'N';
-const TAG_RELATIONSHIP: u8 = b'R';
-const TAG_UNBOUND_RELATIONSHIP: u8 = b'r';
-const TAG_PATH: u8 = b'P';
 
 #[derive(Debug, Default)]
 pub(crate) struct Bolt5x0StructTranslator {}
@@ -102,6 +100,100 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
             ValueSend::WGS84_3D(WGS84_3D { srid, coordinates }) => {
                 self.write_3d_point(serializer, *srid, coordinates)
             }
+            ValueSend::Duration(Duration {
+                months,
+                days,
+                seconds,
+                nanoseconds,
+            }) => {
+                serializer.write_struct_header(TAG_DURATION, 4)?;
+                serializer.write_int(*months)?;
+                serializer.write_int(*days)?;
+                serializer.write_int(*seconds)?;
+                serializer.write_int((*nanoseconds).into())?;
+                Ok(())
+            }
+            ValueSend::LocalTime(t) => {
+                let mut nanoseconds = t.nanosecond().into();
+                if nanoseconds >= 1_000_000_000 {
+                    return Err(
+                        serializer.error("LocalTime with leap second is not supported".into())
+                    );
+                }
+                nanoseconds += i64::from(t.num_seconds_from_midnight()) * 1_000_000_000;
+                serializer.write_struct_header(TAG_LOCAL_TIME, 1)?;
+                serializer.write_int(nanoseconds)?;
+                Ok(())
+            }
+            ValueSend::Time(Time { time, offset }) => {
+                let mut nanoseconds = time.nanosecond().into();
+                if nanoseconds >= 1_000_000_000 {
+                    return Err(
+                        serializer.error("LocalTime with leap second is not supported".into())
+                    );
+                }
+                nanoseconds += i64::from(time.num_seconds_from_midnight()) * 1_000_000_000;
+                let tz_offset = offset.local_minus_utc().into();
+                serializer.write_struct_header(TAG_TIME, 2)?;
+                serializer.write_int(nanoseconds)?;
+                serializer.write_int(tz_offset)?;
+                Ok(())
+            }
+            ValueSend::Date(d) => {
+                // let unix_epoc_days = Date::from_ymd_opt(1970, 1, 1).unwrap().num_days_from_ce();
+                const UNIX_EPOC_DAYS: i64 = 719163;
+                let mut days = d.num_days_from_ce().into();
+                days -= UNIX_EPOC_DAYS;
+                serializer.write_struct_header(TAG_DATE, 1)?;
+                serializer.write_int(days)?;
+                Ok(())
+            }
+            ValueSend::LocalDateTime(dt) => {
+                let seconds = dt.timestamp();
+                let nanoseconds = dt.nanosecond();
+                if nanoseconds >= 1_000_000_000 {
+                    return Err(
+                        serializer.error("LocalDateTime with leap second is not supported".into())
+                    );
+                }
+                let nanoseconds = nanoseconds.into();
+                serializer.write_struct_header(TAG_LOCAL_DATE_TIME, 2)?;
+                serializer.write_int(seconds)?;
+                serializer.write_int(nanoseconds)?;
+                Ok(())
+            }
+            ValueSend::DateTime(dt) => {
+                let seconds = dt.timestamp();
+                let nanoseconds = dt.nanosecond();
+                if nanoseconds >= 1_000_000_000 {
+                    return Err(
+                        serializer.error("LocalDateTime with leap second is not supported".into())
+                    );
+                }
+                let nanoseconds = nanoseconds.into();
+                let tz_id = dt.timezone().name();
+                serializer.write_struct_header(TAG_DATE_TIME_ZONE_ID, 3)?;
+                serializer.write_int(seconds)?;
+                serializer.write_int(nanoseconds)?;
+                serializer.write_string(tz_id)?;
+                Ok(())
+            }
+            ValueSend::DateTimeFixed(dt) => {
+                let seconds = dt.timestamp();
+                let nanoseconds = dt.nanosecond();
+                if nanoseconds >= 1_000_000_000 {
+                    return Err(
+                        serializer.error("LocalDateTime with leap second is not supported".into())
+                    );
+                }
+                let nanoseconds = nanoseconds.into();
+                let tz_offset = dt.offset().fix().local_minus_utc().into();
+                serializer.write_struct_header(TAG_DATE_TIME, 3)?;
+                serializer.write_int(seconds)?;
+                serializer.write_int(nanoseconds)?;
+                serializer.write_int(tz_offset)?;
+                Ok(())
+            }
         }
     }
 
@@ -115,24 +207,11 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                         "expected 3 fields for point 2D struct b'X', found {size}"
                     ));
                 }
-                let srid = match fields.pop_front().unwrap() {
-                    ValueReceive::Integer(i) => i,
-                    v => {
-                        return invalid_struct(format!(
-                            "expected 2D SRID to be an integer, found {v:?}"
-                        ));
-                    }
-                };
+                let srid = as_int!(fields.pop_front().unwrap(), "2D SRID");
                 let mut coordinates = [0.0; 2];
                 for (i, coordinate) in coordinates.iter_mut().enumerate() {
-                    *coordinate = match fields.pop_front().unwrap() {
-                        ValueReceive::Float(f) => f,
-                        v => {
-                            return invalid_struct(format!(
-                                "expected {i}th 2D coordinate to be a float, found {v:?}"
-                            ));
-                        }
-                    };
+                    *coordinate =
+                        as_float!(fields.pop_front().unwrap(), "{i}th 2D coordinate", i = i);
                 }
                 let x = coordinates[0];
                 let y = coordinates[1];
@@ -148,24 +227,11 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                         "expected 4 fields for point 3D struct b'X', found {size}"
                     ));
                 }
-                let srid = match fields.pop_front().unwrap() {
-                    ValueReceive::Integer(i) => i,
-                    v => {
-                        return invalid_struct(format!(
-                            "expected 3D SRID to be an integer, found {v:?}"
-                        ));
-                    }
-                };
+                let srid = as_int!(fields.pop_front().unwrap(), "3D SRID");
                 let mut coordinates = [0.0; 3];
                 for (i, coordinate) in coordinates.iter_mut().enumerate() {
-                    *coordinate = match fields.pop_front().unwrap() {
-                        ValueReceive::Float(f) => f,
-                        v => {
-                            return invalid_struct(format!(
-                                "expected {i}th 3D coordinate to be a float, found {v:?}"
-                            ));
-                        }
-                    };
+                    *coordinate =
+                        as_float!(fields.pop_front().unwrap(), "{i}th 3D coordinate", i = i);
                 }
                 let x = coordinates[0];
                 let y = coordinates[1];
@@ -182,51 +248,14 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                         "expected 4 fields for node struct b'N', found {size}"
                     ));
                 }
-                let id = match fields.pop_front().unwrap() {
-                    ValueReceive::Integer(i) => i,
-                    v => {
-                        return invalid_struct(format!(
-                            "expected node id be an integer, found {v:?}"
-                        ));
-                    }
-                };
-                let labels = match fields.pop_front().unwrap() {
-                    ValueReceive::List(v) => {
-                        let mut labels = Vec::with_capacity(v.len());
-                        for label in v {
-                            labels.push(match label {
-                                ValueReceive::String(s) => s,
-                                v => {
-                                    return invalid_struct(format!(
-                                        "expected node label to be a string, found {v:?}"
-                                    ));
-                                }
-                            });
-                        }
-                        labels
-                    }
-                    v => {
-                        return invalid_struct(format!(
-                            "expected node id be an integer, found {v:?}"
-                        ));
-                    }
-                };
-                let properties = match fields.pop_front().unwrap() {
-                    ValueReceive::Map(m) => m,
-                    v => {
-                        return invalid_struct(format!(
-                            "expected node properties to be a map, found {v:?}"
-                        ));
-                    }
-                };
-                let element_id = match fields.pop_front().unwrap() {
-                    ValueReceive::String(s) => s,
-                    v => {
-                        return invalid_struct(format!(
-                            "expected node element_id to be a string, found {v:?}"
-                        ));
-                    }
-                };
+                let id = as_int!(fields.pop_front().unwrap(), "node id");
+                let raw_labels = as_vec!(fields.pop_front().unwrap(), "node labels");
+                let mut labels = Vec::with_capacity(raw_labels.len());
+                for label in raw_labels {
+                    labels.push(as_string!(label, "node label"));
+                }
+                let properties = as_map!(fields.pop_front().unwrap(), "node properties");
+                let element_id = as_string!(fields.pop_front().unwrap(), "node element_it");
                 ValueReceive::Node(Node {
                     id,
                     labels,
@@ -240,70 +269,21 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                         "expected 8 fields for relationship struct b'R', found {size}"
                     ));
                 }
-                let id = match fields.pop_front().unwrap() {
-                    ValueReceive::Integer(i) => i,
-                    v => {
-                        return invalid_struct(format!(
-                            "expected relationship id be an integer, found {v:?}"
-                        ));
-                    }
-                };
-                let start_node_id = match fields.pop_front().unwrap() {
-                    ValueReceive::Integer(i) => i,
-                    v => {
-                        return invalid_struct(format!(
-                            "expected relationship start_node_id be an integer, found {v:?}"
-                        ));
-                    }
-                };
-                let end_node_id = match fields.pop_front().unwrap() {
-                    ValueReceive::Integer(i) => i,
-                    v => {
-                        return invalid_struct(format!(
-                            "expected relationship end_node_id be an integer, found {v:?}"
-                        ));
-                    }
-                };
-                let type_ = match fields.pop_front().unwrap() {
-                    ValueReceive::String(s) => s,
-                    v => {
-                        return invalid_struct(format!(
-                            "expected relationship type to be a string, found {v:?}"
-                        ));
-                    }
-                };
-                let properties = match fields.pop_front().unwrap() {
-                    ValueReceive::Map(m) => m,
-                    v => {
-                        return invalid_struct(format!(
-                            "expected relationship properties to be a map, found {v:?}"
-                        ));
-                    }
-                };
-                let element_id = match fields.pop_front().unwrap() {
-                    ValueReceive::String(s) => s,
-                    v => {
-                        return invalid_struct(format!(
-                            "expected relationship element_id to be a string, found {v:?}"
-                        ));
-                    }
-                };
-                let start_node_element_id = match fields.pop_front().unwrap() {
-                    ValueReceive::String(s) => s,
-                    v => {
-                        return invalid_struct(format!(
-                            "expected relationship start_node_element_id to be a string, found {v:?}"
-                        ));
-                    }
-                };
-                let end_node_element_id = match fields.pop_front().unwrap() {
-                    ValueReceive::String(s) => s,
-                    v => {
-                        return invalid_struct(format!(
-                            "expected relationship end_node_element_id to be a string, found {v:?}"
-                        ))
-                    }
-                };
+                let id = as_int!(fields.pop_front().unwrap(), "relationship id");
+                let start_node_id =
+                    as_int!(fields.pop_front().unwrap(), "relationship start_node_id");
+                let end_node_id = as_int!(fields.pop_front().unwrap(), "relationship end_node_id");
+                let type_ = as_string!(fields.pop_front().unwrap(), "relationship type");
+                let properties = as_map!(fields.pop_front().unwrap(), "relationship properties");
+                let element_id = as_string!(fields.pop_front().unwrap(), "relationship element_id");
+                let start_node_element_id = as_string!(
+                    fields.pop_front().unwrap(),
+                    "relationship start_node_element_id"
+                );
+                let end_node_element_id = as_string!(
+                    fields.pop_front().unwrap(),
+                    "relationship end_node_element_id"
+                );
                 ValueReceive::Relationship(Relationship {
                     id,
                     start_node_id,
@@ -321,27 +301,11 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                         "expected 3 fields for path struct b'P', found {size}"
                     ));
                 }
-                let nodes = match fields.pop_front().unwrap() {
-                    ValueReceive::List(v) => {
-                        let mut nodes = Vec::with_capacity(v.len());
-                        for node in v {
-                            nodes.push(match node {
-                                ValueReceive::Node(n) => n,
-                                v => {
-                                    return invalid_struct(format!(
-                                        "expected path node to be a Node, found {v:?}"
-                                    ));
-                                }
-                            });
-                        }
-                        nodes
-                    }
-                    v => {
-                        return invalid_struct(format!(
-                            "expected path nodes to be a list, found {v:?}"
-                        ));
-                    }
-                };
+                let raw_nodes = as_vec!(fields.pop_front().unwrap(), "path nodes");
+                let mut nodes = Vec::with_capacity(raw_nodes.len());
+                for node in raw_nodes {
+                    nodes.push(as_node!(node, "path node"));
+                }
                 let relationships = match fields.pop_front().unwrap() {
                     ValueReceive::List(v) => {
                         let mut relationships = Vec::with_capacity(v.len());
@@ -362,46 +326,10 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                                             ),
                                         );
                                     }
-                                    let id = match rel_fields.pop_front().unwrap() {
-                                        ValueReceive::Integer(i) => i,
-                                        v => {
-                                            return invalid_struct(
-                                                format!(
-                                                    "expected unbound relationship id be an integer, found {v:?}"
-                                                ),
-                                            );
-                                        }
-                                    };
-                                    let type_ = match rel_fields.pop_front().unwrap() {
-                                        ValueReceive::String(s) => s,
-                                        v => {
-                                            return invalid_struct(
-                                                format!(
-                                                    "expected unbound relationship type to be a string, found {v:?}"
-                                                ),
-                                            );
-                                        }
-                                    };
-                                    let properties = match rel_fields.pop_front().unwrap() {
-                                        ValueReceive::Map(m) => m,
-                                        v => {
-                                            return invalid_struct(
-                                                format!(
-                                                    "expected unbound relationship properties to be a map, found {v:?}"
-                                                ),
-                                            );
-                                        }
-                                    };
-                                    let element_id = match rel_fields.pop_front().unwrap() {
-                                        ValueReceive::String(s) => s,
-                                        v => {
-                                            return invalid_struct(
-                                                format!(
-                                                    "expected unbound relationship element_id to be a string, found {v:?}"
-                                                ),
-                                            )
-                                        }
-                                    };
+                                    let id = as_int!(rel_fields.pop_front().unwrap(), "unbound relationship id");
+                                    let type_ = as_string!(rel_fields.pop_front().unwrap(), "unbound relationship type");
+                                    let properties = as_map!(rel_fields.pop_front().unwrap(),"unbound relationship properties");
+                                    let element_id = as_string!(rel_fields.pop_front().unwrap(), "unbound relationship element_id");
                                     UnboundRelationship {
                                         id,
                                         type_,
@@ -424,40 +352,203 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                         ))
                     }
                 };
-                let indices = match fields.pop_front().unwrap() {
-                    ValueReceive::List(v) => {
-                        let mut indices = Vec::with_capacity(v.len());
-                        for index in v {
-                            indices.push(match index {
-                                ValueReceive::Integer(i) => i.into_isize(),
-                                v => {
-                                    return invalid_struct(format!(
-                                        "expected path index to be an integer, found {v:?}"
-                                    ))
-                                }
-                            });
-                        }
-                        indices
-                    }
-                    v => {
-                        return invalid_struct(format!(
-                            "expected path indices to be a list, found {v:?}"
-                        ))
-                    }
-                };
+                let raw_indices = as_vec!(fields.pop_front().unwrap(), "path indices");
+                let mut indices = Vec::with_capacity(raw_indices.len());
+                for index in raw_indices {
+                    indices.push(as_int!(index, "path index").into_isize());
+                }
                 ValueReceive::Path(Path {
                     nodes,
                     relationships,
                     indices,
                 })
             }
+            TAG_DATE => {
+                if size != 1 {
+                    return invalid_struct(format!(
+                        "expected 1 field for Date struct b'D', found {size}"
+                    ));
+                }
+                let days = as_int!(fields.pop_front().unwrap(), "Date days");
+                let date = match Date::from_yo_opt(1970, 1)
+                    .unwrap()
+                    .checked_add_signed(chrono::Duration::days(days))
+                {
+                    Some(date) => date,
+                    None => return failed_struct("Date out of bounds"),
+                };
+                ValueReceive::Date(date)
+            }
+            TAG_TIME => {
+                if size != 2 {
+                    return invalid_struct(format!(
+                        "expected 2 field for Time struct b'T', found {size}"
+                    ));
+                }
+                let mut nanoseconds = as_int!(fields.pop_front().unwrap(), "nanoseconds be");
+                let tz_offset = as_int!(fields.pop_front().unwrap(), "Time tz_offset");
+                let seconds = nanoseconds.div_euclid(1_000_000_000);
+                nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
+                let seconds = match seconds.try_into() {
+                    Ok(seconds) => seconds,
+                    Err(_) => return failed_struct("Time seconds out of bounds"),
+                };
+                let nanoseconds = match nanoseconds.try_into() {
+                    Ok(nanoseconds) => nanoseconds,
+                    Err(_) => return failed_struct("Time nanoseconds out of bounds"),
+                };
+                let tz_offset = match tz_offset.try_into() {
+                    Ok(tz_offset) => tz_offset,
+                    Err(_) => return failed_struct("Time tz_offset out of bounds"),
+                };
+                let offset = match FixedOffset::east_opt(tz_offset) {
+                    Some(tz) => tz,
+                    None => return failed_struct("Time tz_offset out of bounds"),
+                };
+                let time = match LocalTime::from_num_seconds_from_midnight_opt(seconds, nanoseconds)
+                {
+                    Some(time) => time,
+                    None => return failed_struct("Time tz_offset out of bounds"),
+                };
+                ValueReceive::Time(Time { time, offset })
+            }
+            TAG_LOCAL_TIME => {
+                if size != 1 {
+                    return invalid_struct(format!(
+                        "expected 1 field for Time struct b't', found {size}"
+                    ));
+                }
+                let mut nanoseconds = as_int!(fields.pop_front().unwrap(), "LocalTime nanoseconds");
+                let seconds = nanoseconds.div_euclid(1_000_000_000);
+                nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
+                let seconds = match seconds.try_into() {
+                    Ok(seconds) => seconds,
+                    Err(_) => return failed_struct("LocalTime nanoseconds out of bounds"),
+                };
+                let nanoseconds = match nanoseconds.try_into() {
+                    Ok(nanoseconds) => nanoseconds,
+                    Err(_) => return failed_struct("LocalTime nanoseconds out of bounds"),
+                };
+                let time = match LocalTime::from_num_seconds_from_midnight_opt(seconds, nanoseconds)
+                {
+                    Some(time) => time,
+                    None => return failed_struct("LocalTime tz_offset out of bounds"),
+                };
+                ValueReceive::LocalTime(time)
+            }
+            TAG_DATE_TIME => {
+                let size = fields.len();
+                if size != 3 {
+                    return invalid_struct(format!(
+                        "expected 3 fields for path struct b'I', found {size}"
+                    ));
+                }
+                let mut seconds = as_int!(fields.pop_front().unwrap(), "DateTime seconds");
+                let mut nanoseconds = as_int!(fields.pop_front().unwrap(), "DateTime nanoseconds");
+                let tz_offset = as_int!(fields.pop_front().unwrap(), "DateTime tz_offset");
+                if nanoseconds < 0 {
+                    return invalid_struct(format!("DateTime nanoseconds out of bounds"));
+                }
+                seconds = match seconds.checked_add(nanoseconds.div_euclid(1_000_000_000)) {
+                    Some(s) => s,
+                    None => return failed_struct("DateTime seconds out of bounds"),
+                };
+                nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
+                let nanoseconds = nanoseconds as u32;
+                let tz_offset = match tz_offset.try_into() {
+                    Ok(tz_offset) => tz_offset,
+                    Err(_) => return failed_struct("DateTime tz_offset out of bounds"),
+                };
+                let tz = match FixedOffset::east_opt(tz_offset) {
+                    Some(tz) => tz,
+                    None => return failed_struct("DateTime tz_offset out of bounds"),
+                };
+                let utc_dt = match LocalDateTime::from_timestamp_opt(seconds, nanoseconds) {
+                    Some(dt) => dt,
+                    None => return failed_struct("DateTime out of bounds"),
+                };
+                ValueReceive::DateTimeFixed(tz.from_utc_datetime(&utc_dt))
+            }
+            TAG_DATE_TIME_ZONE_ID => {
+                let size = fields.len();
+                if size != 3 {
+                    return invalid_struct(format!(
+                        "expected 3 fields for path struct b'I', found {size}"
+                    ));
+                }
+                let mut seconds = as_int!(fields.pop_front().unwrap(), "DateTimeZoneId seconds");
+                let mut nanoseconds =
+                    as_int!(fields.pop_front().unwrap(), "DateTimeZoneId nanoseconds");
+                let tz_id = as_string!(fields.pop_front().unwrap(), "DateTimeZoneId tz_id");
+                if nanoseconds < 0 {
+                    return invalid_struct(format!("DateTimeZoneId nanoseconds out of bounds"));
+                }
+                seconds = match seconds.checked_add(nanoseconds.div_euclid(1_000_000_000)) {
+                    Some(s) => s,
+                    None => return failed_struct("DateTimeZoneId seconds out of bounds"),
+                };
+                nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
+                let nanoseconds = nanoseconds as u32;
+                let tz = match Tz::from_str(&tz_id) {
+                    Ok(tz) => tz,
+                    Err(e) => {
+                        return failed_struct(format!(
+                            "failed to load DateTimeZoneId time zone: {e}"
+                        ));
+                    }
+                };
+                let utc_dt = match LocalDateTime::from_timestamp_opt(seconds, nanoseconds) {
+                    Some(dt) => dt,
+                    None => return failed_struct("DateTimeZoneId out of bounds"),
+                };
+                ValueReceive::DateTime(tz.from_utc_datetime(&utc_dt))
+            }
+            TAG_LOCAL_DATE_TIME => {
+                let size = fields.len();
+                if size != 2 {
+                    return invalid_struct(format!(
+                        "expected 2 fields for path struct b'd', found {size}"
+                    ));
+                }
+                let mut seconds = as_int!(fields.pop_front().unwrap(), "LocalDateTime seconds");
+                let mut nanoseconds =
+                    as_int!(fields.pop_front().unwrap(), "LocalDateTime nanoseconds");
+                seconds = match seconds.checked_add(nanoseconds.div_euclid(1_000_000_000)) {
+                    Some(s) => s,
+                    None => return failed_struct("LocalDateTime seconds out of bounds"),
+                };
+                nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
+                let nanoseconds = nanoseconds as u32;
+                let dt = match LocalDateTime::from_timestamp_opt(seconds, nanoseconds) {
+                    Some(dt) => dt,
+                    None => return failed_struct("LocalDateTime out of bounds"),
+                };
+                ValueReceive::LocalDateTime(dt)
+            }
+            TAG_DURATION => {
+                let size = fields.len();
+                if size != 4 {
+                    return invalid_struct(format!(
+                        "expected 4 fields for path struct b'E', found {size}"
+                    ));
+                }
+                let months = as_int!(fields.pop_front().unwrap(), "Duration months");
+                let days = as_int!(fields.pop_front().unwrap(), "Duration days");
+                let seconds = as_int!(fields.pop_front().unwrap(), "Duration seconds");
+                let nanoseconds = as_int!(fields.pop_front().unwrap(), "Duration nanoseconds");
+                let nanoseconds = match nanoseconds.try_into() {
+                    Ok(ns) => ns,
+                    Err(_) => return failed_struct("Duration nanoseconds out of bounds"),
+                };
+                let duration = match Duration::new(months, days, seconds, nanoseconds) {
+                    Some(d) => d,
+                    None => return failed_struct("Duration out of bounds"),
+                };
+                ValueReceive::Duration(duration)
+            }
             _ => ValueReceive::BrokenValue(BrokenValue {
                 inner: BrokenValueInner::UnknownStruct { tag, fields },
             }),
         }
     }
-}
-
-fn invalid_struct(reason: String) -> ValueReceive {
-    ValueReceive::BrokenValue(BrokenValueInner::InvalidStruct { reason }.into())
 }

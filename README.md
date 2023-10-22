@@ -73,7 +73,7 @@ Feature Progress:
    * [ ] 5.2 (notification filtering)
    * [ ] 5.3 (bolt agent)
    * [ ] 5.4 (telemetry)
- * [ ] Types
+ * [x] Types
    * [x] `Null`
    * [x] `Integer`
    * [x] `Float`
@@ -86,15 +86,17 @@ Feature Progress:
    * [x] `Relationship`
    * [x] `Path`
    * [x] `Spatial` (point)
-   * [ ] `Temporal` (date, time, datetime, duration) (**IMPORTANT**)
+   * [x] `Temporal` (date, time, datetime, duration)
  * [ ] Proper Unit Tests
- * [ ] CI
+ * [ ] CI (https://github.com/actions-rust-lang/setup-rust-toolchain ?)
    * [ ] rustfmt
    * [ ] clippy
    * [ ] Unit Tests
+     * [ ] Public API SemVer Compatibility Tests ([cargo-public-api](https://github.com/enselic/cargo-public-api))
    * [ ] TestKit
 
 
 Future Ideas:
  * `serde` support
+   * https://rust-lang.github.io/api-guidelines/interoperability.html#data-structures-implement-serdes-serialize-deserialize-c-serde 
    * https://stackoverflow.com/questions/57474040/serializing-a-sequence-in-serde-when-both-sequence-length-and-types-must-be-know.

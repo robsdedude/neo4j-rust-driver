@@ -13,10 +13,17 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::mem;
 use std::ops::Deref;
+use std::str::FromStr;
+use std::sync::OnceLock;
 
+use lazy_regex::Regex;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
+
+use crate::value::time::Tz;
+use crate::ValueSend;
 
 use super::backend_id::Generator;
 use super::cypher_value::CypherValue;
@@ -24,6 +31,27 @@ use super::errors::TestKitError;
 use super::requests::TestKitAuth;
 use super::session_holder::SummaryWithQuery;
 use super::BackendId;
+
+static PLAIN_SKIPPED_TESTS: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
+static REGEX_SKIPPED_TESTS: OnceLock<Vec<(&'static Regex, &'static str)>> = OnceLock::new();
+
+fn get_plain_skipped_tests() -> &'static HashMap<&'static str, &'static str> {
+    PLAIN_SKIPPED_TESTS.get_or_init(|| {
+        // let mut map = HashMap::new();
+        // map.insert("test", "reason");
+        // map
+        HashMap::new()
+    })
+}
+
+fn get_regex_skipped_tests() -> &'static [(&'static Regex, &'static str)] {
+    REGEX_SKIPPED_TESTS.get_or_init(|| {
+        // use lazy_regex::regex;
+        vec![
+            // (regex!(r"^test_.*$"), "reason"),
+        ]
+    })
+}
 
 #[derive(Serialize, Debug)]
 #[serde(tag = "name", content = "data")]
@@ -541,7 +569,7 @@ impl Response {
                 "Feature:API:SSLConfig",
                 "Feature:API:SSLSchemes",
                 "Feature:API:Type.Spatial",
-                // "Feature:API:Type.Temporal",
+                "Feature:API:Type.Temporal",
                 // "Feature:Auth:Bearer",
                 // "Feature:Auth:Custom",
                 // "Feature:Auth:Kerberos",
@@ -553,7 +581,7 @@ impl Response {
                 "Feature:Bolt:5.0",
                 // "Feature:Bolt:5.1",
                 // "Feature:Bolt:5.2",
-                // "Feature:Bolt:Patch:UTC",
+                "Feature:Bolt:Patch:UTC",
                 "Feature:Impersonation",
                 // "Feature:TLS:1.1",
                 "Feature:TLS:1.2",
@@ -579,6 +607,142 @@ impl Response {
             .map(String::from)
             .collect(),
         }
+    }
+
+    pub(super) fn run_test(test_name: String) -> Self {
+        if let Some(reason) = get_plain_skipped_tests().get(test_name.as_str()) {
+            return Self::SkipTest {
+                reason: reason.to_string(),
+            };
+        }
+        for (regex, reason) in get_regex_skipped_tests() {
+            if regex.is_match(test_name.as_str()) {
+                return Self::SkipTest {
+                    reason: reason.to_string(),
+                };
+            }
+        }
+        match test_name.as_str() {
+            "neo4j.datatypes.test_temporal_types.TestDataTypes.test_date_time_cypher_created_tz_id" 
+            | "neo4j.datatypes.test_temporal_types.TestDataTypes.test_should_echo_all_timezone_ids" =>
+                return Self::RunSubTests,
+            _ => {}
+        }
+        Self::RunTest
+    }
+
+    pub(super) fn run_sub_test(
+        test_name: String,
+        arguments: HashMap<String, JsonValue>,
+    ) -> Result<Self, TestKitError> {
+        match test_name.as_str() {
+            "neo4j.datatypes.test_temporal_types.TestDataTypes.test_date_time_cypher_created_tz_id" =>
+                Self::run_sub_test_test_date_time_cypher_created_tz_id(arguments),
+            "neo4j.datatypes.test_temporal_types.TestDataTypes.test_should_echo_all_timezone_ids" =>
+                Self::run_sub_test_test_should_echo_all_timezone_ids(arguments),
+            _ => Err(TestKitError::backend_err(
+                format!("Backend didn't request to check sub tests for {test_name}")
+            )),
+        }
+    }
+
+    fn run_sub_test_test_date_time_cypher_created_tz_id(
+        arguments: HashMap<String, JsonValue>,
+    ) -> Result<Self, TestKitError> {
+        let tz_id = arguments
+            .get("tz_id")
+            .ok_or_else(|| TestKitError::backend_err("expected key `tz_id` in arguments"))?
+            .as_str()
+            .ok_or_else(|| TestKitError::backend_err("expected `tz_id` to be a string"))?;
+        Ok(Tz::from_str(tz_id)
+            .map(|_| Self::RunTest)
+            .unwrap_or_else(|e| Self::SkipTest {
+                reason: format!("cannot load timezone {tz_id}: {e}"),
+            }))
+    }
+
+    fn run_sub_test_test_should_echo_all_timezone_ids(
+        mut arguments: HashMap<String, JsonValue>,
+    ) -> Result<Self, TestKitError> {
+        fn get_opt_i64_component(data: &JsonValue, key: &str) -> Result<Option<i64>, TestKitError> {
+            match data.get(key) {
+                None => Ok(None),
+                Some(v) => match v.as_i64() {
+                    None => Err(TestKitError::backend_err(format!(
+                        "CypherDateTime value missing `{key}`"
+                    ))),
+                    Some(v) => Ok(Some(v)),
+                },
+            }
+        }
+
+        fn get_i64_component(data: &JsonValue, key: &str) -> Result<i64, TestKitError> {
+            get_opt_i64_component(data, key).and_then(|v| {
+                v.ok_or_else(|| {
+                    TestKitError::backend_err(format!(
+                        "CypherDateTime value `{key}` is not an integer"
+                    ))
+                })
+            })
+        }
+
+        fn get_string_opt_component(
+            data: &mut JsonValue,
+            key: &str,
+        ) -> Result<Option<String>, TestKitError> {
+            match data.get_mut(key) {
+                None => Ok(None),
+                Some(v) => match v {
+                    JsonValue::String(s) => Ok(Some(mem::take(s))),
+                    _ => Err(TestKitError::backend_err(format!(
+                        "CypherDateTime value `{key}` is not a string"
+                    ))),
+                },
+            }
+        }
+
+        let dt = arguments
+            .get_mut("dt")
+            .ok_or_else(|| TestKitError::backend_err("expected key `dt` in arguments"))?
+            .as_object_mut()
+            .ok_or_else(|| TestKitError::backend_err("expected key `dt` to be an object"))?;
+        match dt.get("name").and_then(|v| v.as_str()) {
+            Some("CypherDateTime") => {}
+            _ => {
+                return Err(TestKitError::backend_err(
+                    "expected key `dt` to be a CypherDateTime",
+                ))
+            }
+        };
+        let data = dt
+            .get_mut("data")
+            .ok_or_else(|| TestKitError::backend_err("CypherDateTime value missing `data`"))?;
+        let year = get_i64_component(data, "year")?;
+        let month = get_i64_component(data, "month")?;
+        let day = get_i64_component(data, "day")?;
+        let hour = get_i64_component(data, "hour")?;
+        let minute = get_i64_component(data, "minute")?;
+        let second = get_i64_component(data, "second")?;
+        let nanosecond = get_i64_component(data, "nanosecond")?;
+        let utc_offset_s = get_opt_i64_component(data, "utc_offset_s")?;
+        let timezone_id = get_string_opt_component(data, "timezone_id")?;
+
+        let value = CypherValue::CypherDateTime {
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+            nanosecond,
+            utc_offset_s,
+            timezone_id,
+        };
+        Ok(ValueSend::try_from(value)
+            .map(|_| Self::RunTest)
+            .unwrap_or_else(|e| Self::SkipTest {
+                reason: format!("cannot load CypherDateTime: {e}"),
+            }))
     }
 
     pub(super) fn try_from_testkit_error(

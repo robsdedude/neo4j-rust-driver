@@ -30,6 +30,7 @@ use crate::summary::Summary;
 use crate::{Neo4jError, ValueSend};
 
 use super::backend_id::Generator;
+use super::cypher_value::CypherValue;
 use super::driver_holder::EmulatedDriverConfig;
 use super::errors::TestKitError;
 use super::requests::BackendErrorId;
@@ -290,7 +291,7 @@ impl SessionHolderRunner {
                                                 ResultNextResult {
                                                     result: stream
                                                         .next()
-                                                        .map(|r| r.map_err(Into::into))
+                                                        .map(|r| r.map_err(Into::into).and_then(TryInto::try_into))
                                                         .transpose(),
                                                 }
                                                 .into(),
@@ -314,7 +315,8 @@ impl SessionHolderRunner {
                                                         .single()
                                                         .map_err(Into::into)
                                                         .and_then(|f| f)
-                                                        .map_err(Into::into),
+                                                        .map_err(Into::into)
+                                                        .and_then(TryInto::try_into),
                                                 }
                                                 .into(),
                                             )
@@ -518,7 +520,7 @@ impl SessionHolderRunner {
                                                             known_transactions
                                                                 .insert(id, TxFailState::Failed);
                                                         }
-                                                        res.transpose().map_err(Into::into)
+                                                        res.map(|r| r.map_err(Into::into).and_then(TryInto::try_into)).transpose()
                                                     },
                                                 };
                                                 let msg = ResultNextResult { result };
@@ -547,7 +549,7 @@ impl SessionHolderRunner {
                                                                 );
                                                             }
                                                             r
-                                                        }).map_err(Into::into),
+                                                        }).map_err(Into::into).and_then(TryInto::try_into),
                                                 };
                                                 let msg = ResultSingleResult { result };
                                                 tx_res.send(msg.into()).unwrap();
@@ -850,7 +852,9 @@ impl SessionHolderRunner {
                                                                     known_transactions
                                                                         .insert(id, TxFailState::Failed);
                                                                     state_tracker.wrap_neo4j_error(e)
-                                                                })
+                                                                }).and_then(|r| r.map(TryInto::try_into).transpose().map_err(|e| {
+                                                                    state_tracker.wrap_testkit_error(e)
+                                                                }))
                                                             }
                                                         },
                                                     };
@@ -884,6 +888,11 @@ impl SessionHolderRunner {
                                                                                 TxFailState::Failed,
                                                                             );
                                                                             state_tracker.wrap_neo4j_error(e)
+                                                                        })
+                                                                    })
+                                                                    .and_then(|r| {
+                                                                        r.try_into().map_err(|e| {
+                                                                            state_tracker.wrap_testkit_error(e)
                                                                         })
                                                                     })
                                                             }
@@ -1327,7 +1336,7 @@ impl RecordBuffer {
         }
     }
 
-    fn next(&mut self) -> Result<Option<Record>, TestKitError> {
+    fn next(&mut self) -> Result<Option<Vec<CypherValue>>, TestKitError> {
         match self {
             RecordBuffer::AutoCommit {
                 records, consumed, ..
@@ -1339,13 +1348,14 @@ impl RecordBuffer {
                         .pop_front()
                         .transpose()
                         .map_err(|e| TestKitError::clone_neo4j_error(&e))
+                        .and_then(|r| r.map(TryInto::try_into).transpose())
                 }
             }
             RecordBuffer::Transaction { .. } => Err(result_out_of_scope_error()),
         }
     }
 
-    fn single(&mut self) -> Result<Record, TestKitError> {
+    fn single(&mut self) -> Result<Vec<CypherValue>, TestKitError> {
         match self {
             RecordBuffer::AutoCommit {
                 records, consumed, ..
@@ -1368,7 +1378,7 @@ impl RecordBuffer {
                                         ))),
                                     }
                                 } else {
-                                    Ok(record)
+                                    record.try_into()
                                 }
                             }
                             Err(e) => Err(TestKitError::clone_neo4j_error(&e)),
@@ -1486,11 +1496,11 @@ impl<'gen> TransactionFunctionStateTracker<'gen> {
     }
 
     fn into_error(mut self, id: BackendId) -> TransactionFunctionError {
-        self.errors
-            .remove(&id)
-            .unwrap_or(TransactionFunctionError::TestKit(
-                TestKitError::backend_err(format!("Unknown error with id {id} found")),
-            ))
+        self.errors.remove(&id).unwrap_or_else(|| {
+            TransactionFunctionError::TestKit(TestKitError::backend_err(format!(
+                "Unknown error with id {id} found"
+            )))
+        })
     }
 }
 
@@ -1878,7 +1888,7 @@ impl From<ResultNext> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct ResultNextResult {
-    pub(super) result: Result<Option<Record>, TestKitError>,
+    pub(super) result: Result<Option<Vec<CypherValue>>, TestKitError>,
 }
 
 impl From<ResultNextResult> for CommandResult {
@@ -1901,7 +1911,7 @@ impl From<ResultSingle> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct ResultSingleResult {
-    pub(super) result: Result<Record, TestKitError>,
+    pub(super) result: Result<Vec<CypherValue>, TestKitError>,
 }
 
 impl From<ResultSingleResult> for CommandResult {
