@@ -27,8 +27,7 @@ use crate::util::truncate_string;
 pub(crate) struct Chunker<'a, T: Deref<Target = [u8]>> {
     buffers: &'a [T],
     buffer_start: usize,
-    chunk_size: [u8; 2],
-    in_chunk: bool,
+    chunk_size_left: u16,
     ended: bool,
 }
 
@@ -37,8 +36,7 @@ impl<'a, T: Deref<Target = [u8]>> Chunker<'a, T> {
         Chunker {
             buffers: buf,
             buffer_start: 0,
-            chunk_size: [0; 2],
-            in_chunk: false,
+            chunk_size_left: 0,
             ended: false,
         }
     }
@@ -53,13 +51,14 @@ impl<'a, T: Deref<Target = [u8]>> Iterator for Chunker<'a, T> {
                 self.buffers = &self.buffers[1..];
             }
             if !self.buffers.is_empty() {
-                if self.in_chunk {
+                if self.chunk_size_left > 0 {
                     let buffer_len = cmp::min(
                         self.buffers[0].len() - self.buffer_start,
-                        u16::MAX.into_usize(),
+                        self.chunk_size_left.into_usize(),
                     );
                     let buffer_end = self.buffer_start + buffer_len;
                     let chunk = &self.buffers[0][self.buffer_start..buffer_end];
+                    self.chunk_size_left -= buffer_len as u16;
                     self.buffer_start = buffer_end;
                     if self.buffer_start == self.buffers[0].len() {
                         self.buffers = &self.buffers[1..];
@@ -67,14 +66,18 @@ impl<'a, T: Deref<Target = [u8]>> Iterator for Chunker<'a, T> {
                     }
                     Some(Chunk::Buffer(chunk))
                 } else {
-                    let size = self
-                        .buffers
-                        .iter()
-                        .map(|b| b.len().try_into().unwrap_or(u16::MAX))
-                        .reduce(|acc, x| acc.saturating_add(x))
-                        .expect("known to not be empty");
+                    let mut size = (self.buffers[0].len() - self.buffer_start)
+                        .try_into()
+                        .unwrap_or(u16::MAX);
+                    size = size.saturating_add(
+                        self.buffers[1..]
+                            .iter()
+                            .map(|b| b.len().try_into().unwrap_or(u16::MAX))
+                            .reduce(|acc, x| acc.saturating_add(x))
+                            .unwrap_or_default(),
+                    );
+                    self.chunk_size_left = size;
                     let size = size.to_be_bytes();
-                    self.in_chunk = true;
                     Some(Chunk::Size(size))
                 }
             } else {

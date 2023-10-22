@@ -42,6 +42,7 @@ use rustls::ClientConfig;
 use usize_cast::FromUsize;
 
 use super::deadline::DeadlineIO;
+use crate::error::ServerError;
 use crate::{Address, Neo4jError, Result, ValueReceive, ValueSend};
 use bolt4x4::{Bolt4x4, Bolt4x4StructTranslator};
 use bolt5x0::{Bolt5x0, Bolt5x0StructTranslator};
@@ -122,7 +123,6 @@ macro_rules! socket_debug {
         );
     };
 }
-use crate::error::ServerError;
 pub(crate) use socket_debug;
 
 fn dbg_extra(port: Option<u16>, bolt_id: Option<&str>) -> String {
