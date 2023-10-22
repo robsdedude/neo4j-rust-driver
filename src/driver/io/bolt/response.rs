@@ -42,10 +42,7 @@ impl BoltResponse {
     }
 
     pub(crate) fn from_message(message: ResponseMessage) -> Self {
-        Self::new(
-            message,
-            ResponseCallbacks::new().with_on_failure(|error| Err(error.into())),
-        )
+        Self::new(message, ResponseCallbacks::new())
     }
 }
 
@@ -63,6 +60,17 @@ pub(crate) struct ResponseCallbacks {
 
 impl ResponseCallbacks {
     pub(crate) fn new() -> Self {
+        Self {
+            on_success_cb: None,
+            on_failure_cb: None,
+            on_ignored_cb: None,
+            on_record_cb: None,
+            on_summary_cb: None,
+        }
+        .with_on_failure(|error| Err(error.into()))
+    }
+
+    pub(crate) fn new_silent_error() -> Self {
         Self {
             on_success_cb: None,
             on_failure_cb: None,

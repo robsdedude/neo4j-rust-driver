@@ -166,16 +166,12 @@ impl<'driver> InnerTransaction<'driver> {
         let bookmark = Arc::clone(&self.bookmark);
         cx.write_all(None)?;
         cx.read_all(None)?;
-        cx.commit(
-            ResponseCallbacks::new()
-                .with_on_success(move |mut meta| {
-                    if let Some(ValueReceive::String(bms)) = meta.remove("bookmark") {
-                        *bookmark.borrow_mut() = Some(bms);
-                    };
-                    Ok(())
-                })
-                .with_on_failure(|error| Err(error.into())),
-        )?;
+        cx.commit(ResponseCallbacks::new().with_on_success(move |mut meta| {
+            if let Some(ValueReceive::String(bms)) = meta.remove("bookmark") {
+                *bookmark.borrow_mut() = Some(bms);
+            };
+            Ok(())
+        }))?;
         cx.write_all(None)?;
         Neo4jError::wrap_commit(cx.read_all(None))
     }

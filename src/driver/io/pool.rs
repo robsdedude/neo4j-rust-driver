@@ -552,24 +552,22 @@ impl RoutingPool {
             args.bookmarks.as_deref(),
             args.db.as_deref(),
             args.imp_user.as_deref(),
-            ResponseCallbacks::new()
-                .with_on_success({
-                    let rt = Arc::clone(&rt);
-                    move |meta| {
-                        let new_rt = RoutingTable::try_parse(meta);
-                        let mut res;
-                        match new_rt {
-                            Ok(new_rt) => res = Some(Ok(new_rt)),
-                            Err(e) => {
-                                warn!("failed to parse routing table: {}", e);
-                                res = Some(Err(Neo4jError::protocol_error(format!("{}", e))));
-                            }
+            ResponseCallbacks::new().with_on_success({
+                let rt = Arc::clone(&rt);
+                move |meta| {
+                    let new_rt = RoutingTable::try_parse(meta);
+                    let mut res;
+                    match new_rt {
+                        Ok(new_rt) => res = Some(Ok(new_rt)),
+                        Err(e) => {
+                            warn!("failed to parse routing table: {}", e);
+                            res = Some(Err(Neo4jError::protocol_error(format!("{}", e))));
                         }
-                        mem::swap(rt.deref().borrow_mut().deref_mut(), &mut res);
-                        Ok(())
                     }
-                })
-                .with_on_failure(|err| Err(err.into())),
+                    mem::swap(rt.deref().borrow_mut().deref_mut(), &mut res);
+                    Ok(())
+                }
+            }),
         )?;
         con.write_all(None)?;
         con.read_all(None, None)?;
