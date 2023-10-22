@@ -91,27 +91,8 @@ impl Summary {
         self.counters = Counters::load_meta(meta)?;
         self.notifications = Notification::load_meta(meta)?;
         self.profile = Profile::load_meta(meta)?;
+        self.query_type = SummaryQueryType::load_meta(meta)?;
         self.plan = Plan::load_meta(meta)?;
-        if let Some(query_type) = meta.remove("type") {
-            let ValueReceive::String(query_type) = query_type else {
-                return Err(Neo4jError::protocol_error(format!(
-                    "type in summary was not string but {:?}",
-                    query_type
-                )));
-            };
-            self.query_type = Some(match query_type.as_str() {
-                "r" => SummaryQueryType::Read,
-                "w" => SummaryQueryType::Write,
-                "rw" => SummaryQueryType::ReadWrite,
-                "s" => SummaryQueryType::Schema,
-                _ => {
-                    return Err(Neo4jError::protocol_error(format!(
-                        "type in summary was an unknown string {:?}",
-                        query_type
-                    )))
-                }
-            });
-        }
         if let Some(db) = meta.remove("db") {
             let ValueReceive::String(db) = db else {
                 return Err(Neo4jError::protocol_error(format!(
@@ -260,6 +241,32 @@ pub enum SummaryQueryType {
     Write,
     ReadWrite,
     Schema,
+}
+
+impl SummaryQueryType {
+    pub(crate) fn load_meta(meta: &mut BoltMeta) -> Result<Option<Self>> {
+        if let Some(query_type) = meta.remove("type") {
+            let ValueReceive::String(query_type) = query_type else {
+                return Err(Neo4jError::protocol_error(format!(
+                    "type in summary was not string but {:?}",
+                    query_type
+                )));
+            };
+            return Ok(Some(match query_type.as_str() {
+                "r" => Self::Read,
+                "w" => Self::Write,
+                "rw" => Self::ReadWrite,
+                "s" => Self::Schema,
+                _ => {
+                    return Err(Neo4jError::protocol_error(format!(
+                        "query type in summary was an unknown string {:?}",
+                        query_type
+                    )))
+                }
+            }));
+        }
+        Ok(None)
+    }
 }
 
 #[non_exhaustive]

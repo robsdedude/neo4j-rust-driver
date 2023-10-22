@@ -18,6 +18,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
+use crate::summary::SummaryQueryType;
 use lazy_regex::Regex;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -204,7 +205,7 @@ pub(super) struct Summary {
     plan: Option<Plan>,
     profile: Option<Profile>,
     query: SummaryQuery,
-    query_type: QueryType,
+    query_type: Option<QueryType>,
     result_available_after: Option<i64>,
     result_consumed_after: Option<i64>,
     server_info: ServerInfo,
@@ -251,7 +252,7 @@ impl TryFrom<crate::summary::Summary> for Summary {
                 text: Default::default(),
                 parameters: Default::default(),
             },
-            query_type: QueryType::Read,
+            query_type: summary.query_type.map(Into::into),
             result_available_after: summary.result_available_after.map(|d| {
                 d.as_millis()
                     .try_into()
@@ -508,6 +509,17 @@ pub(super) enum QueryType {
     ReadWrite,
     #[serde(rename = "s")]
     Schema,
+}
+
+impl From<SummaryQueryType> for QueryType {
+    fn from(value: SummaryQueryType) -> Self {
+        match value {
+            SummaryQueryType::Read => Self::Read,
+            SummaryQueryType::Write => Self::Write,
+            SummaryQueryType::ReadWrite => Self::ReadWrite,
+            SummaryQueryType::Schema => Self::Schema,
+        }
+    }
 }
 
 #[derive(Serialize, Debug)]
