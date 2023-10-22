@@ -86,6 +86,14 @@ impl DriverHolder {
         }
     }
 
+    pub(super) fn supports_multi_db(&self) -> SupportsMultiDbResult {
+        self.tx_req.send(Command::SupportsMultiDb).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::SupportsMultiDb(result) => result,
+            res => panic!("expected CommandResult::SupportsMultiDb, found {res:?}"),
+        }
+    }
+
     pub(super) fn session(&self, args: NewSession) -> NewSessionResult {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
@@ -522,6 +530,11 @@ impl DriverHolderRunner {
                     Some(session.close().into())
                 }
 
+                Command::SupportsMultiDb => {
+                    let result = self.driver.supports_multi_db().map_err(Into::into);
+                    Some(SupportsMultiDbResult { result }.into())
+                }
+
                 Command::Close => {
                     let result = sessions
                         .into_iter()
@@ -555,6 +568,7 @@ enum Command {
     ResultSingle(ResultSingle),
     ResultConsume(ResultConsume),
     LastBookmarks(LastBookmarks),
+    SupportsMultiDb,
     Close,
 }
 
@@ -575,6 +589,7 @@ enum CommandResult {
     ResultSingle(ResultSingleResult),
     ResultConsume(ResultConsumeResult),
     LastBookmarks(LastBookmarksResult),
+    SupportsMultiDb(SupportsMultiDbResult),
     Close(CloseResult),
 }
 
@@ -772,6 +787,18 @@ impl From<LastBookmarksResult> for CommandResult {
 impl From<ResultConsumeResult> for CommandResult {
     fn from(r: ResultConsumeResult) -> Self {
         CommandResult::ResultConsume(r)
+    }
+}
+
+#[must_use]
+#[derive(Debug)]
+pub(super) struct SupportsMultiDbResult {
+    pub(super) result: Result<bool, TestKitError>,
+}
+
+impl From<SupportsMultiDbResult> for CommandResult {
+    fn from(r: SupportsMultiDbResult) -> Self {
+        CommandResult::SupportsMultiDb(r)
     }
 }
 

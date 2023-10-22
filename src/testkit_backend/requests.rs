@@ -377,7 +377,7 @@ impl Request {
             Request::NewDriver { .. } => self.new_driver(backend)?,
             // Request::VerifyConnectivity { .. } => {},
             // Request::GetServerInfo { .. } => {},
-            // Request::CheckMultiDBSupport { .. } => {},
+            Request::CheckMultiDBSupport { .. } => self.check_multi_db_support(backend)?,
             // Request::CheckDriverIsEncrypted { .. } => {},
             // Request::ResolverResolutionCompleted { .. } => {},
             // Request::BookmarksSupplierCompleted { .. } => {},
@@ -536,6 +536,17 @@ impl Request {
             .drivers
             .insert(id, Some(driver_holder));
         backend.send(&Response::Driver { id })
+    }
+
+    fn check_multi_db_support(self, backend: &Backend) -> TestKitResult {
+        let Request::CheckMultiDBSupport { driver_id } = self else {
+            panic!("expected Request::CheckMultiDBSupport");
+        };
+        let data = backend.data.borrow();
+        let driver_holder = get_driver(&data, &driver_id)?;
+        let available = driver_holder.supports_multi_db().result?;
+        let id = backend.next_id();
+        backend.send(&Response::MultiDBSupport { id, available })
     }
 
     fn driver_close(self, backend: &Backend) -> TestKitResult {
