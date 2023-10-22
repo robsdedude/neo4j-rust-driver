@@ -204,6 +204,18 @@ pub struct ServerError {
 
 impl ServerError {
     pub fn new(code: String, message: String) -> Self {
+        let code = match code.as_str() {
+            // In 5.0, these errors have been re-classified as ClientError.
+            // For backwards compatibility with Neo4j 4.4 and earlier, we re-map
+            // them in the driver, too.
+            "Neo.TransientError.Transaction.Terminated" => {
+                String::from("Neo.ClientError.Transaction.Terminated")
+            }
+            "Neo.TransientError.Transaction.LockClientStopped" => {
+                String::from("Neo.ClientError.Transaction.LockClientStopped")
+            }
+            _ => code,
+        };
         Self { code, message }
     }
 
@@ -216,7 +228,7 @@ impl ServerError {
             Some(ValueReceive::String(message)) => message,
             _ => "An unknown error occurred.".into(),
         };
-        Self { code, message }
+        Self::new(code, message)
     }
 
     pub fn code(&self) -> &str {
@@ -228,16 +240,7 @@ impl ServerError {
     }
 
     pub fn classification(&self) -> &str {
-        match self.code() {
-            "Neo.TransientError.Transaction.Terminated"
-            | "Neo.TransientError.Transaction.LockClientStopped" => {
-                // In 5.0, these errors have been re-classified as ClientError.
-                // For backwards compatibility with Neo4j 4.4 and earlier, we re-map
-                // them in the driver, too.
-                "ClientError"
-            }
-            _ => self.code.split('.').nth(1).unwrap_or(""),
-        }
+        self.code.split('.').nth(1).unwrap_or("")
     }
 
     pub fn category(&self) -> &str {
