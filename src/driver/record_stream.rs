@@ -119,13 +119,35 @@ impl<'driver> RecordStream<'driver> {
 
         {
             let state = &mut self.listener.borrow_mut().state;
-            if let RecordListenerState::Error(_) = state {
-                let mut state_swap = RecordListenerState::Done;
-                mem::swap(state, &mut state_swap);
-                match state_swap {
-                    RecordListenerState::Error(e) => return Err(self.failed_commit(e)),
-                    _ => panic!("checked state to be error above"),
+            match state {
+                RecordListenerState::Error(_) => {
+                    let mut state_swap = RecordListenerState::Done;
+                    mem::swap(state, &mut state_swap);
+                    match state_swap {
+                        RecordListenerState::Error(e) => return Err(self.failed_commit(e)),
+                        _ => panic!("checked state to be error above"),
+                    }
                 }
+                RecordListenerState::ForeignError(_) => {
+                    let mut state_swap = RecordListenerState::Done;
+                    mem::swap(state, &mut state_swap);
+                    match state_swap {
+                        RecordListenerState::ForeignError(e) => {
+                            return Err(ServerError::new(
+                                String::from(e.code()),
+                                String::from(e.message()),
+                            )
+                            .into())
+                        }
+                        _ => panic!("checked state to be error above"),
+                    }
+                }
+                RecordListenerState::Ignored => {
+                    let mut state_swap = RecordListenerState::Done;
+                    mem::swap(state, &mut state_swap);
+                    return Err(Neo4jError::protocol_error("record stream was ignored"));
+                }
+                _ => {}
             }
         }
         let mut connection_borrow = self.connection.borrow_mut();
@@ -489,7 +511,9 @@ impl RecordListener {
     }
 
     fn ignored_cb(&mut self) -> Result<()> {
-        self.state = RecordListenerState::Ignored;
+        if !self.state.is_foreign_error() {
+            self.state = RecordListenerState::Ignored;
+        }
         self.summary = None;
         Ok(())
     }
