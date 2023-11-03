@@ -160,7 +160,7 @@ impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
             self.writer.write_all(&[0xDA])?;
             self.writer.write_all(&u32::to_be_bytes(size as u32))?;
         } else {
-            return Err("list exceeds max size of 2,147,483,647".into());
+            return Err("map exceeds max size of 2,147,483,647".into());
         }
         Ok(())
     }
