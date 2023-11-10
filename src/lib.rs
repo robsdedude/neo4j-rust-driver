@@ -58,5 +58,10 @@ enum Database<'a> {
     ResolvedHome,
 }
 
+mod private {
+    // Trait to prevent traits from being implemented outside of this crate.
+    pub trait Sealed {}
+}
+
 #[cfg(feature = "_internal_testkit_backend")]
 pub mod testkit_backend;

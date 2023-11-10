@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::value::value_receive::{BrokenValueInner, ValueReceive};
+use crate::Neo4jError;
 
 pub(super) const TAG_2D_POINT: u8 = b'X';
 pub(super) const TAG_3D_POINT: u8 = b'Y';
@@ -96,4 +97,54 @@ pub(super) fn invalid_struct(reason: impl Into<String>) -> ValueReceive {
 #[inline]
 pub(super) fn failed_struct(reason: impl Into<String>) -> ValueReceive {
     ValueReceive::BrokenValue(BrokenValueInner::Reason(reason.into()).into())
+}
+
+pub(super) enum ServerAwareBoltVersion {
+    V4x4,
+    V5x0,
+    V5x1,
+    V5x2,
+    V5x3,
+    V5x4,
+}
+
+impl ServerAwareBoltVersion {
+    #[inline]
+    fn protocol_version(&self) -> &'static str {
+        match self {
+            ServerAwareBoltVersion::V4x4 => "4.4",
+            ServerAwareBoltVersion::V5x0 => "5.0",
+            ServerAwareBoltVersion::V5x1 => "5.1",
+            ServerAwareBoltVersion::V5x2 => "5.2",
+            ServerAwareBoltVersion::V5x3 => "5.3",
+            ServerAwareBoltVersion::V5x4 => "5.4",
+        }
+    }
+
+    #[inline]
+    fn min_server_version(&self) -> &'static str {
+        match self {
+            ServerAwareBoltVersion::V4x4 => "4.4",
+            ServerAwareBoltVersion::V5x0 => "5.0",
+            ServerAwareBoltVersion::V5x1 => "5.5",
+            ServerAwareBoltVersion::V5x2 => "5.7",
+            ServerAwareBoltVersion::V5x3 => "5.9",
+            ServerAwareBoltVersion::V5x4 => "5.13",
+        }
+    }
+}
+
+#[inline]
+pub(super) fn unsupported_protocol_feature_error(
+    name: &str,
+    current_version: ServerAwareBoltVersion,
+    needed_version: ServerAwareBoltVersion,
+) -> Neo4jError {
+    Neo4jError::InvalidConfig {
+        message: format!(
+            "{name} is not supported via bolt version {}, requires at least server version {}",
+            current_version.protocol_version(),
+            needed_version.min_server_version(),
+        ),
+    }
 }

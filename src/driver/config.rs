@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub(crate) mod auth;
+
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::Path;
 use std::result::Result as StdResult;
+use std::sync::Arc;
 use std::time::Duration;
 
 use mockall_double::double;
@@ -26,6 +29,7 @@ use uriparse::{Query, URIError, URI};
 use crate::address::AddressResolver;
 use crate::address_::DEFAULT_PORT;
 use crate::{Address, ValueSend};
+use auth::{AuthManager, AuthManagers, AuthToken};
 
 const DEFAULT_USER_AGENT: &str = env!("NEO4J_DEFAULT_USER_AGENT");
 pub(crate) const DEFAULT_FETCH_SIZE: i64 = 1000;
@@ -35,14 +39,21 @@ pub(crate) const DEFAULT_CONNECTION_ACQUISITION_TIMEOUT: Duration = Duration::fr
 #[derive(Debug)]
 pub struct DriverConfig {
     pub(crate) user_agent: String,
-    pub(crate) auth: HashMap<String, ValueSend>,
+    pub(crate) auth: AuthConfig,
     // max_connection_lifetime
     pub(crate) max_connection_pool_size: usize,
     pub(crate) fetch_size: i64,
     pub(crate) connection_timeout: Option<Duration>,
     pub(crate) connection_acquisition_timeout: Option<Duration>,
     pub(crate) resolver: Option<Box<dyn AddressResolver>>,
+    // not supported by std https://github.com/rust-lang/rust/issues/69774
     // keep_alive
+}
+
+#[derive(Debug)]
+pub(crate) enum AuthConfig {
+    Static(Arc<AuthToken>),
+    Manager(Arc<dyn AuthManager>),
 }
 
 #[derive(Debug)]
@@ -56,7 +67,7 @@ impl Default for DriverConfig {
     fn default() -> Self {
         Self {
             user_agent: String::from(DEFAULT_USER_AGENT),
-            auth: HashMap::new(),
+            auth: AuthConfig::Static(Default::default()),
             max_connection_pool_size: 100,
             fetch_size: DEFAULT_FETCH_SIZE,
             connection_timeout: Some(DEFAULT_CONNECTION_TIMEOUT),
@@ -76,16 +87,13 @@ impl DriverConfig {
         self
     }
 
-    pub fn with_basic_auth(mut self, user_name: &str, password: &str, realm: &str) -> Self {
-        let mut auth = HashMap::with_capacity(3);
-        auth.insert("scheme".into(), "basic".into());
-        auth.insert("principal".into(), user_name.into());
-        auth.insert("credentials".into(), password.into());
-        if !realm.is_empty() {
-            auth.insert("realm".into(), realm.into());
-        }
-        self.auth = auth;
+    pub fn with_auth(mut self, auth: Arc<AuthToken>) -> Self {
+        self.auth = AuthConfig::Static(auth);
+        self
+    }
 
+    pub fn with_auth_manager(mut self, manager: Arc<dyn AuthManager>) -> Self {
+        self.auth = AuthConfig::Manager(manager);
         self
     }
 

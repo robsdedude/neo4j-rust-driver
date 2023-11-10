@@ -38,10 +38,12 @@ static REGEX_SKIPPED_TESTS: OnceLock<Vec<(&'static Regex, &'static str)>> = Once
 
 fn get_plain_skipped_tests() -> &'static HashMap<&'static str, &'static str> {
     PLAIN_SKIPPED_TESTS.get_or_init(|| {
-        // let mut map = HashMap::new();
-        // map.insert("test", "reason");
-        // map
-        HashMap::new()
+        let mut map = HashMap::new();
+        map.insert(
+            "neo4j.test_tx_run.TestTxRun.test_tx_res_fails_whole_tx",
+            "backend (SessionHolder) doesn't keep result buffers around after error",
+        );
+        map
     })
 }
 
@@ -565,6 +567,7 @@ impl Response {
     pub(super) fn feature_list() -> Self {
         Self::FeatureList {
             features: [
+                // === FUNCTIONAL FEATURES ===
                 // "Feature:API:BookmarkManager",
                 "Feature:API:ConnectionAcquisitionTimeout",
                 // "Feature:API:Driver.ExecuteQuery",
@@ -572,46 +575,61 @@ impl Response {
                 // "Feature:API:Driver.IsEncrypted",
                 "Feature:API:Driver:NotificationsConfig",
                 // "Feature:API:Driver.VerifyConnectivity",
+                // "Feature:API:Driver.SupportsSessionAuth",
                 // "Feature:API:Liveness.Check",
                 // "Feature:API:Result.List",
                 // "Feature:API:Result.Peek",
                 "Feature:API:Result.Single",
                 // "Feature:API:Result.SingleOptional",
+                // "Feature:API:RetryableExceptions",
+                "Feature:API:Session:AuthConfig",
                 // "Feature:API:Session:NotificationsConfig",
                 "Feature:API:SSLConfig",
                 "Feature:API:SSLSchemes",
                 "Feature:API:Type.Spatial",
                 "Feature:API:Type.Temporal",
-                // "Feature:Auth:Bearer",
-                // "Feature:Auth:Custom",
-                // "Feature:Auth:Kerberos",
+                "Feature:Auth:Bearer",
+                "Feature:Auth:Custom",
+                "Feature:Auth:Kerberos",
+                "Feature:Auth:Managed",
                 // "Feature:Bolt:3.0",
                 // "Feature:Bolt:4.1",
                 // "Feature:Bolt:4.2",
                 // "Feature:Bolt:4.3",
                 "Feature:Bolt:4.4",
                 "Feature:Bolt:5.0",
-                // "Feature:Bolt:5.1",
+                "Feature:Bolt:5.1",
                 // "Feature:Bolt:5.2",
+                // "Feature:Bolt:5.3",
+                // "Feature:Bolt:5.4",
                 "Feature:Bolt:Patch:UTC",
                 "Feature:Impersonation",
-                // "Feature:TLS:1.1",
+                // "Feature:TLS:1.1",  // rustls says no! For a good reason.
                 "Feature:TLS:1.2",
                 "Feature:TLS:1.3",
-                // "AuthorizationExpiredTreatment",
+                //
+                // === OPTIMIZATIONS ===
+                "AuthorizationExpiredTreatment",
+                "Optimization:AuthPipelining",
                 "Optimization:ConnectionReuse",
                 "Optimization:EagerTransactionBegin",
+                // "Optimization:ExecuteQueryPipelining",
                 "Optimization:ImplicitDefaultArguments",
                 "Optimization:MinimalBookmarksSet",
                 "Optimization:MinimalResets",
-                // "Optimization:AuthPipelining",
+                "Optimization:MinimalVerifyAuthentication",
                 "Optimization:PullPipelining",
                 // "Optimization:ResultListFetchAll",
-
+                //
+                // === IMPLEMENTATION DETAILS ===
                 // "Detail:ClosedDriverIsEncrypted",
                 // "Detail:DefaultSecurityConfigValueEquality",
+                //
+                // === CONFIGURATION HINTS (BOLT 4.3+) ===
                 // "ConfHint:connection.recv_timeout_seconds",
-
+                //
+                // === BACKEND FEATURES FOR TESTING ===
+                // "Backend:MockTime",
                 // "Backend:RTFetch",
                 // "Backend:RTForceUpdate",
             ]

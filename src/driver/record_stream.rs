@@ -26,7 +26,7 @@ use atomic_refcell::AtomicRefCell;
 use duplicate::duplicate_item;
 use thiserror::Error;
 
-use super::io::bolt::message_parameters::RunParameters;
+use super::io::bolt::message_parameters::{DiscardParameters, PullParameters, RunParameters};
 use super::io::bolt::{BoltMeta, BoltRecordFields, ResponseCallbacks};
 use super::summary::Summary;
 use super::Record;
@@ -237,7 +237,7 @@ impl<'driver> RecordStream<'driver> {
         let callbacks = self.pull_callbacks();
         self.connection
             .borrow_mut()
-            .pull(self.fetch_size, self.qid(), callbacks)?;
+            .pull(PullParameters::new(self.fetch_size, self.qid()), callbacks)?;
         if flush {
             self.connection.borrow_mut().write_all(None)?;
         }
@@ -248,7 +248,7 @@ impl<'driver> RecordStream<'driver> {
         let callbacks = self.discard_callbacks();
         self.connection
             .borrow_mut()
-            .discard(-1, self.qid(), callbacks)?;
+            .discard(DiscardParameters::new(-1, self.qid()), callbacks)?;
         if flush {
             self.connection.borrow_mut().write_all(None)?;
         }

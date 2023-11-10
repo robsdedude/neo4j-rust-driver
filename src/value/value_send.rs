@@ -47,6 +47,54 @@ pub enum ValueSend {
     DateTimeFixed(time::DateTimeFixed),
 }
 
+impl ValueSend {
+    pub(crate) fn eq_data(&self, other: &Self) -> bool {
+        match self {
+            ValueSend::Null => matches!(other, ValueSend::Null),
+            ValueSend::Boolean(v1) => matches!(other, ValueSend::Boolean(v2) if v1 == v2),
+            ValueSend::Integer(v1) => matches!(other, ValueSend::Integer(v2) if v1 == v2),
+            ValueSend::Float(v1) => match other {
+                ValueSend::Float(v2) => v1.to_bits() == v2.to_bits(),
+                _ => false,
+            },
+            ValueSend::Bytes(v1) => matches!(other, ValueSend::Bytes(v2) if v1 == v2),
+            ValueSend::String(v1) => matches!(other, ValueSend::String(v2) if v1 == v2),
+            ValueSend::List(v1) => match other {
+                ValueSend::List(v2) if v1.len() == v2.len() => {
+                    v1.iter().zip(v2.iter()).all(|(v1, v2)| v1.eq_data(v2))
+                }
+                _ => false,
+            },
+            ValueSend::Map(v1) => match other {
+                ValueSend::Map(v2) if v1.len() == v2.len() => v1
+                    .iter()
+                    .zip(v2.iter())
+                    .all(|((k1, v1), (k2, v2))| k1 == k2 && v1.eq_data(v2)),
+                _ => false,
+            },
+            ValueSend::Cartesian2D(v1) => {
+                matches!(other, ValueSend::Cartesian2D(v2) if v1.eq_data(v2))
+            }
+            ValueSend::Cartesian3D(v1) => {
+                matches!(other, ValueSend::Cartesian3D(v2) if v1.eq_data(v2))
+            }
+            ValueSend::WGS84_2D(v1) => matches!(other, ValueSend::WGS84_2D(v2) if v1.eq_data(v2)),
+            ValueSend::WGS84_3D(v1) => matches!(other, ValueSend::WGS84_3D(v2) if v1.eq_data(v2)),
+            ValueSend::Duration(v1) => matches!(other, ValueSend::Duration(v2) if v1 == v2),
+            ValueSend::LocalTime(v1) => matches!(other, ValueSend::LocalTime(v2) if v1 == v2),
+            ValueSend::Time(v1) => matches!(other, ValueSend::Time(v2) if v1 == v2),
+            ValueSend::Date(v1) => matches!(other, ValueSend::Date(v2) if v1 == v2),
+            ValueSend::LocalDateTime(v1) => {
+                matches!(other, ValueSend::LocalDateTime(v2) if v1 == v2)
+            }
+            ValueSend::DateTime(v1) => matches!(other, ValueSend::DateTime(v2) if v1 == v2),
+            ValueSend::DateTimeFixed(v1) => {
+                matches!(other, ValueSend::DateTimeFixed(v2) if v1 == v2)
+            }
+        }
+    }
+}
+
 macro_rules! impl_value_from_into {
     ( $value:expr, $($ty:ty),* ) => {
         $(

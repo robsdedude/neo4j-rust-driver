@@ -41,6 +41,10 @@ impl Cartesian2D {
     pub fn srid(&self) -> i64 {
         self.srid
     }
+
+    pub(crate) fn eq_data(&self, other: &Self) -> bool {
+        self.srid == other.srid && coordinates_eq_data(self.coordinates, other.coordinates)
+    }
 }
 
 impl Display for Cartesian2D {
@@ -78,6 +82,10 @@ impl Cartesian3D {
     pub fn srid(&self) -> i64 {
         self.srid
     }
+
+    pub(crate) fn eq_data(&self, other: &Self) -> bool {
+        self.srid == other.srid && coordinates_eq_data(self.coordinates, other.coordinates)
+    }
 }
 
 impl Display for Cartesian3D {
@@ -111,6 +119,10 @@ impl WGS84_2D {
     }
     pub fn srid(&self) -> i64 {
         self.srid
+    }
+
+    pub(crate) fn eq_data(&self, other: &Self) -> bool {
+        self.srid == other.srid && coordinates_eq_data(self.coordinates, other.coordinates)
     }
 }
 
@@ -149,6 +161,10 @@ impl WGS84_3D {
     pub fn srid(&self) -> i64 {
         self.srid
     }
+
+    pub(crate) fn eq_data(&self, other: &Self) -> bool {
+        self.srid == other.srid && coordinates_eq_data(self.coordinates, other.coordinates)
+    }
 }
 
 impl Display for WGS84_3D {
@@ -159,4 +175,11 @@ impl Display for WGS84_3D {
             self.coordinates[0], self.coordinates[1], self.coordinates[2]
         )
     }
+}
+
+fn coordinates_eq_data<const N: usize>(coordinates1: [f64; N], coordinates2: [f64; N]) -> bool {
+    coordinates1
+        .iter()
+        .zip(coordinates2.iter())
+        .all(|(c1, c2)| c1.to_bits() == c2.to_bits())
 }

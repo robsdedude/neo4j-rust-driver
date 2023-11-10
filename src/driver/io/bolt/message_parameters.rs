@@ -15,10 +15,62 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::sync::Arc;
 
+use crate::driver::config::auth::AuthToken;
 use crate::ValueSend;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct HelloParameters<'a> {
+    pub(super) user_agent: &'a str,
+    pub(super) auth: &'a Arc<AuthToken>,
+    pub(super) routing_context: Option<&'a HashMap<String, ValueSend>>,
+}
+
+impl<'a> HelloParameters<'a> {
+    pub(crate) fn new(
+        user_agent: &'a str,
+        auth: &'a Arc<AuthToken>,
+        routing_context: Option<&'a HashMap<String, ValueSend>>,
+    ) -> Self {
+        Self {
+            user_agent,
+            auth,
+            routing_context,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ReauthParameters<'a> {
+    pub(super) auth: &'a Arc<AuthToken>,
+}
+
+impl<'a> ReauthParameters<'a> {
+    pub(crate) fn new(auth: &'a Arc<AuthToken>) -> Self {
+        Self { auth }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GoodbyeParameters {}
+
+impl GoodbyeParameters {
+    pub(crate) fn new() -> Self {
+        Self {}
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ResetParameters {}
+
+impl ResetParameters {
+    pub(crate) fn new() -> Self {
+        Self {}
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct RunParameters<'a, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug> {
     pub(super) query: &'a str,
     pub(super) parameters: Option<&'a HashMap<KP, ValueSend>>,
@@ -69,6 +121,102 @@ impl<'a, KP: Borrow<str> + Debug> RunParameters<'a, KP, String> {
             mode: None,
             db: None,
             imp_user: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DiscardParameters {
+    pub(super) n: i64,
+    pub(super) qid: i64,
+}
+
+impl DiscardParameters {
+    pub(crate) fn new(n: i64, qid: i64) -> Self {
+        Self { n, qid }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PullParameters {
+    pub(super) n: i64,
+    pub(super) qid: i64,
+}
+
+impl PullParameters {
+    pub(crate) fn new(n: i64, qid: i64) -> Self {
+        Self { n, qid }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BeginParameters<'a, K: Borrow<str> + Debug> {
+    pub(super) bookmarks: Option<&'a [String]>,
+    pub(super) tx_timeout: Option<i64>,
+    pub(super) tx_metadata: Option<&'a HashMap<K, ValueSend>>,
+    pub(super) mode: Option<&'a str>,
+    pub(super) db: Option<&'a str>,
+    pub(super) imp_user: Option<&'a str>,
+}
+
+impl<'a, K: Borrow<str> + Debug> BeginParameters<'a, K> {
+    pub(crate) fn new(
+        bookmarks: Option<&'a [String]>,
+        tx_timeout: Option<i64>,
+        tx_metadata: Option<&'a HashMap<K, ValueSend>>,
+        mode: Option<&'a str>,
+        db: Option<&'a str>,
+        imp_user: Option<&'a str>,
+    ) -> Self {
+        Self {
+            bookmarks,
+            tx_timeout,
+            tx_metadata,
+            mode,
+            db,
+            imp_user,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CommitParameters {}
+
+impl CommitParameters {
+    pub(crate) fn new() -> Self {
+        Self {}
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RollbackParameters {}
+
+impl RollbackParameters {
+    pub(crate) fn new() -> Self {
+        Self {}
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RouteParameters<'a> {
+    pub(super) routing_context: &'a HashMap<String, ValueSend>,
+    pub(super) bookmarks: Option<&'a [String]>,
+    pub(super) db: Option<&'a str>,
+    pub(super) imp_user: Option<&'a str>,
+}
+
+impl<'a> RouteParameters<'a> {
+    pub(crate) fn new(
+        routing_context: &'a HashMap<String, ValueSend>,
+        bookmarks: Option<&'a [String]>,
+        db: Option<&'a str>,
+        imp_user: Option<&'a str>,
+    ) -> Self {
+        Self {
+            routing_context,
+            bookmarks,
+            db,
+            imp_user,
         }
     }
 }

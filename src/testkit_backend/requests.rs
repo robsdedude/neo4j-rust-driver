@@ -19,20 +19,20 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::driver::auth::AuthToken;
 use crate::driver::{ConnectionConfig, DriverConfig, RoutingControl};
 use crate::session::SessionConfig;
-use crate::testkit_backend::session_holder::RetryableOutcome;
 use crate::ValueSend;
 
-use super::cypher_value::CypherValue;
+use super::cypher_value::{CypherValue, NotADriverValueError};
 use super::driver_holder::{CloseSession, DriverHolder, EmulatedDriverConfig, NewSession};
 use super::errors::TestKitError;
 use super::resolver::TestKitResolver;
 use super::responses::Response;
 use super::session_holder::{
     AutoCommit, BeginTransaction, CloseTransaction, CommitTransaction, LastBookmarks,
-    ResultConsume, ResultNext, ResultSingle, RetryableNegative, RetryablePositive,
-    RollbackTransaction, TransactionFunction, TransactionRun,
+    ResultConsume, ResultNext, ResultSingle, RetryableNegative, RetryableOutcome,
+    RetryablePositive, RollbackTransaction, TransactionFunction, TransactionRun,
 };
 use super::{Backend, BackendData, BackendId, TestKitResult};
 
@@ -262,10 +262,29 @@ pub(super) enum Request {
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(tag = "name", content = "data")]
 pub(super) enum TestKitAuth {
-    AuthorizationToken {
+    AuthorizationToken(AuthTokenData),
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(tag = "scheme")]
+pub(super) enum AuthTokenData {
+    #[serde(rename = "basic")]
+    Basic {
+        principal: String,
+        credentials: String,
+        realm: Option<String>,
+    },
+    #[serde(rename = "kerberos")]
+    Kerberos { credentials: String },
+    #[serde(rename = "bearer")]
+    Bearer { credentials: String },
+    #[serde(untagged)]
+    Custom {
         scheme: String,
-        #[serde(flatten)]
-        data: HashMap<String, Value>,
+        principal: Option<String>,
+        credentials: Option<String>,
+        realm: Option<String>,
+        parameters: Option<HashMap<String, CypherValue>>,
     },
 }
 
@@ -1007,37 +1026,36 @@ fn missing_session_error(session_id: &BackendId) -> TestKitError {
 }
 
 fn set_auth(mut config: DriverConfig, auth: TestKitAuth) -> Result<DriverConfig, TestKitError> {
-    let TestKitAuth::AuthorizationToken { scheme, mut data } = auth;
-    match scheme.as_str() {
-        "basic" => {
-            let Value::String(principal) = data.remove("principal").ok_or_else(|| {
-                TestKitError::backend_err("auth: basic scheme required principal")
-            })?
-            else {
-                return Err(TestKitError::backend_err(
-                    "auth: principal needs to be string",
-                ));
-            };
-            let Value::String(credentials) = data.remove("credentials").ok_or_else(|| {
-                TestKitError::backend_err("auth: basic scheme required credentials")
-            })?
-            else {
-                return Err(TestKitError::backend_err(
-                    "auth: credentials needs to be string",
-                ));
-            };
-            let realm = data
-                .remove("realm")
-                .map(|v| match v {
-                    Value::String(v) => Ok(v),
-                    _ => Err(TestKitError::backend_err("auth: reaml needs t obe string")),
+    let TestKitAuth::AuthorizationToken(data) = auth;
+    let auth = match data {
+        AuthTokenData::Basic {
+            principal,
+            credentials,
+            realm,
+        } => match realm {
+            None => AuthToken::new_basic_auth(principal, credentials),
+            Some(realm) => AuthToken::new_basic_auth_with_realm(principal, credentials, realm),
+        },
+        AuthTokenData::Kerberos { credentials } => AuthToken::new_kerberos_auth(credentials),
+        AuthTokenData::Bearer { credentials } => AuthToken::new_bearer_auth(credentials),
+        AuthTokenData::Custom {
+            scheme,
+            principal,
+            credentials,
+            realm,
+            parameters,
+        } => {
+            let parameters = parameters
+                .map(|p| {
+                    p.into_iter()
+                        .map(|(k, v)| Ok((k, v.try_into()?)))
+                        .collect::<Result<HashMap<String, ValueSend>, NotADriverValueError>>()
                 })
-                .unwrap_or(Ok(String::new()))?;
-            config = config.with_basic_auth(&principal, &credentials, &realm)
+                .transpose()?;
+            AuthToken::new_custom_auth(principal, credentials, realm, Some(scheme), parameters)
         }
-        _ => return Err(TestKitError::backend_err("unsupported scheme")),
-    }
-    Ok(config)
+    };
+    Ok(config.with_auth(Arc::new(auth)))
 }
 
 fn cypher_value_map_to_value_send_map(

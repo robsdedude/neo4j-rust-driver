@@ -22,6 +22,7 @@ use crate::ValueReceive;
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub(crate) enum BoltState {
     Connected,
+    Authenticating,
     Ready,
     Streaming,
     TxReady,
@@ -70,6 +71,8 @@ impl BoltStateTracker {
 
         match message {
             ResponseMessage::Hello => self.update_hello(),
+            ResponseMessage::Logon => self.update_logon(),
+            ResponseMessage::Logoff => self.update_logoff(),
             ResponseMessage::Reset => self.update_reset(),
             ResponseMessage::Run => self.update_run(),
             ResponseMessage::Discard => self.update_discard(),
@@ -97,9 +100,29 @@ impl BoltStateTracker {
 
     fn update_hello(&mut self) {
         match self.state {
-            BoltState::Connected => self.state = BoltState::Ready,
+            BoltState::Connected => {
+                self.state = if self.version >= (5, 1) {
+                    BoltState::Authenticating
+                } else {
+                    BoltState::Ready
+                }
+            }
             BoltState::Failed => {}
             _ => panic!("unexpected hello for {:?}", self),
+        }
+    }
+
+    fn update_logon(&mut self) {
+        match self.state {
+            BoltState::Authenticating => self.state = BoltState::Ready,
+            _ => panic!("unexpected logon for {:?}", self),
+        }
+    }
+
+    fn update_logoff(&mut self) {
+        match self.state {
+            BoltState::Ready => self.state = BoltState::Authenticating,
+            _ => panic!("unexpected logoff for {:?}", self),
         }
     }
 

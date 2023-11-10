@@ -28,8 +28,10 @@ use std::time::{Duration, Instant};
 use log::{debug, info, warn};
 use parking_lot::{Condvar, Mutex, RwLockReadGuard};
 
+use super::bolt::message_parameters::RouteParameters;
 use super::bolt::ResponseCallbacks;
 use crate::address::AddressResolver;
+use crate::driver::config::AuthConfig;
 use crate::driver::RoutingControl;
 use crate::error::ServerError;
 use crate::sync::MostlyRLock;
@@ -146,7 +148,7 @@ pub(crate) struct PoolConfig {
     pub(crate) routing_context: Option<HashMap<String, ValueSend>>,
     pub(crate) tls_config: Option<Arc<ClientConfig>>,
     pub(crate) user_agent: String,
-    pub(crate) auth: HashMap<String, ValueSend>,
+    pub(crate) auth: AuthConfig,
     pub(crate) max_connection_pool_size: usize,
     pub(crate) connection_timeout: Option<Duration>,
     pub(crate) connection_acquisition_timeout: Option<Duration>,
@@ -548,10 +550,12 @@ impl RoutingPool {
     ) -> Result<RoutingTable> {
         let rt = Arc::new(AtomicRefCell::new(None));
         con.route(
-            self.config.routing_context.as_ref().unwrap(),
-            args.bookmarks.as_deref(),
-            args.db.as_deref(),
-            args.imp_user.as_deref(),
+            RouteParameters::new(
+                self.config.routing_context.as_ref().unwrap(),
+                args.bookmarks.as_deref(),
+                args.db.as_deref(),
+                args.imp_user.as_deref(),
+            ),
             ResponseCallbacks::new().with_on_success({
                 let rt = Arc::clone(&rt);
                 move |meta| {

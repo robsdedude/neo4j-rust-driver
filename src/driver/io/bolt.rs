@@ -16,6 +16,7 @@
 mod bolt_common;
 mod bolt4x4;
 mod bolt5x0;
+mod bolt5x1;
 mod bolt_state;
 mod chunk;
 mod message;
@@ -46,10 +47,14 @@ use crate::error::ServerError;
 use crate::{Address, Neo4jError, Result, ValueReceive, ValueSend};
 use bolt4x4::{Bolt4x4, Bolt4x4StructTranslator};
 use bolt5x0::{Bolt5x0, Bolt5x0StructTranslator};
+use bolt5x1::{Bolt5x1, Bolt5x1StructTranslator};
 use bolt_state::{BoltState, BoltStateTracker};
 use chunk::{Chunker, Dechunker};
 use message::BoltMessage;
-use message_parameters::RunParameters;
+use message_parameters::{
+    BeginParameters, CommitParameters, DiscardParameters, GoodbyeParameters, HelloParameters,
+    PullParameters, ReauthParameters, RollbackParameters, RouteParameters, RunParameters,
+};
 use packstream::PackStreamSerializer;
 pub(crate) use response::{
     BoltMeta, BoltRecordFields, BoltResponse, ResponseCallbacks, ResponseMessage,
@@ -123,6 +128,8 @@ macro_rules! socket_debug {
         );
     };
 }
+use crate::driver::auth::AuthToken;
+use crate::driver::io::bolt::message_parameters::ResetParameters;
 pub(crate) use socket_debug;
 
 fn dbg_extra(port: Option<u16>, bolt_id: Option<&str>) -> String {
@@ -154,6 +161,7 @@ impl<RW: Read + Write> Bolt<RW> {
         Self {
             data: BoltData::new(version, stream, socket, local_port, address),
             protocol: match version {
+                (5, 1) => Bolt5x1::<Bolt5x1StructTranslator>::default().into(),
                 (5, 0) => Bolt5x0::<Bolt5x0StructTranslator>::default().into(),
                 (4, 4) => Bolt4x4::<Bolt4x4StructTranslator>::default().into(),
                 _ => panic!("implement protocol for version {:?}", version),
@@ -181,22 +189,31 @@ impl<RW: Read + Write> Bolt<RW> {
         Arc::clone(self.data.server_agent.deref().borrow().deref())
     }
 
-    pub(crate) fn hello(
-        &mut self,
-        user_agent: &str,
-        auth: &HashMap<String, ValueSend>,
-        routing_context: Option<&HashMap<String, ValueSend>>,
-    ) -> Result<()> {
-        self.protocol
-            .hello(&mut self.data, user_agent, auth, routing_context)
+    pub(crate) fn hello(&mut self, parameters: HelloParameters) -> Result<()> {
+        self.protocol.hello(&mut self.data, parameters)
+    }
+
+    pub(crate) fn reauth(&mut self, parameters: ReauthParameters) -> Result<()> {
+        self.protocol.reauth(&mut self.data, parameters)
+    }
+
+    pub(crate) fn supports_reauth(&self) -> bool {
+        self.protocol.supports_reauth()
+    }
+
+    pub(crate) fn needs_reauth(&self, parameters: ReauthParameters) -> bool {
+        self.data.needs_reauth(parameters)
     }
 
     pub(crate) fn goodbye(&mut self) -> Result<()> {
-        self.protocol.goodbye(&mut self.data)
+        self.protocol
+            .goodbye(&mut self.data, GoodbyeParameters::new())
     }
+
     pub(crate) fn reset(&mut self) -> Result<()> {
-        self.protocol.reset(&mut self.data)
+        self.protocol.reset(&mut self.data, ResetParameters::new())
     }
+
     pub(crate) fn run<KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
         &mut self,
         parameters: RunParameters<KP, KM>,
@@ -204,53 +221,46 @@ impl<RW: Read + Write> Bolt<RW> {
     ) -> Result<()> {
         self.protocol.run(&mut self.data, parameters, callbacks)
     }
-    pub(crate) fn discard(&mut self, n: i64, qid: i64, callbacks: ResponseCallbacks) -> Result<()> {
-        self.protocol.discard(&mut self.data, n, qid, callbacks)
-    }
-    pub(crate) fn pull(&mut self, n: i64, qid: i64, callbacks: ResponseCallbacks) -> Result<()> {
-        self.protocol.pull(&mut self.data, n, qid, callbacks)
-    }
-    pub(crate) fn begin<K: Borrow<str> + Debug>(
+
+    pub(crate) fn discard(
         &mut self,
-        bookmarks: Option<&[String]>,
-        tx_timeout: Option<i64>,
-        tx_metadata: Option<&HashMap<K, ValueSend>>,
-        mode: Option<&str>,
-        db: Option<&str>,
-        imp_user: Option<&str>,
-    ) -> Result<()> {
-        self.protocol.begin(
-            &mut self.data,
-            bookmarks,
-            tx_timeout,
-            tx_metadata,
-            mode,
-            db,
-            imp_user,
-        )
-    }
-    pub(crate) fn commit(&mut self, callbacks: ResponseCallbacks) -> Result<()> {
-        self.protocol.commit(&mut self.data, callbacks)
-    }
-    pub(crate) fn rollback(&mut self) -> Result<()> {
-        self.protocol.rollback(&mut self.data)
-    }
-    pub(crate) fn route(
-        &mut self,
-        routing_context: &HashMap<String, ValueSend>,
-        bookmarks: Option<&[String]>,
-        db: Option<&str>,
-        imp_user: Option<&str>,
+        parameters: DiscardParameters,
         callbacks: ResponseCallbacks,
     ) -> Result<()> {
-        self.protocol.route(
-            &mut self.data,
-            routing_context,
-            bookmarks,
-            db,
-            imp_user,
-            callbacks,
-        )
+        self.protocol.discard(&mut self.data, parameters, callbacks)
+    }
+
+    pub(crate) fn pull(
+        &mut self,
+        parameters: PullParameters,
+        callbacks: ResponseCallbacks,
+    ) -> Result<()> {
+        self.protocol.pull(&mut self.data, parameters, callbacks)
+    }
+
+    pub(crate) fn begin<K: Borrow<str> + Debug>(
+        &mut self,
+        parameters: BeginParameters<K>,
+    ) -> Result<()> {
+        self.protocol.begin(&mut self.data, parameters)
+    }
+
+    pub(crate) fn commit(&mut self, callbacks: ResponseCallbacks) -> Result<()> {
+        self.protocol
+            .commit(&mut self.data, CommitParameters::new(), callbacks)
+    }
+
+    pub(crate) fn rollback(&mut self) -> Result<()> {
+        self.protocol
+            .rollback(&mut self.data, RollbackParameters::new())
+    }
+
+    pub(crate) fn route(
+        &mut self,
+        parameters: RouteParameters,
+        callbacks: ResponseCallbacks,
+    ) -> Result<()> {
+        self.protocol.route(&mut self.data, parameters, callbacks)
     }
 
     pub(crate) fn read_all(
@@ -324,12 +334,24 @@ trait BoltProtocol: Debug {
     fn hello<RW: Read + Write>(
         &mut self,
         data: &mut BoltData<RW>,
-        user_agent: &str,
-        auth: &HashMap<String, ValueSend>,
-        routing_context: Option<&HashMap<String, ValueSend>>,
+        parameters: HelloParameters,
     ) -> Result<()>;
-    fn goodbye<RW: Read + Write>(&mut self, data: &mut BoltData<RW>) -> Result<()>;
-    fn reset<RW: Read + Write>(&mut self, data: &mut BoltData<RW>) -> Result<()>;
+    fn reauth<RW: Read + Write>(
+        &mut self,
+        data: &mut BoltData<RW>,
+        parameters: ReauthParameters,
+    ) -> Result<()>;
+    fn supports_reauth(&self) -> bool;
+    fn goodbye<RW: Read + Write>(
+        &mut self,
+        data: &mut BoltData<RW>,
+        parameters: GoodbyeParameters,
+    ) -> Result<()>;
+    fn reset<RW: Read + Write>(
+        &mut self,
+        data: &mut BoltData<RW>,
+        parameters: ResetParameters,
+    ) -> Result<()>;
     fn run<RW: Read + Write, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
         &mut self,
         data: &mut BoltData<RW>,
@@ -339,41 +361,36 @@ trait BoltProtocol: Debug {
     fn discard<RW: Read + Write>(
         &mut self,
         data: &mut BoltData<RW>,
-        n: i64,
-        qid: i64,
+        parameters: DiscardParameters,
         callbacks: ResponseCallbacks,
     ) -> Result<()>;
     fn pull<RW: Read + Write>(
         &mut self,
         data: &mut BoltData<RW>,
-        n: i64,
-        qid: i64,
+        parameters: PullParameters,
         callbacks: ResponseCallbacks,
     ) -> Result<()>;
     #[allow(clippy::too_many_arguments)]
     fn begin<RW: Read + Write, K: Borrow<str> + Debug>(
         &mut self,
         data: &mut BoltData<RW>,
-        bookmarks: Option<&[String]>,
-        tx_timeout: Option<i64>,
-        tx_metadata: Option<&HashMap<K, ValueSend>>,
-        mode: Option<&str>,
-        db: Option<&str>,
-        imp_user: Option<&str>,
+        parameters: BeginParameters<K>,
     ) -> Result<()>;
     fn commit<RW: Read + Write>(
         &mut self,
         data: &mut BoltData<RW>,
+        parameters: CommitParameters,
         callbacks: ResponseCallbacks,
     ) -> Result<()>;
-    fn rollback<RW: Read + Write>(&mut self, data: &mut BoltData<RW>) -> Result<()>;
+    fn rollback<RW: Read + Write>(
+        &mut self,
+        data: &mut BoltData<RW>,
+        parameters: RollbackParameters,
+    ) -> Result<()>;
     fn route<RW: Read + Write>(
         &mut self,
         data: &mut BoltData<RW>,
-        routing_context: &HashMap<String, ValueSend>,
-        bookmarks: Option<&[String]>,
-        db: Option<&str>,
-        imp_user: Option<&str>,
+        parameters: RouteParameters,
         callbacks: ResponseCallbacks,
     ) -> Result<()>;
 
@@ -391,6 +408,7 @@ trait BoltProtocol: Debug {
 enum BoltProtocolVersion {
     V4x4(Bolt4x4<Bolt4x4StructTranslator>),
     V5x0(Bolt5x0<Bolt5x0StructTranslator>),
+    V5x1(Bolt5x1<Bolt5x1StructTranslator>),
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -414,6 +432,7 @@ struct BoltData<RW: Read + Write> {
     address: Arc<Address>,
     address_str: String,
     last_qid: Arc<AtomicRefCell<Option<i64>>>,
+    auth: Option<Arc<AuthToken>>,
 }
 
 impl<RW: Read + Write> BoltData<RW> {
@@ -439,6 +458,7 @@ impl<RW: Read + Write> BoltData<RW> {
             address,
             address_str,
             last_qid: Default::default(),
+            auth: None,
         }
     }
 
@@ -580,6 +600,13 @@ impl<RW: Read + Write> BoltData<RW> {
         }
         !(self.bolt_state.state() == BoltState::Ready && self.responses.is_empty())
     }
+
+    fn needs_reauth(&self, parameters: ReauthParameters) -> bool {
+        self.auth
+            .as_ref()
+            .map(|auth| auth.eq_data(parameters.auth))
+            .unwrap_or(true)
+    }
 }
 
 impl<RW: Read + Write> Debug for BoltData<RW> {
@@ -650,7 +677,7 @@ fn assert_response_field_count<T>(name: &str, fields: &[T], expected_count: usiz
 
 const BOLT_MAGIC_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
 const BOLT_VERSION_OFFER: [u8; 16] = [
-    0, 0, 0, 5, // BOLT 5.0
+    0, 1, 1, 5, // BOLT 5.1 - 5.0
     0, 0, 4, 4, // BOLT 4.4
     0, 0, 0, 0, // -
     0, 0, 0, 0, // -
@@ -728,6 +755,7 @@ pub(crate) fn open(
         [0, 0, 0, 0] => Err(Neo4jError::InvalidConfig {
             message: String::from("Server version not supported."),
         }),
+        [0, 0, 1, 5] => Ok((5, 1)),
         [0, 0, 0, 5] => Ok((5, 0)),
         [0, 0, 4, 4] => Ok((4, 4)),
         [72, 84, 84, 80] => {

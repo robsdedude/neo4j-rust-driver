@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
 
-use super::io::bolt::message_parameters::RunParameters;
+use super::io::bolt::message_parameters::{BeginParameters, RunParameters};
 use super::io::bolt::ResponseCallbacks;
 use super::io::PooledBolt;
 use super::record_stream::{GetSingleRecordError, RecordStream, SharedErrorPropagator};
@@ -154,7 +154,14 @@ impl<'driver> InnerTransaction<'driver> {
         } else {
             Some(tx_metadata)
         };
-        cx.begin(bookmarks, tx_timeout, tx_metadata, mode, db, imp_user)?;
+        cx.begin(BeginParameters::new(
+            bookmarks,
+            tx_timeout,
+            tx_metadata,
+            mode,
+            db,
+            imp_user,
+        ))?;
         cx.write_all(None)?;
         cx.read_all(None)
     }

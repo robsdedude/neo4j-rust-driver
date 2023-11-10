@@ -33,6 +33,10 @@ use io::{AcquireConfig, Pool, PoolConfig, UpdateRtArgs};
 pub use record::Record;
 use session::{Session, SessionConfig};
 
+pub mod auth {
+    pub use super::config::auth::*;
+}
+
 #[derive(Debug)]
 pub struct Driver {
     pub(crate) config: ReducedDriverConfig,

@@ -21,8 +21,10 @@ use std::time::Instant;
 use parking_lot::lock_api::MutexGuard;
 use parking_lot::{Condvar, Mutex, RawMutex};
 
+use super::super::bolt::message_parameters::{HelloParameters, ReauthParameters};
 use super::super::bolt::{self, TcpBolt};
 use super::PoolConfig;
+use crate::driver::config::AuthConfig;
 use crate::{Address, Neo4jError, Result};
 
 type PoolElement = TcpBolt;
@@ -71,11 +73,21 @@ impl InnerPool {
         let address = Arc::clone(&self.address);
         let mut connection = self.open_socket(address, deadline)?;
 
-        connection.hello(
+        let (static_auth, managed_auth) = match &self.config.auth {
+            AuthConfig::Static(auth) => (Some(auth), None),
+            AuthConfig::Manager(manager) => (None, Some(manager.get_auth())),
+        };
+
+        let auth = managed_auth.as_ref().unwrap_or(static_auth.unwrap());
+
+        connection.hello(HelloParameters::new(
             self.config.user_agent.as_str(),
-            &self.config.auth,
+            auth,
             self.config.routing_context.as_ref(),
-        )?;
+        ))?;
+        if connection.supports_reauth() {
+            connection.reauth(ReauthParameters::new(auth))?;
+        }
         connection.write_all(deadline)?;
         connection.read_all(deadline, None)?;
         Ok(connection)

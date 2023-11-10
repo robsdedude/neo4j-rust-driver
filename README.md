@@ -14,18 +14,18 @@ Feature Progress:
  * [ ] Driver
    * [ ] Config
      * [x] `user_agent`
-     * [ ] `auth`
+     * [x] `auth`
        * [x] basic
-       * [ ] kerberos
-       * [ ] bearer
-       * [ ] custom
+       * [x] kerberos
+       * [x] bearer
+       * [x] custom
      * [x] `max_connection_pool_size`
      * [x] `fetch_size`
      * [x] `connection_timeout`
      * [x] `connection_acquisition_timeout`
      * [x] `resolver`
      * [x] routing and direct connections
-     * [ ] `keep_alive`
+     * [ ] `keep_alive` (not supported by `std` https://github.com/rust-lang/rust/issues/69774)
      * [x] `TLS`
    * [x] `.session`
    * [x] `.supports_multi_db`

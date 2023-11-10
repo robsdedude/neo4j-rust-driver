@@ -39,7 +39,7 @@ const TAG_LEGACY_DATE_TIME_ZONE_ID: u8 = b'f';
 #[derive(Debug, Default)]
 pub(crate) struct Bolt4x4StructTranslator {
     utc_patch: bool,
-    bolt5x5_translator: Bolt5x0StructTranslator,
+    bolt5x0_translator: Bolt5x0StructTranslator,
 }
 
 impl BoltStructTranslator for Bolt4x4StructTranslator {
@@ -49,7 +49,7 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
         value: &ValueSend,
     ) -> Result<(), S::Error> {
         if self.utc_patch {
-            return self.bolt5x5_translator.serialize(serializer, value);
+            return self.bolt5x0_translator.serialize(serializer, value);
         }
         match value {
             ValueSend::DateTime(dt) => {
@@ -86,7 +86,7 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                 serializer.write_int(offset)?;
                 Ok(())
             }
-            _ => self.bolt5x5_translator.serialize(serializer, value),
+            _ => self.bolt5x0_translator.serialize(serializer, value),
         }
     }
 
@@ -307,7 +307,7 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                 };
                 ValueReceive::DateTime(dt)
             }
-            _ => self.bolt5x5_translator.deserialize_struct(tag, fields),
+            _ => self.bolt5x0_translator.deserialize_struct(tag, fields),
         }
     }
 }

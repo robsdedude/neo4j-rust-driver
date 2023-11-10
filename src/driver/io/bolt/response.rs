@@ -20,6 +20,8 @@ use std::collections::HashMap;
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub(crate) enum ResponseMessage {
     Hello,
+    Logon,
+    Logoff,
     Reset,
     Run,
     Discard,

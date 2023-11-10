@@ -17,13 +17,18 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::mem;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use log::{debug, log_enabled, warn, Level};
 use usize_cast::FromUsize;
 
+use super::super::bolt_common::{unsupported_protocol_feature_error, ServerAwareBoltVersion};
 use super::super::message::BoltMessage;
-use super::super::message_parameters::RunParameters;
+use super::super::message_parameters::{
+    BeginParameters, CommitParameters, DiscardParameters, GoodbyeParameters, HelloParameters,
+    PullParameters, ReauthParameters, RollbackParameters, RouteParameters, RunParameters,
+};
 use super::super::packstream::{
     PackStreamDeserializer, PackStreamDeserializerImpl, PackStreamSerializer,
     PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
@@ -33,6 +38,7 @@ use super::super::{
     debug_buf_start, BoltData, BoltProtocol, BoltResponse, BoltStructTranslator, ConnectionState,
     OnServerErrorCb, ResponseCallbacks, ResponseMessage,
 };
+use crate::driver::io::bolt::message_parameters::ResetParameters;
 use crate::error::ServerError;
 use crate::{Neo4jError, Result, ValueReceive, ValueSend};
 
@@ -46,6 +52,9 @@ pub(crate) struct Bolt5x0<T: BoltStructTranslator> {
 impl<T: BoltStructTranslator> Bolt5x0<T> {
     pub(crate) fn new(translator: T) -> Self {
         Bolt5x0 { translator }
+    }
+    pub(super) fn translator(&self) -> &T {
+        &self.translator
     }
 }
 
@@ -109,10 +118,13 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
     fn hello<RW: Read + Write>(
         &mut self,
         data: &mut BoltData<RW>,
-        user_agent: &str,
-        auth: &HashMap<String, ValueSend>,
-        routing_context: Option<&HashMap<String, ValueSend>>,
+        parameters: HelloParameters,
     ) -> Result<()> {
+        let HelloParameters {
+            user_agent,
+            auth,
+            routing_context,
+        } = parameters;
         debug_buf_start!(log_buf);
         debug_buf!(log_buf, "C: HELLO");
         let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
@@ -120,8 +132,9 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(0x01, 1)?;
 
-        let extra_size =
-            1 + <bool as Into<u64>>::into(routing_context.is_some()) + u64::from_usize(auth.len());
+        let extra_size = 1
+            + <bool as Into<u64>>::into(routing_context.is_some())
+            + u64::from_usize(auth.data.len());
         serializer.write_dict_header(extra_size)?;
         serializer.write_string("user_agent")?;
         serializer.write_string(user_agent)?;
@@ -147,7 +160,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
             });
         }
 
-        for (k, v) in auth {
+        for (k, v) in &auth.data {
             serializer.write_string(k)?;
             data.serialize_value(&mut serializer, &self.translator, v)?;
             debug_buf!(log_buf, "{}", {
@@ -161,6 +174,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
                 dbg_serializer.flush()
             });
         }
+        data.auth = Some(Arc::clone(auth));
 
         data.message_buff.push_back(vec![message_buff]);
         debug_buf_end!(data, log_buf);
@@ -188,7 +202,29 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         Ok(())
     }
 
-    fn goodbye<RW: Read + Write>(&mut self, data: &mut BoltData<RW>) -> Result<()> {
+    #[inline]
+    fn reauth<RW: Read + Write>(
+        &mut self,
+        _: &mut BoltData<RW>,
+        _: ReauthParameters,
+    ) -> Result<()> {
+        Err(unsupported_protocol_feature_error(
+            "session authentication",
+            ServerAwareBoltVersion::V5x0,
+            ServerAwareBoltVersion::V5x1,
+        ))
+    }
+
+    #[inline]
+    fn supports_reauth(&self) -> bool {
+        false
+    }
+
+    fn goodbye<RW: Read + Write>(
+        &mut self,
+        data: &mut BoltData<RW>,
+        _: GoodbyeParameters,
+    ) -> Result<()> {
         let mut message_buff = Vec::new();
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(0x02, 0)?;
@@ -198,7 +234,11 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         Ok(())
     }
 
-    fn reset<RW: Read + Write>(&mut self, data: &mut BoltData<RW>) -> Result<()> {
+    fn reset<RW: Read + Write>(
+        &mut self,
+        data: &mut BoltData<RW>,
+        _: ResetParameters,
+    ) -> Result<()> {
         let mut message_buff = Vec::new();
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(0x0F, 0)?;
@@ -371,10 +411,10 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
     fn discard<RW: Read + Write>(
         &mut self,
         data: &mut BoltData<RW>,
-        n: i64,
-        qid: i64,
+        parameters: DiscardParameters,
         callbacks: ResponseCallbacks,
     ) -> Result<()> {
+        let DiscardParameters { n, qid } = parameters;
         self.pull_or_discard(
             data,
             n,
@@ -391,10 +431,10 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
     fn pull<RW: Read + Write>(
         &mut self,
         data: &mut BoltData<RW>,
-        n: i64,
-        qid: i64,
+        parameters: PullParameters,
         callbacks: ResponseCallbacks,
     ) -> Result<()> {
+        let PullParameters { n, qid } = parameters;
         self.pull_or_discard(
             data,
             n,
@@ -411,13 +451,16 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
     fn begin<RW: Read + Write, K: Borrow<str> + Debug>(
         &mut self,
         data: &mut BoltData<RW>,
-        bookmarks: Option<&[String]>,
-        tx_timeout: Option<i64>,
-        tx_metadata: Option<&HashMap<K, ValueSend>>,
-        mode: Option<&str>,
-        db: Option<&str>,
-        imp_user: Option<&str>,
+        parameters: BeginParameters<K>,
     ) -> Result<()> {
+        let BeginParameters {
+            bookmarks,
+            tx_timeout,
+            tx_metadata,
+            mode,
+            db,
+            imp_user,
+        } = parameters;
         debug_buf_start!(log_buf);
         debug_buf!(log_buf, "C: BEGIN");
         let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
@@ -519,6 +562,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
     fn commit<RW: Read + Write>(
         &mut self,
         data: &mut BoltData<RW>,
+        _: CommitParameters,
         callbacks: ResponseCallbacks,
     ) -> Result<()> {
         let mut message_buff = Vec::new();
@@ -532,7 +576,11 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         Ok(())
     }
 
-    fn rollback<RW: Read + Write>(&mut self, data: &mut BoltData<RW>) -> Result<()> {
+    fn rollback<RW: Read + Write>(
+        &mut self,
+        data: &mut BoltData<RW>,
+        _: RollbackParameters,
+    ) -> Result<()> {
         let mut message_buff = Vec::new();
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(0x13, 0)?;
@@ -547,12 +595,15 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
     fn route<RW: Read + Write>(
         &mut self,
         data: &mut BoltData<RW>,
-        routing_context: &HashMap<String, ValueSend>,
-        bookmarks: Option<&[String]>,
-        db: Option<&str>,
-        imp_user: Option<&str>,
+        parameters: RouteParameters,
         callbacks: ResponseCallbacks,
     ) -> Result<()> {
+        let RouteParameters {
+            routing_context,
+            bookmarks,
+            db,
+            imp_user,
+        } = parameters;
         debug_buf_start!(log_buf);
         debug_buf!(log_buf, "C: ROUTE");
         let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
