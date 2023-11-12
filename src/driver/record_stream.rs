@@ -83,14 +83,9 @@ impl<'driver> RecordStream<'driver> {
             Ok(())
         });
 
-        if self.auto_commit {
-            assert!(!self.connection.borrow_mut().has_buffered_message());
-            assert!(!self.connection.borrow_mut().expects_reply());
-        }
-
         let mut res = self.connection.borrow_mut().run(parameters, callbacks);
         if self.auto_commit {
-            res = res.and_then(|_| self.connection.borrow_mut().write_one(None));
+            res = res.and_then(|_| self.connection.borrow_mut().write_all(None));
             res = match res.and_then(|_| self.pull(true)) {
                 Err(e) => {
                     let mut listener = self.listener.borrow_mut();

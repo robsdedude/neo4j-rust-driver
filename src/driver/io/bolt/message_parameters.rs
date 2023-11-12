@@ -44,11 +44,12 @@ impl<'a> HelloParameters<'a> {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ReauthParameters<'a> {
     pub(super) auth: &'a Arc<AuthToken>,
+    pub(super) session_auth: bool,
 }
 
 impl<'a> ReauthParameters<'a> {
-    pub(crate) fn new(auth: &'a Arc<AuthToken>) -> Self {
-        Self { auth }
+    pub(crate) fn new(auth: &'a Arc<AuthToken>, session_auth: bool) -> Self {
+        Self { auth, session_auth }
     }
 }
 

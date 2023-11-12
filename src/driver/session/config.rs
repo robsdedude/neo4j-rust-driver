@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::driver::config::auth::AuthToken;
 use crate::driver::config::ConfigureFetchSizeError;
 use crate::driver::session::Bookmarks;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Default)]
 pub struct SessionConfig {
@@ -21,6 +23,7 @@ pub struct SessionConfig {
     pub(crate) bookmarks: Option<Vec<String>>,
     pub(crate) impersonated_user: Option<String>,
     pub(crate) fetch_size: Option<i64>,
+    pub(crate) auth: Option<Arc<AuthToken>>,
 }
 
 impl SessionConfig {
@@ -28,36 +31,43 @@ impl SessionConfig {
         Self::default()
     }
 
+    #[inline]
     pub fn with_database(mut self, database: String) -> Self {
         self.database = Some(database);
         self
     }
 
+    #[inline]
     pub fn with_default_database(mut self) -> Self {
         self.database = None;
         self
     }
 
+    #[inline]
     pub fn with_bookmarks(mut self, bookmarks: Bookmarks) -> Self {
         self.bookmarks = Some(bookmarks.into_raw().collect());
         self
     }
 
+    #[inline]
     pub fn without_bookmarks(mut self) -> Self {
         self.bookmarks = None;
         self
     }
 
+    #[inline]
     pub fn with_impersonated_user(mut self, user: String) -> Self {
         self.impersonated_user = Some(user);
         self
     }
 
+    #[inline]
     pub fn without_impersonated_user(mut self) -> Self {
         self.impersonated_user = None;
         self
     }
 
+    #[inline]
     /// fetch_size must be <= i64::MAX
     pub fn with_fetch_size(
         mut self,
@@ -72,13 +82,27 @@ impl SessionConfig {
         }
     }
 
+    #[inline]
     pub fn with_fetch_all(mut self) -> Self {
         self.fetch_size = Some(-1);
         self
     }
 
+    #[inline]
     pub fn with_default_fetch_size(mut self) -> Self {
         self.fetch_size = None;
+        self
+    }
+
+    #[inline]
+    pub fn with_session_auth(mut self, auth: Arc<AuthToken>) -> Self {
+        self.auth = Some(auth);
+        self
+    }
+
+    #[inline]
+    pub fn without_session_auth(mut self) -> Self {
+        self.auth = None;
         self
     }
 }

@@ -13,35 +13,30 @@
 // limitations under the License.
 
 use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::mem;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use log::{debug, log_enabled, warn, Level};
 use usize_cast::FromUsize;
 
 use super::super::bolt5x0::Bolt5x0;
-use super::super::bolt_common::{unsupported_protocol_feature_error, ServerAwareBoltVersion};
 use super::super::message::BoltMessage;
 use super::super::message_parameters::{
     BeginParameters, CommitParameters, DiscardParameters, GoodbyeParameters, HelloParameters,
-    PullParameters, ReauthParameters, RollbackParameters, RouteParameters, RunParameters,
+    PullParameters, ReauthParameters, ResetParameters, RollbackParameters, RouteParameters,
+    RunParameters,
 };
 use super::super::packstream::{
-    PackStreamDeserializer, PackStreamDeserializerImpl, PackStreamSerializer,
-    PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
+    PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
 use super::super::{
-    assert_response_field_count, bolt_debug, bolt_debug_extra, dbg_extra, debug_buf, debug_buf_end,
-    debug_buf_start, BoltData, BoltProtocol, BoltResponse, BoltStructTranslator, ConnectionState,
-    OnServerErrorCb, ResponseCallbacks, ResponseMessage,
+    bolt_debug, bolt_debug_extra, dbg_extra, debug_buf, debug_buf_end, debug_buf_start, BoltData,
+    BoltProtocol, BoltResponse, BoltStructTranslator, OnServerErrorCb, ResponseCallbacks,
+    ResponseMessage,
 };
-use crate::driver::io::bolt::message_parameters::ResetParameters;
-use crate::error::ServerError;
-use crate::{Neo4jError, Result, ValueReceive, ValueSend};
+use crate::{Result, ValueReceive};
 
 const SERVER_AGENT_KEY: &str = "server";
 
@@ -57,7 +52,10 @@ impl<T: BoltStructTranslator> Bolt5x1<T> {
         data: &mut BoltData<RW>,
         parameters: ReauthParameters,
     ) -> Result<()> {
-        let ReauthParameters { auth } = parameters;
+        let ReauthParameters {
+            auth,
+            session_auth: _,
+        } = parameters;
 
         data.auth = Some(Arc::clone(auth));
         let auth = data
@@ -296,7 +294,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x1<T> {
         &mut self,
         bolt_data: &mut BoltData<RW>,
         message: BoltMessage<ValueReceive>,
-        on_server_error: OnServerErrorCb,
+        on_server_error: OnServerErrorCb<RW>,
     ) -> Result<()> {
         self.bolt5x0
             .handle_response(bolt_data, message, on_server_error)

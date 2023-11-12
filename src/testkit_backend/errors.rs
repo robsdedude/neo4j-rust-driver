@@ -32,6 +32,7 @@ pub(super) enum TestKitError {
         msg: String,
         code: Option<String>,
         id: Option<BackendId>,
+        retryable: bool,
     },
     FrontendError {
         msg: String,
@@ -52,6 +53,7 @@ impl Display for TestKitError {
 
 impl From<Neo4jError> for TestKitError {
     fn from(err: Neo4jError) -> Self {
+        let retryable = err.is_retryable();
         match err {
             Neo4jError::Disconnect {
                 message,
@@ -69,24 +71,28 @@ impl From<Neo4jError> for TestKitError {
                 },
                 code: None,
                 id: None,
+                retryable,
             },
             Neo4jError::InvalidConfig { message } => TestKitError::DriverError {
                 error_type: String::from("ConfigError"),
                 msg: message,
                 code: None,
                 id: None,
+                retryable,
             },
             Neo4jError::ServerError { error } => TestKitError::DriverError {
                 error_type: String::from("ServerError"),
                 msg: String::from(error.message()),
                 code: Some(String::from(error.code())),
                 id: None,
+                retryable,
             },
             Neo4jError::Timeout { message } => TestKitError::DriverError {
                 error_type: String::from("TimeoutError"),
                 msg: message,
                 code: None,
                 id: None,
+                retryable,
             },
             Neo4jError::UserCallback { error } => error.into(),
             Neo4jError::ProtocolError { message } => TestKitError::DriverError {
@@ -94,6 +100,7 @@ impl From<Neo4jError> for TestKitError {
                 msg: message,
                 code: None,
                 id: None,
+                retryable,
             },
         }
     }
@@ -108,6 +115,12 @@ impl From<UserCallbackError> for TestKitError {
                     msg: format!("unexpected resolver error: {}", err),
                 },
             },
+            UserCallbackError::AuthManagerError(err) => match err.downcast::<Self>() {
+                Ok(err) => *err,
+                Err(err) => TestKitError::BackendError {
+                    msg: format!("unexpected auth manager error: {}", err),
+                },
+            },
         }
     }
 }
@@ -119,6 +132,12 @@ impl From<&UserCallbackError> for TestKitError {
                 Some(err) => err.clone(),
                 None => TestKitError::BackendError {
                     msg: format!("unexpected resolver error: {}", err),
+                },
+            },
+            UserCallbackError::AuthManagerError(err) => match err.downcast_ref::<Self>() {
+                Some(err) => err.clone(),
+                None => TestKitError::BackendError {
+                    msg: format!("unexpected auth manager error: {}", err),
                 },
             },
         }
@@ -151,6 +170,7 @@ impl From<BrokenValueError> for TestKitError {
             msg: format!("{v}"),
             code: None,
             id: None,
+            retryable: false,
         }
     }
 }
@@ -162,6 +182,7 @@ impl<Builder> From<ConfigureFetchSizeError<Builder>> for TestKitError {
             msg: format!("{e}"),
             code: None,
             id: None,
+            retryable: false,
         }
     }
 }
@@ -173,6 +194,7 @@ impl<Builder> From<ConfigureTimeoutError<Builder>> for TestKitError {
             msg: format!("{e}"),
             code: None,
             id: None,
+            retryable: false,
         }
     }
 }
@@ -184,6 +206,7 @@ impl From<ConnectionConfigParseError> for TestKitError {
             msg: format!("{e}"),
             code: None,
             id: None,
+            retryable: false,
         }
     }
 }
@@ -195,6 +218,7 @@ impl From<TlsConfigError> for TestKitError {
             msg: format!("{e}"),
             code: None,
             id: None,
+            retryable: false,
         }
     }
 }
@@ -208,6 +232,7 @@ impl From<RetryableError> for TestKitError {
                 msg: format!("{e}"),
                 code: None,
                 id: None,
+                retryable: false,
             },
         }
     }
@@ -263,6 +288,7 @@ impl TestKitError {
     }
 
     pub(super) fn clone_neo4j_error(e: &Neo4jError) -> Self {
+        let retryable = e.is_retryable();
         match e {
             Neo4jError::Disconnect {
                 message,
@@ -280,24 +306,28 @@ impl TestKitError {
                 },
                 code: None,
                 id: None,
+                retryable,
             },
             Neo4jError::InvalidConfig { message } => TestKitError::DriverError {
                 error_type: String::from("ConfigError"),
                 msg: message.clone(),
                 code: None,
                 id: None,
+                retryable,
             },
             Neo4jError::ServerError { error } => TestKitError::DriverError {
                 error_type: String::from("ServerError"),
                 msg: String::from(error.message()),
                 code: Some(String::from(error.code())),
                 id: None,
+                retryable,
             },
             Neo4jError::Timeout { message } => TestKitError::DriverError {
                 error_type: String::from("TimeoutError"),
                 msg: message.clone(),
                 code: None,
                 id: None,
+                retryable,
             },
             Neo4jError::UserCallback { error } => error.into(),
             Neo4jError::ProtocolError { message } => TestKitError::DriverError {
@@ -305,6 +335,7 @@ impl TestKitError {
                 msg: message.clone(),
                 code: None,
                 id: None,
+                retryable,
             },
         }
     }

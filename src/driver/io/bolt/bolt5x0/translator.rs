@@ -447,7 +447,7 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                 let mut nanoseconds = as_int!(fields.pop_front().unwrap(), "DateTime nanoseconds");
                 let tz_offset = as_int!(fields.pop_front().unwrap(), "DateTime tz_offset");
                 if nanoseconds < 0 {
-                    return invalid_struct(format!("DateTime nanoseconds out of bounds"));
+                    return invalid_struct("DateTime nanoseconds out of bounds");
                 }
                 seconds = match seconds.checked_add(nanoseconds.div_euclid(1_000_000_000)) {
                     Some(s) => s,
@@ -481,7 +481,7 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                     as_int!(fields.pop_front().unwrap(), "DateTimeZoneId nanoseconds");
                 let tz_id = as_string!(fields.pop_front().unwrap(), "DateTimeZoneId tz_id");
                 if nanoseconds < 0 {
-                    return invalid_struct(format!("DateTimeZoneId nanoseconds out of bounds"));
+                    return invalid_struct("DateTimeZoneId nanoseconds out of bounds");
                 }
                 seconds = match seconds.checked_add(nanoseconds.div_euclid(1_000_000_000)) {
                     Some(s) => s,

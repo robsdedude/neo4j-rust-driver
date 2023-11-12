@@ -29,7 +29,7 @@ use uriparse::{Query, URIError, URI};
 use crate::address::AddressResolver;
 use crate::address_::DEFAULT_PORT;
 use crate::{Address, ValueSend};
-use auth::{AuthManager, AuthManagers, AuthToken};
+use auth::{AuthManager, AuthToken};
 
 const DEFAULT_USER_AGENT: &str = env!("NEO4J_DEFAULT_USER_AGENT");
 pub(crate) const DEFAULT_FETCH_SIZE: i64 = 1000;

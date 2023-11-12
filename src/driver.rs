@@ -29,7 +29,7 @@ use std::sync::Arc;
 
 use crate::Result;
 pub use eager_result::EagerResult;
-use io::{AcquireConfig, Pool, PoolConfig, UpdateRtArgs};
+use io::{AcquireConfig, Pool, PoolConfig, SessionAuth, UpdateRtArgs};
 pub use record::Record;
 use session::{Session, SessionConfig};
 
@@ -87,6 +87,7 @@ impl Driver {
                     db: &self.capability_check_db,
                     bookmarks: &None,
                     imp_user: &None,
+                    session_auth: SessionAuth::None,
                 },
             })
             .map(|connection| connection.protocol_version() >= (4, 0))

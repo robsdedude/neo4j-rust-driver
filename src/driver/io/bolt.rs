@@ -28,10 +28,12 @@ mod socket;
 use std::borrow::Borrow;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::ops::Deref;
 use std::result;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -132,7 +134,7 @@ use crate::driver::auth::AuthToken;
 use crate::driver::io::bolt::message_parameters::ResetParameters;
 pub(crate) use socket_debug;
 
-fn dbg_extra(port: Option<u16>, bolt_id: Option<&str>) -> String {
+pub(crate) fn dbg_extra(port: Option<u16>, bolt_id: Option<&str>) -> String {
     format!(
         "[#{:04X} {:<10}] ",
         port.unwrap_or(0),
@@ -142,7 +144,8 @@ fn dbg_extra(port: Option<u16>, bolt_id: Option<&str>) -> String {
 
 pub(crate) type TcpBolt = Bolt<Socket<BufTcpStream>>;
 
-pub(crate) type OnServerErrorCb<'a, 'b> = Option<&'a mut (dyn FnMut(&ServerError) + 'b)>;
+pub(crate) type OnServerErrorCb<'a, 'b, RW> =
+    Option<&'a mut (dyn FnMut(&mut BoltData<RW>, &mut ServerError) -> Result<()> + 'b)>;
 
 #[derive(Debug)]
 pub(crate) struct Bolt<RW: Read + Write> {
@@ -194,7 +197,10 @@ impl<RW: Read + Write> Bolt<RW> {
     }
 
     pub(crate) fn reauth(&mut self, parameters: ReauthParameters) -> Result<()> {
-        self.protocol.reauth(&mut self.data, parameters)
+        let res = self.protocol.reauth(&mut self.data, parameters);
+        self.data.session_auth = parameters.session_auth;
+        self.data.auth_reset.reset();
+        res
     }
 
     pub(crate) fn supports_reauth(&self) -> bool {
@@ -203,6 +209,15 @@ impl<RW: Read + Write> Bolt<RW> {
 
     pub(crate) fn needs_reauth(&self, parameters: ReauthParameters) -> bool {
         self.data.needs_reauth(parameters)
+    }
+
+    pub(crate) fn current_auth(&self) -> Option<Arc<AuthToken>> {
+        self.data.auth.as_ref().map(Arc::clone)
+    }
+
+    #[inline]
+    pub(crate) fn auth_reset_handler(&self) -> AuthResetHandle {
+        AuthResetHandle::clone(&self.data.auth_reset)
     }
 
     pub(crate) fn goodbye(&mut self) -> Result<()> {
@@ -266,7 +281,7 @@ impl<RW: Read + Write> Bolt<RW> {
     pub(crate) fn read_all(
         &mut self,
         deadline: Option<Instant>,
-        mut on_server_error: OnServerErrorCb,
+        mut on_server_error: OnServerErrorCb<RW>,
     ) -> Result<()> {
         let on_server_error_ref = &mut on_server_error;
         while self.expects_reply() {
@@ -278,7 +293,7 @@ impl<RW: Read + Write> Bolt<RW> {
     pub(crate) fn read_one(
         &mut self,
         deadline: Option<Instant>,
-        on_server_error: OnServerErrorCb,
+        on_server_error: OnServerErrorCb<RW>,
     ) -> Result<()> {
         let mut reader =
             DeadlineIO::new(&mut self.data.stream, deadline, self.data.socket.as_ref());
@@ -326,6 +341,27 @@ impl<RW: Read + Write> Bolt<RW> {
     }
     pub(crate) fn needs_reset(&self) -> bool {
         self.data.needs_reset()
+    }
+
+    #[inline(always)]
+    pub(crate) fn debug_log(&self, msg: impl FnOnce() -> String) {
+        bolt_debug!(self.data, "{}", msg());
+    }
+}
+
+impl<RW: Read + Write> Drop for Bolt<RW> {
+    fn drop(&mut self) {
+        if self.data.closed() {
+            return;
+        }
+        self.data.message_buff.clear();
+        self.data.responses.clear();
+        if self.goodbye().is_err() {
+            return;
+        }
+        let _ = self
+            .data
+            .write_all(Some(Instant::now() + Duration::from_millis(100)));
     }
 }
 
@@ -399,7 +435,7 @@ trait BoltProtocol: Debug {
         &mut self,
         data: &mut BoltData<RW>,
         message: BoltMessage<ValueReceive>,
-        on_server_error: OnServerErrorCb,
+        on_server_error: OnServerErrorCb<RW>,
     ) -> Result<()>;
 }
 
@@ -418,7 +454,7 @@ enum ConnectionState {
     Closed,
 }
 
-struct BoltData<RW: Read + Write> {
+pub(crate) struct BoltData<RW: Read + Write> {
     message_buff: VecDeque<Vec<Vec<u8>>>,
     responses: VecDeque<BoltResponse>,
     stream: RW,
@@ -433,6 +469,8 @@ struct BoltData<RW: Read + Write> {
     address_str: String,
     last_qid: Arc<AtomicRefCell<Option<i64>>>,
     auth: Option<Arc<AuthToken>>,
+    session_auth: bool,
+    auth_reset: AuthResetHandle,
 }
 
 impl<RW: Read + Write> BoltData<RW> {
@@ -459,7 +497,21 @@ impl<RW: Read + Write> BoltData<RW> {
             address_str,
             last_qid: Default::default(),
             auth: None,
+            session_auth: false,
+            auth_reset: Default::default(),
         }
+    }
+
+    pub(crate) fn address(&self) -> &Arc<Address> {
+        &self.address
+    }
+
+    pub(crate) fn auth(&self) -> Option<&Arc<AuthToken>> {
+        self.auth.as_ref()
+    }
+
+    pub(crate) fn session_auth(&self) -> bool {
+        self.session_auth
     }
 
     fn dbg_extra(&self) -> String {
@@ -602,10 +654,12 @@ impl<RW: Read + Write> BoltData<RW> {
     }
 
     fn needs_reauth(&self, parameters: ReauthParameters) -> bool {
-        self.auth
-            .as_ref()
-            .map(|auth| auth.eq_data(parameters.auth))
-            .unwrap_or(true)
+        self.auth_reset.marked_for_reset()
+            || self
+                .auth
+                .as_ref()
+                .map(|auth| !auth.eq_data(parameters.auth))
+                .unwrap_or(true)
     }
 }
 
@@ -618,19 +672,42 @@ impl<RW: Read + Write> Debug for BoltData<RW> {
     }
 }
 
-impl<RW: Read + Write> Drop for Bolt<RW> {
-    fn drop(&mut self) {
-        if self.data.closed() {
-            return;
-        }
-        self.data.message_buff.clear();
-        self.data.responses.clear();
-        if self.goodbye().is_err() {
-            return;
-        }
-        let _ = self
-            .data
-            .write_all(Some(Instant::now() + Duration::from_millis(100)));
+#[derive(Debug, Default)]
+pub(crate) struct AuthResetHandle(Arc<AtomicBool>);
+
+impl PartialEq for AuthResetHandle {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for AuthResetHandle {}
+
+impl Hash for AuthResetHandle {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::ptr::hash(&*self.0, state);
+    }
+}
+
+impl AuthResetHandle {
+    #[inline]
+    pub(crate) fn clone(handle: &Self) -> Self {
+        Self(Arc::clone(&handle.0))
+    }
+
+    #[inline]
+    pub(crate) fn mark_for_reset(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    #[inline]
+    fn reset(&self) {
+        self.0.store(false, Ordering::Release);
+    }
+
+    #[inline]
+    fn marked_for_reset(&self) -> bool {
+        self.0.load(Ordering::Acquire)
     }
 }
 

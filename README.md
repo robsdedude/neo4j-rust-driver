@@ -12,7 +12,7 @@ Disclaimer:
 Feature Progress:
  * [ ] Well-Written Docs and Examples (**IMPORTANT**)
  * [ ] Driver
-   * [ ] Config
+   * [x] Config
      * [x] `user_agent`
      * [x] `auth`
        * [x] basic
@@ -69,7 +69,7 @@ Feature Progress:
  * [ ] Protocol Versions
    * [x] 4.4
    * [x] 5.0 (utc fix)
-   * [ ] 5.1 (re-auth)
+   * [x] 5.1 (re-auth)
    * [ ] 5.2 (notification filtering)
    * [ ] 5.3 (bolt agent)
    * [ ] 5.4 (telemetry)

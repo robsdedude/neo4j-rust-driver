@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use log::info;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::Instant;
@@ -24,7 +24,9 @@ use parking_lot::{Condvar, Mutex, RawMutex};
 use super::super::bolt::message_parameters::{HelloParameters, ReauthParameters};
 use super::super::bolt::{self, TcpBolt};
 use super::PoolConfig;
+use crate::driver::config::auth::{AuthManagers, AuthToken};
 use crate::driver::config::AuthConfig;
+use crate::driver::io::bolt::AuthResetHandle;
 use crate::{Address, Neo4jError, Result};
 
 type PoolElement = TcpBolt;
@@ -42,15 +44,18 @@ struct InnerPoolSyncedData {
     raw_pool: VecDeque<PoolElement>,
     reservations: usize,
     borrowed: usize,
+    borrowed_auth_reset: HashSet<AuthResetHandle>,
 }
 
 impl InnerPool {
     fn new(address: Arc<Address>, config: Arc<PoolConfig>) -> Self {
         let raw_pool = VecDeque::with_capacity(config.max_connection_pool_size);
+        let borrowed_auth_reset = HashSet::with_capacity(config.max_connection_pool_size);
         let synced = Mutex::new(InnerPoolSyncedData {
             raw_pool,
             reservations: 0,
             borrowed: 0,
+            borrowed_auth_reset,
         });
         Self {
             address,
@@ -60,33 +65,63 @@ impl InnerPool {
         }
     }
 
-    fn acquire_new(&self, deadline: Option<Instant>) -> Result<PoolElement> {
-        let connection = self.open_new(deadline);
+    fn acquire_new(
+        &self,
+        deadline: Option<Instant>,
+        session_auth: SessionAuth,
+    ) -> Result<PoolElement> {
+        let connection = self.open_new(deadline, session_auth);
         let mut sync = self.synced.lock();
         sync.reservations -= 1;
         let connection = connection?;
         sync.borrowed += 1;
+        assert!(sync
+            .borrowed_auth_reset
+            .insert(connection.auth_reset_handler()));
         Ok(connection)
     }
 
-    fn open_new(&self, deadline: Option<Instant>) -> Result<PoolElement> {
+    fn open_new(
+        &self,
+        deadline: Option<Instant>,
+        session_auth: SessionAuth,
+    ) -> Result<PoolElement> {
+        enum Container<'a, T> {
+            Owned(T),
+            Borrowed(&'a T),
+        }
+
+        impl<'a, T> AsRef<T> for Container<'a, T> {
+            fn as_ref(&self) -> &T {
+                match self {
+                    Container::Owned(t) => t,
+                    Container::Borrowed(t) => t,
+                }
+            }
+        }
+
+        let auth = match session_auth {
+            SessionAuth::None => match &self.config.auth {
+                AuthConfig::Static(auth) => Container::Borrowed(auth),
+                AuthConfig::Manager(manager) => {
+                    Container::Owned(AuthManagers::get_auth(manager.as_ref())?)
+                }
+            },
+            SessionAuth::Reauth(auth) => Container::Borrowed(auth),
+            SessionAuth::Forced(auth) => Container::Borrowed(auth),
+        };
+
         let address = Arc::clone(&self.address);
         let mut connection = self.open_socket(address, deadline)?;
 
-        let (static_auth, managed_auth) = match &self.config.auth {
-            AuthConfig::Static(auth) => (Some(auth), None),
-            AuthConfig::Manager(manager) => (None, Some(manager.get_auth())),
-        };
-
-        let auth = managed_auth.as_ref().unwrap_or(static_auth.unwrap());
-
         connection.hello(HelloParameters::new(
             self.config.user_agent.as_str(),
-            auth,
+            auth.as_ref(),
             self.config.routing_context.as_ref(),
         ))?;
         if connection.supports_reauth() {
-            connection.reauth(ReauthParameters::new(auth))?;
+            let is_session_auth = !matches!(session_auth, SessionAuth::None);
+            connection.reauth(ReauthParameters::new(auth.as_ref(), is_session_auth))?;
         }
         connection.write_all(deadline)?;
         connection.read_all(deadline, None)?;
@@ -201,6 +236,16 @@ impl SimplePool {
         synced.borrowed + synced.reservations
     }
 
+    pub(crate) fn reset_all_auth(&self) {
+        let synced = self.synced.lock();
+        for connection in &synced.raw_pool {
+            connection.auth_reset_handler().mark_for_reset();
+        }
+        for reset_handle in &synced.borrowed_auth_reset {
+            reset_handle.mark_for_reset();
+        }
+    }
+
     fn has_room(&self, synced: &InnerPoolSyncedData) -> bool {
         synced.raw_pool.len() + synced.borrowed + synced.reservations
             < self.config.max_connection_pool_size
@@ -208,8 +253,11 @@ impl SimplePool {
 
     fn acquire_existing(&self, synced: &mut InnerPoolSyncedData) -> Option<PoolElement> {
         let connection = synced.raw_pool.pop_front();
-        if connection.is_some() {
+        if let Some(connection) = connection.as_ref() {
             synced.borrowed += 1;
+            assert!(synced
+                .borrowed_auth_reset
+                .insert(connection.auth_reset_handler()));
         }
         connection
     }
@@ -217,6 +265,9 @@ impl SimplePool {
     fn release(inner_pool: &Arc<InnerPool>, mut connection: PoolElement) {
         let mut lock = inner_pool.synced.lock();
         lock.borrowed -= 1;
+        assert!(lock
+            .borrowed_auth_reset
+            .remove(&connection.auth_reset_handler()));
         if connection.needs_reset() {
             let res = connection
                 .reset()
@@ -252,19 +303,68 @@ impl UnpreparedSinglePooledBolt {
         Self { pool, bolt }
     }
 
-    pub(crate) fn prepare(mut self, deadline: Option<Instant>) -> Result<Option<SinglePooledBolt>> {
+    pub(crate) fn prepare(
+        mut self,
+        deadline: Option<Instant>,
+        session_auth: SessionAuth,
+    ) -> Result<Option<SinglePooledBolt>> {
         let bolt = self.bolt.take();
         let pool = Arc::clone(&self.pool);
         match bolt {
             None => {
-                let connection = self.pool.acquire_new(deadline)?;
+                let connection = self.pool.acquire_new(deadline, session_auth)?;
                 Ok(Some(SinglePooledBolt::new(connection, pool)))
             }
-            Some(_) => {
+            Some(mut connection) => {
                 // room for health check etc. (return None on failed health check)
-                Ok(Some(SinglePooledBolt { pool, bolt }))
+                match self.reauth(&mut connection, session_auth) {
+                    Ok(Some(())) => {}
+                    Ok(None) => return Ok(None),
+                    Err(e) => {
+                        SimplePool::release(&self.pool, connection);
+                        return Err(e);
+                    }
+                };
+                Ok(Some(SinglePooledBolt {
+                    pool,
+                    bolt: Some(connection),
+                }))
             }
         }
+    }
+
+    fn reauth(
+        &self,
+        connection: &mut PoolElement,
+        session_auth: SessionAuth,
+    ) -> Result<Option<()>> {
+        match session_auth {
+            SessionAuth::None => {
+                if let AuthConfig::Manager(manager) = &self.pool.config.auth {
+                    let new_auth = AuthManagers::get_auth(manager.as_ref())?;
+                    let reauth_params = ReauthParameters::new(&new_auth, false);
+                    if connection.needs_reauth(reauth_params) {
+                        if !connection.supports_reauth() {
+                            connection.debug_log(|| {
+                                "backwards compatible auth token refresh: purge connection".into()
+                            });
+                            return Ok(None);
+                        }
+                        connection.reauth(reauth_params)?;
+                    }
+                }
+            }
+            SessionAuth::Reauth(auth) => {
+                let reauth_params = ReauthParameters::new(auth, true);
+                if connection.needs_reauth(reauth_params) {
+                    connection.reauth(reauth_params)?;
+                }
+            }
+            SessionAuth::Forced(auth) => {
+                connection.reauth(ReauthParameters::new(auth, true))?;
+            }
+        }
+        Ok(Some(()))
     }
 }
 
@@ -273,9 +373,19 @@ impl Drop for UnpreparedSinglePooledBolt {
         if self.bolt.is_none() {
             return;
         }
-        let bolt = self.bolt.take().unwrap();
+        let bolt = self
+            .bolt
+            .take()
+            .expect("bolt option should be Some from init to drop");
         SimplePool::release(&self.pool, bolt);
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub(crate) enum SessionAuth<'a> {
+    None,
+    Reauth(&'a Arc<AuthToken>),
+    Forced(&'a Arc<AuthToken>),
 }
 
 #[derive(Debug)]

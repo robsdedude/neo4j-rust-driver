@@ -283,7 +283,7 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                     }
                 };
                 if nanoseconds < 0 {
-                    return invalid_struct(format!("DateTimeZoneId nanoseconds out of bounds"));
+                    return invalid_struct("DateTimeZoneId nanoseconds out of bounds");
                 }
                 seconds = match seconds.checked_add(nanoseconds.div_euclid(1_000_000_000)) {
                     Some(s) => s,

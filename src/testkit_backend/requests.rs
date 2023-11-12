@@ -14,7 +14,7 @@
 
 use crate::bookmarks::Bookmarks;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
-use serde_json::Value;
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,7 +24,8 @@ use crate::driver::{ConnectionConfig, DriverConfig, RoutingControl};
 use crate::session::SessionConfig;
 use crate::ValueSend;
 
-use super::cypher_value::{CypherValue, NotADriverValueError};
+use super::auth::TestKitAuthManagers;
+use super::cypher_value::CypherValue;
 use super::driver_holder::{CloseSession, DriverHolder, EmulatedDriverConfig, NewSession};
 use super::errors::TestKitError;
 use super::resolver::TestKitResolver;
@@ -47,14 +48,14 @@ pub(super) enum Request {
         #[serde(rename = "testName")]
         test_name: String,
         #[serde(rename = "subtestArguments")]
-        arguments: HashMap<String, Value>,
+        arguments: HashMap<String, JsonValue>,
     },
     GetFeatures {},
     #[serde(rename_all = "camelCase")]
     NewDriver {
         uri: String,
         #[serde(rename = "authorizationToken")]
-        auth: TestKitAuth,
+        auth: Option<TestKitAuth>,
         auth_token_manager_id: Option<BackendId>,
         user_agent: Option<String>,
         resolver_registered: Option<bool>,
@@ -70,6 +71,32 @@ pub(super) enum Request {
         notifications_disabled_categories: Option<Vec<String>>,
         encrypted: Option<bool>,
         trusted_certificates: Option<Vec<String>>,
+    },
+    NewAuthTokenManager {},
+    #[serde(rename_all = "camelCase")]
+    AuthTokenManagerGetAuthCompleted {
+        request_id: BackendId,
+        auth: TestKitAuth,
+    },
+    #[serde(rename_all = "camelCase")]
+    AuthTokenManagerHandleSecurityExceptionCompleted {
+        request_id: BackendId,
+        handled: bool,
+    },
+    AuthTokenManagerClose {
+        id: BackendId,
+    },
+    NewBasicAuthTokenManager {},
+    #[serde(rename_all = "camelCase")]
+    BasicAuthTokenProviderCompleted {
+        request_id: BackendId,
+        auth: TestKitAuth,
+    },
+    NewBearerAuthTokenManager {},
+    #[serde(rename_all = "camelCase")]
+    BearerAuthTokenProviderCompleted {
+        request_id: BackendId,
+        auth: AuthTokenAndExpiration,
     },
     #[serde(rename_all = "camelCase")]
     VerifyConnectivity {
@@ -131,6 +158,8 @@ pub(super) enum Request {
         notifications_min_severity: Option<String>,
         notifications_disabled_categories: Option<Vec<String>>,
         bookmark_manager_id: Option<BackendId>,
+        #[serde(rename = "authorizationToken")]
+        auth: Option<TestKitAuth>,
     },
     #[serde(rename_all = "camelCase")]
     SessionClose {
@@ -265,6 +294,172 @@ pub(super) enum TestKitAuth {
     AuthorizationToken(AuthTokenData),
 }
 
+impl From<TestKitAuth> for AuthToken {
+    fn from(value: TestKitAuth) -> Self {
+        let TestKitAuth::AuthorizationToken(data) = value;
+        let auth = match data {
+            AuthTokenData::Basic {
+                principal,
+                credentials,
+                realm,
+            } => match realm {
+                None => AuthToken::new_basic_auth(principal, credentials),
+                Some(realm) => AuthToken::new_basic_auth_with_realm(principal, credentials, realm),
+            },
+            AuthTokenData::Kerberos { credentials } => AuthToken::new_kerberos_auth(credentials),
+            AuthTokenData::Bearer { credentials } => AuthToken::new_bearer_auth(credentials),
+            AuthTokenData::Custom {
+                scheme,
+                principal,
+                credentials,
+                realm,
+                parameters,
+            } => {
+                let parameters = parameters.map(|p| {
+                    p.into_iter()
+                        .map(|(k, v)| (k, v.into()))
+                        .collect::<HashMap<String, ValueSend>>()
+                });
+                AuthToken::new_custom_auth(principal, credentials, realm, Some(scheme), parameters)
+            }
+        };
+        auth
+    }
+}
+
+impl TestKitAuth {
+    pub(super) fn try_clone_auth_token(auth: &AuthToken) -> Result<Self, TestKitError> {
+        let mut auth = auth.data().clone();
+        let scheme = auth
+            .remove("scheme")
+            .ok_or_else(|| {
+                TestKitError::backend_err("cannot serialize AuthToken without \"scheme\"")
+            })?
+            .try_into_string()
+            .map_err(|err| {
+                TestKitError::backend_err(format!(
+                    "cannot serialize AuthToken with non-string \"scheme\": {err:?}"
+                ))
+            })?;
+        let credentials = auth
+            .remove("credentials")
+            .map(|credentials| {
+                credentials.try_into_string().map_err(|err| {
+                    TestKitError::backend_err(format!(
+                        "cannot serialize AuthToken with non-string \"credentials\": {err:?}"
+                    ))
+                })
+            })
+            .transpose()?;
+        let auth_token = match scheme.as_str() {
+            "basic" => {
+                let credentials = credentials.ok_or_else(|| {
+                    TestKitError::backend_err(
+                        "cannot serialize basic AuthToken without \"credentials\"",
+                    )
+                })?;
+                let principal = auth
+                    .remove("principal")
+                    .ok_or_else(|| {
+                        TestKitError::backend_err("cannot serialize basic AuthToken without \"principal\"")
+                    })?
+                    .try_into_string()
+                    .map_err(|err| {
+                        TestKitError::backend_err(format!(
+                            "cannot serialize basic AuthToken with non-string \"principal\": {err:?}"
+                        ))
+                    })?;
+                let realm = auth
+                    .remove("realm")
+                    .map(|realm| {
+                        realm.try_into_string().map_err(|err| {
+                            TestKitError::backend_err(format!(
+                                "cannot serialize basic AuthToken with non-string \"realm\": {err:?}"
+                            ))
+                        })
+                    })
+                    .transpose()?;
+                TestKitAuth::AuthorizationToken(AuthTokenData::Basic {
+                    principal,
+                    credentials,
+                    realm,
+                })
+            }
+            "kerberos" => {
+                let credentials = credentials.ok_or_else(|| {
+                    TestKitError::backend_err(
+                        "cannot serialize kerberos AuthToken without \"credentials\"",
+                    )
+                })?;
+                TestKitAuth::AuthorizationToken(AuthTokenData::Kerberos { credentials })
+            }
+            "bearer" => {
+                let credentials = credentials.ok_or_else(|| {
+                    TestKitError::backend_err(
+                        "cannot serialize bearer AuthToken without \"credentials\"",
+                    )
+                })?;
+                TestKitAuth::AuthorizationToken(AuthTokenData::Bearer { credentials })
+            }
+            _ => {
+                let principal = auth
+                    .remove("principal")
+                    .map(|principal| {
+                        principal.try_into_string().map_err(|err| {
+                            TestKitError::backend_err(format!(
+                                "cannot serialize custom AuthToken with non-string \"principal\": {err:?}"
+                            ))
+                        })
+                    })
+                    .transpose()?;
+                let realm = auth
+                    .remove("realm")
+                    .map(|realm| {
+                        realm.try_into_string().map_err(|err| {
+                            TestKitError::backend_err(format!(
+                                "cannot serialize custom AuthToken with non-string \"realm\": {err:?}"
+                            ))
+                        })
+                    })
+                    .transpose()?;
+                let parameters = auth
+                    .remove("parameters")
+                    .map(|parameters| {
+                        parameters
+                            .try_into_map()
+                            .map_err(|err| {
+                                TestKitError::backend_err(format!(
+                                    "cannot serialize custom AuthToken with non-map \"parameters\": {err:?}"
+                                ))
+                            })
+                            .and_then(|parameters| {
+                                parameters
+                                    .into_iter()
+                                    .map(|(k, v)| Ok((k, v.try_into()?)))
+                                    .collect::<Result<HashMap<String, JsonValue>, String>>()
+                                    .map_err(TestKitError::backend_err)
+                            })
+                    })
+                    .transpose()?;
+                TestKitAuth::AuthorizationToken(AuthTokenData::Custom {
+                    scheme,
+                    principal,
+                    credentials,
+                    realm,
+                    parameters,
+                })
+            }
+        };
+        if !auth.is_empty() {
+            return Err(TestKitError::backend_err(format!(
+                "cannot serialize AuthToken with unknown fields: {fields:?}",
+                fields = auth.keys().collect::<Vec<_>>()
+            )));
+        }
+        Ok(auth_token)
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(tag = "scheme")]
 pub(super) enum AuthTokenData {
@@ -272,6 +467,7 @@ pub(super) enum AuthTokenData {
     Basic {
         principal: String,
         credentials: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         realm: Option<String>,
     },
     #[serde(rename = "kerberos")]
@@ -281,10 +477,23 @@ pub(super) enum AuthTokenData {
     #[serde(untagged)]
     Custom {
         scheme: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         principal: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         credentials: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         realm: Option<String>,
-        parameters: Option<HashMap<String, CypherValue>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parameters: Option<HashMap<String, JsonValue>>,
+    },
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(tag = "name", content = "data", rename_all = "camelCase")]
+pub(super) enum AuthTokenAndExpiration {
+    AuthTokenAndExpiration {
+        auth: TestKitAuth,
+        expires_in_ms: Option<i64>,
     },
 }
 
@@ -394,16 +603,34 @@ impl Request {
             } => backend.send(&Response::run_sub_test(test_name, arguments)?)?,
             Request::GetFeatures { .. } => backend.send(&Response::feature_list())?,
             Request::NewDriver { .. } => self.new_driver(backend)?,
+            Request::NewAuthTokenManager { .. } => self.new_auth_token_manager(backend)?,
+            Request::AuthTokenManagerGetAuthCompleted { .. } => {
+                return self.unexpected_resolution()
+            }
+            Request::AuthTokenManagerHandleSecurityExceptionCompleted { .. } => {
+                return self.unexpected_resolution()
+            }
+            Request::AuthTokenManagerClose { .. } => self.auth_token_manager_close(backend)?,
+            Request::NewBasicAuthTokenManager { .. } => {
+                self.new_basic_auth_token_manager(backend)?
+            }
+            Request::BasicAuthTokenProviderCompleted { .. } => return self.unexpected_resolution(),
+            Request::NewBearerAuthTokenManager { .. } => {
+                self.new_bearer_auth_token_manager(backend)?
+            }
+            Request::BearerAuthTokenProviderCompleted { .. } => {
+                return self.unexpected_resolution()
+            }
             // Request::VerifyConnectivity { .. } => {},
             // Request::GetServerInfo { .. } => {},
             Request::CheckMultiDBSupport { .. } => self.check_multi_db_support(backend)?,
             // Request::CheckDriverIsEncrypted { .. } => {},
-            // Request::ResolverResolutionCompleted { .. } => {},
-            // Request::BookmarksSupplierCompleted { .. } => {},
-            // Request::BookmarksConsumerCompleted { .. } => {},
+            Request::ResolverResolutionCompleted { .. } => return self.unexpected_resolution(),
+            Request::BookmarksSupplierCompleted { .. } => return self.unexpected_resolution(),
+            Request::BookmarksConsumerCompleted { .. } => return self.unexpected_resolution(),
             // Request::NewBookmarkManager { .. } => {},
             // Request::BookmarkManagerClose { .. } => {},
-            // Request::DomainNameResolutionCompleted { .. } => {},
+            Request::DomainNameResolutionCompleted { .. } => return self.unexpected_resolution(),
             Request::DriverClose { .. } => self.driver_close(backend)?,
             Request::NewSession { .. } => self.new_session(backend)?,
             Request::SessionClose { .. } => self.close_session(backend)?,
@@ -441,6 +668,13 @@ impl Request {
         Ok(())
     }
 
+    fn unexpected_resolution(self) -> TestKitResult {
+        Err(TestKitError::backend_err(format!(
+            "Resolution {:?} not expected (the backend didn't ask for it).",
+            self
+        )))
+    }
+
     fn new_driver(self, backend: &Backend) -> TestKitResult {
         let Request::NewDriver {
             uri,
@@ -466,12 +700,22 @@ impl Request {
         let mut connection_config: ConnectionConfig = uri.as_str().try_into()?;
         let mut driver_config = DriverConfig::new();
         let mut emulated_config = EmulatedDriverConfig::default();
-        driver_config = set_auth(driver_config, auth)?;
+        if let Some(auth) = auth {
+            driver_config = driver_config.with_auth(Arc::new(auth.into()));
+        } else if let Some(auth_token_manager_id) = auth_token_manager_id {
+            let data = backend.data.borrow();
+            let auth_token_manager = data
+                .auth_managers
+                .get(&auth_token_manager_id)
+                .ok_or_else(|| missing_auth_token_manager_error(&auth_token_manager_id))?;
+            driver_config = driver_config.with_auth_manager(Arc::clone(auth_token_manager));
+        } else {
+            return Err(TestKitError::backend_err(
+                "neither auth token nor manager present",
+            ));
+        }
         if let Some(user_agent) = user_agent {
             driver_config = driver_config.with_user_agent(user_agent);
-        }
-        if auth_token_manager_id.is_some() {
-            return Err(TestKitError::backend_err("auth token manager unsupported"));
         }
         let resolver_registered = resolver_registered.unwrap_or_default();
         let dns_registered = dns_registered.unwrap_or_default();
@@ -557,6 +801,59 @@ impl Request {
         backend.send(&Response::Driver { id })
     }
 
+    fn new_auth_token_manager(self, backend: &Backend) -> TestKitResult {
+        let Request::NewAuthTokenManager {} = self else {
+            panic!("expected Request::NewAuthTokenManager");
+        };
+        let (id, auth_token_manager) =
+            TestKitAuthManagers::new_custom(Arc::clone(&backend.io), backend.id_generator.clone());
+        backend
+            .data
+            .borrow_mut()
+            .auth_managers
+            .insert(id, auth_token_manager);
+        backend.send(&Response::AuthTokenManager { id })
+    }
+
+    fn auth_token_manager_close(self, backend: &Backend) -> TestKitResult {
+        let Request::AuthTokenManagerClose { id } = self else {
+            panic!("expected Request::AuthTokenManagerClose");
+        };
+        let mut data = backend.data.borrow_mut();
+        let Some(_) = data.auth_managers.remove(&id) else {
+            return Err(missing_auth_token_manager_error(&id));
+        };
+        backend.send(&Response::AuthTokenManager { id })
+    }
+
+    fn new_basic_auth_token_manager(self, backend: &Backend) -> TestKitResult {
+        let Request::NewBasicAuthTokenManager {} = self else {
+            panic!("expected Request::NewBasicAuthTokenManager");
+        };
+        let (id, auth_token_manager) =
+            TestKitAuthManagers::new_basic(Arc::clone(&backend.io), backend.id_generator.clone());
+        backend
+            .data
+            .borrow_mut()
+            .auth_managers
+            .insert(id, auth_token_manager);
+        backend.send(&Response::BasicAuthTokenManager { id })
+    }
+
+    fn new_bearer_auth_token_manager(self, backend: &Backend) -> TestKitResult {
+        let Request::NewBearerAuthTokenManager {} = self else {
+            panic!("expected Request::NewBearerAuthTokenManager");
+        };
+        let (id, auth_token_manager) =
+            TestKitAuthManagers::new_bearer(Arc::clone(&backend.io), backend.id_generator.clone());
+        backend
+            .data
+            .borrow_mut()
+            .auth_managers
+            .insert(id, auth_token_manager);
+        backend.send(&Response::BearerAuthTokenManager { id })
+    }
+
     fn check_multi_db_support(self, backend: &Backend) -> TestKitResult {
         let Request::CheckMultiDBSupport { driver_id } = self else {
             panic!("expected Request::CheckMultiDBSupport");
@@ -594,6 +891,7 @@ impl Request {
             notifications_min_severity,
             notifications_disabled_categories,
             bookmark_manager_id,
+            auth,
         } = self
         else {
             panic!("expected Request::NewDriver");
@@ -631,6 +929,9 @@ impl Request {
             return Err(TestKitError::backend_err(format!(
                 "Driver does not yet support bookmark_manager_id, found {bookmark_manager_id}"
             )));
+        }
+        if let Some(auth) = auth {
+            config = config.with_session_auth(Arc::new(auth.into()));
         }
         let id = driver_holder
             .session(NewSession {
@@ -796,8 +1097,7 @@ impl Request {
         let mut data = backend.data.borrow_mut();
         let Some(&driver_id) = data.tx_id_to_driver_id.get(&transaction_id) else {
             return Err(TestKitError::backend_err(format!(
-                "Unknown transaction id {} in backend",
-                transaction_id
+                "Unknown transaction id {transaction_id} in backend",
             )));
         };
         let params = params.map(cypher_value_map_to_value_send_map).transpose()?;
@@ -822,8 +1122,7 @@ impl Request {
         let data = backend.data.borrow();
         let Some(&driver_id) = data.tx_id_to_driver_id.get(&transaction_id) else {
             return Err(TestKitError::backend_err(format!(
-                "Unknown transaction id {} in backend",
-                transaction_id
+                "Unknown transaction id {transaction_id} in backend",
             )));
         };
         get_driver(&data, &driver_id)?
@@ -839,8 +1138,7 @@ impl Request {
         let data = backend.data.borrow();
         let Some(&driver_id) = data.tx_id_to_driver_id.get(&transaction_id) else {
             return Err(TestKitError::backend_err(format!(
-                "Unknown transaction id {} in backend",
-                transaction_id
+                "Unknown transaction id {transaction_id} in backend",
             )));
         };
         get_driver(&data, &driver_id)?
@@ -856,8 +1154,7 @@ impl Request {
         let data = backend.data.borrow();
         let Some(&driver_id) = data.tx_id_to_driver_id.get(&transaction_id) else {
             return Err(TestKitError::backend_err(format!(
-                "Unknown transaction id {} in backend",
-                transaction_id
+                "Unknown transaction id {transaction_id} in backend",
             )));
         };
         get_driver(&data, &driver_id)?
@@ -1005,11 +1302,18 @@ fn closed_driver_error() -> TestKitError {
         msg: String::from("The driver has been closed"),
         code: None,
         id: None,
+        retryable: false,
     }
 }
 
 fn missing_driver_error(driver_id: &BackendId) -> TestKitError {
     TestKitError::backend_err(format!("No driver with id {driver_id} found"))
+}
+
+fn missing_auth_token_manager_error(auth_token_manager_id: &BackendId) -> TestKitError {
+    TestKitError::backend_err(format!(
+        "No auth token manager with id {auth_token_manager_id} found"
+    ))
 }
 
 fn closed_session_error() -> TestKitError {
@@ -1018,44 +1322,12 @@ fn closed_session_error() -> TestKitError {
         msg: String::from("The session  has been closed"),
         code: None,
         id: None,
+        retryable: false,
     }
 }
 
 fn missing_session_error(session_id: &BackendId) -> TestKitError {
     TestKitError::backend_err(format!("No session with id {session_id} found"))
-}
-
-fn set_auth(mut config: DriverConfig, auth: TestKitAuth) -> Result<DriverConfig, TestKitError> {
-    let TestKitAuth::AuthorizationToken(data) = auth;
-    let auth = match data {
-        AuthTokenData::Basic {
-            principal,
-            credentials,
-            realm,
-        } => match realm {
-            None => AuthToken::new_basic_auth(principal, credentials),
-            Some(realm) => AuthToken::new_basic_auth_with_realm(principal, credentials, realm),
-        },
-        AuthTokenData::Kerberos { credentials } => AuthToken::new_kerberos_auth(credentials),
-        AuthTokenData::Bearer { credentials } => AuthToken::new_bearer_auth(credentials),
-        AuthTokenData::Custom {
-            scheme,
-            principal,
-            credentials,
-            realm,
-            parameters,
-        } => {
-            let parameters = parameters
-                .map(|p| {
-                    p.into_iter()
-                        .map(|(k, v)| Ok((k, v.try_into()?)))
-                        .collect::<Result<HashMap<String, ValueSend>, NotADriverValueError>>()
-                })
-                .transpose()?;
-            AuthToken::new_custom_auth(principal, credentials, realm, Some(scheme), parameters)
-        }
-    };
-    Ok(config.with_auth(Arc::new(auth)))
 }
 
 fn cypher_value_map_to_value_send_map(

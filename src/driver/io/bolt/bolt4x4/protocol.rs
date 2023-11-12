@@ -13,11 +13,9 @@
 // limitations under the License.
 
 use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::mem;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
@@ -29,7 +27,8 @@ use super::super::bolt_common::{unsupported_protocol_feature_error, ServerAwareB
 use super::super::message::BoltMessage;
 use super::super::message_parameters::{
     BeginParameters, CommitParameters, DiscardParameters, GoodbyeParameters, HelloParameters,
-    PullParameters, ReauthParameters, RollbackParameters, RouteParameters, RunParameters,
+    PullParameters, ReauthParameters, ResetParameters, RollbackParameters, RouteParameters,
+    RunParameters,
 };
 use super::super::packstream::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
@@ -39,8 +38,7 @@ use super::super::{
     BoltResponse, BoltStructTranslatorWithUtcPatch, OnServerErrorCb, ResponseCallbacks,
     ResponseMessage,
 };
-use crate::driver::io::bolt::message_parameters::ResetParameters;
-use crate::{Result, ValueReceive, ValueSend};
+use crate::{Result, ValueReceive};
 
 const SERVER_AGENT_KEY: &str = "server";
 const PATCH_BOLT_KEY: &str = "patch_bolt";
@@ -295,7 +293,7 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
         &mut self,
         bolt_data: &mut BoltData<RW>,
         message: BoltMessage<ValueReceive>,
-        on_server_error: OnServerErrorCb,
+        on_server_error: OnServerErrorCb<RW>,
     ) -> Result<()> {
         self.bolt5x0
             .handle_response(bolt_data, message, on_server_error)

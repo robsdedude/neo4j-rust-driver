@@ -13,11 +13,9 @@
 // limitations under the License.
 
 use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::mem;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use log::{debug, log_enabled, warn, Level};
@@ -27,7 +25,8 @@ use super::super::bolt_common::{unsupported_protocol_feature_error, ServerAwareB
 use super::super::message::BoltMessage;
 use super::super::message_parameters::{
     BeginParameters, CommitParameters, DiscardParameters, GoodbyeParameters, HelloParameters,
-    PullParameters, ReauthParameters, RollbackParameters, RouteParameters, RunParameters,
+    PullParameters, ReauthParameters, ResetParameters, RollbackParameters, RouteParameters,
+    RunParameters,
 };
 use super::super::packstream::{
     PackStreamDeserializer, PackStreamDeserializerImpl, PackStreamSerializer,
@@ -38,9 +37,8 @@ use super::super::{
     debug_buf_start, BoltData, BoltProtocol, BoltResponse, BoltStructTranslator, ConnectionState,
     OnServerErrorCb, ResponseCallbacks, ResponseMessage,
 };
-use crate::driver::io::bolt::message_parameters::ResetParameters;
 use crate::error::ServerError;
-use crate::{Neo4jError, Result, ValueReceive, ValueSend};
+use crate::{Neo4jError, Result, ValueReceive};
 
 const SERVER_AGENT_KEY: &str = "server";
 
@@ -681,7 +679,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         &mut self,
         bolt_data: &mut BoltData<RW>,
         message: BoltMessage<ValueReceive>,
-        on_server_error: OnServerErrorCb,
+        on_server_error: OnServerErrorCb<RW>,
     ) -> Result<()> {
         let mut response = bolt_data
             .responses
@@ -718,12 +716,26 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
                 assert_response_field_count("FAILURE", &fields, 1)?;
                 let meta = fields.pop().unwrap();
                 bolt_debug!(bolt_data, "S: FAILURE {}", meta.dbg_print());
-                let error = try_parse_error(meta)?;
+                let mut error = try_parse_error(meta)?;
                 bolt_data.bolt_state.failure();
-                if let Some(cb) = on_server_error {
-                    cb(&error);
+                match on_server_error {
+                    None => response.callbacks.on_failure(error),
+                    Some(cb) => {
+                        let res1 = cb(bolt_data, &mut error);
+                        let res2 = response.callbacks.on_failure(error);
+                        match res1 {
+                            Ok(_) => res2,
+                            Err(e1) => {
+                                if let Err(e2) = res2 {
+                                    warn!(
+                                        "server error swallowed because of user callback error: {e2}"
+                                    );
+                                }
+                                Err(e1)
+                            }
+                        }
+                    }
                 }
-                response.callbacks.on_failure(error)
             }
             BoltMessage {
                 tag: 0x71,

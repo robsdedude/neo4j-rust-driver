@@ -22,6 +22,7 @@ use atomic_refcell::AtomicRefCell;
 use log::debug;
 use serde::Serialize;
 
+mod auth;
 mod backend_id;
 mod cypher_value;
 mod driver_holder;
@@ -30,6 +31,8 @@ mod requests;
 mod resolver;
 mod responses;
 mod session_holder;
+
+use crate::driver::auth::AuthManager;
 
 use backend_id::BackendId;
 use backend_id::Generator;
@@ -97,25 +100,20 @@ struct BackendIo {
     writer: BufWriter<TcpStream>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct BackendData {
     drivers: HashMap<BackendId, Option<DriverHolder>>,
     summaries: HashMap<BackendId, SummaryWithQuery>,
     session_id_to_driver_id: HashMap<BackendId, Option<BackendId>>,
     result_id_to_driver_id: HashMap<BackendId, BackendId>,
     tx_id_to_driver_id: HashMap<BackendId, BackendId>,
+    auth_managers: HashMap<BackendId, Arc<dyn AuthManager>>,
 }
 
 impl Backend {
     fn new(reader: BufReader<TcpStream>, writer: BufWriter<TcpStream>) -> Self {
         let io = BackendIo { reader, writer };
-        let data = BackendData {
-            drivers: Default::default(),
-            summaries: Default::default(),
-            session_id_to_driver_id: Default::default(),
-            result_id_to_driver_id: Default::default(),
-            tx_id_to_driver_id: Default::default(),
-        };
+        let data = BackendData::default();
         Self {
             io: Arc::new(AtomicRefCell::new(io)),
             data: Arc::new(AtomicRefCell::new(data)),

@@ -79,18 +79,27 @@ pub(super) enum Response {
         auth_token_manager_id: BackendId,
     },
     #[serde(rename_all = "camelCase")]
-    AuthTokenManagerOnAuthExpiredRequest {
+    AuthTokenManagerHandleSecurityExceptionRequest {
         id: BackendId,
         auth_token_manager_id: BackendId,
         auth: TestKitAuth,
+        error_code: String,
     },
-    ExpirationBasedAuthTokenManager {
+    BasicAuthTokenManager {
         id: BackendId,
     },
     #[serde(rename_all = "camelCase")]
-    ExpirationBasedAuthTokenProviderRequest {
+    BasicAuthTokenProviderRequest {
         id: BackendId,
-        expiration_based_auth_token_manager_id: BackendId,
+        basic_auth_token_manager_id: BackendId,
+    },
+    BearerAuthTokenManager {
+        id: BackendId,
+    },
+    #[serde(rename_all = "camelCase")]
+    BearerAuthTokenProviderRequest {
+        id: BackendId,
+        bearer_auth_token_manager_id: BackendId,
     },
     ResolverResolutionRequired {
         id: BackendId,
@@ -184,6 +193,7 @@ pub(super) enum Response {
         error_type: String,
         msg: Option<String>,
         code: Option<String>,
+        retryable: bool,
     },
     FrontendError {
         msg: String,
@@ -581,7 +591,7 @@ impl Response {
                 // "Feature:API:Result.Peek",
                 "Feature:API:Result.Single",
                 // "Feature:API:Result.SingleOptional",
-                // "Feature:API:RetryableExceptions",
+                "Feature:API:RetryableExceptions",
                 "Feature:API:Session:AuthConfig",
                 // "Feature:API:Session:NotificationsConfig",
                 "Feature:API:SSLConfig",
@@ -785,11 +795,13 @@ impl Response {
                 msg,
                 code,
                 id,
+                retryable,
             } => Response::DriverError {
                 id: id.unwrap_or_else(|| id_generator.next_id()),
                 error_type,
                 msg: Some(msg),
                 code,
+                retryable,
             },
             TestKitError::FrontendError { msg } => Response::FrontendError { msg },
             TestKitError::BackendError { msg } => Response::BackendError { msg },

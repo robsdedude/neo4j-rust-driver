@@ -23,6 +23,8 @@ use log::info;
 use crate::driver::io::bolt::BoltMeta;
 use crate::ValueReceive;
 
+type BoxError = Box<dyn StdError + Send + Sync>;
+
 #[derive(Error, Debug)]
 // #[non_exhaustive]
 pub enum Neo4jError {
@@ -200,6 +202,7 @@ impl Neo4jError {
 pub struct ServerError {
     pub code: String,
     pub message: String,
+    retryable_overwrite: bool,
 }
 
 impl ServerError {
@@ -216,7 +219,11 @@ impl ServerError {
             }
             _ => code,
         };
-        Self { code, message }
+        Self {
+            code,
+            message,
+            retryable_overwrite: false,
+        }
     }
 
     pub fn from_meta(mut meta: BoltMeta) -> Self {
@@ -252,12 +259,13 @@ impl ServerError {
     }
 
     pub(crate) fn is_retryable(&self) -> bool {
-        match self.code() {
-            "Neo.ClientError.Security.AuthorizationExpired"
-            | "Neo.ClientError.Cluster.NotALeader"
-            | "Neo.ClientError.General.ForbiddenOnReadOnlyDatabase" => true,
-            _ => self.classification() == "TransientError",
-        }
+        self.retryable_overwrite
+            || match self.code() {
+                "Neo.ClientError.Security.AuthorizationExpired"
+                | "Neo.ClientError.Cluster.NotALeader"
+                | "Neo.ClientError.General.ForbiddenOnReadOnlyDatabase" => true,
+                _ => self.classification() == "TransientError",
+            }
     }
 
     pub(crate) fn fatal_during_discovery(&self) -> bool {
@@ -287,6 +295,18 @@ impl ServerError {
                 | "Neo.ClientError.General.ForbiddenOnReadOnlyDatabase"
         )
     }
+
+    pub(crate) fn is_security_error(&self) -> bool {
+        self.code.starts_with("Neo.ClientError.Security.")
+    }
+
+    pub(crate) fn unauthenticates_all_connections(&self) -> bool {
+        self.code == "Neo.ClientError.Security.AuthorizationExpired"
+    }
+
+    pub(crate) fn overwrite_retryable(&mut self) {
+        self.retryable_overwrite = true;
+    }
 }
 
 impl Display for ServerError {
@@ -296,10 +316,30 @@ impl Display for ServerError {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum UserCallbackError {
     /// `DriverConfig::resolver` returned an error
     #[error("resolver callback failed: {0}")]
-    ResolverError(Box<dyn StdError + Send + Sync>),
+    ResolverError(BoxError),
+    /// [`AuthManager`] `DriverConfig::auth` returned an error
+    #[error("AuthManager.get_auth() failed: {0}")]
+    AuthManagerError(BoxError),
+}
+
+impl UserCallbackError {
+    pub fn user_error(&self) -> &dyn StdError {
+        match self {
+            UserCallbackError::ResolverError(err) => err.as_ref(),
+            UserCallbackError::AuthManagerError(err) => err.as_ref(),
+        }
+    }
+
+    pub fn into_user_error(self) -> BoxError {
+        match self {
+            UserCallbackError::ResolverError(err) => err,
+            UserCallbackError::AuthManagerError(err) => err,
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Neo4jError>;

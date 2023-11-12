@@ -33,6 +33,7 @@ use super::io::{AcquireConfig, Pool, UpdateRtArgs};
 use super::record_stream::RecordStream;
 use super::transaction::Transaction;
 use super::{EagerResult, ReducedDriverConfig, RoutingControl};
+use crate::driver::io::SessionAuth;
 use crate::transaction::InnerTransaction;
 use crate::{Result, ValueSend};
 use bookmarks::Bookmarks;
@@ -183,6 +184,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
                 db: &None,
                 bookmarks: self.last_raw_bookmarks(),
                 imp_user: &self.config.as_ref().impersonated_user,
+                session_auth: self.session_auth(),
             })?;
             debug!("Resolved home db to {:?}", &self.resolved_db);
         }
@@ -205,6 +207,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
                 db: self.resolved_db(),
                 bookmarks: self.last_raw_bookmarks(),
                 imp_user: &self.config.as_ref().impersonated_user,
+                session_auth: self.session_auth(),
             },
         })
     }
@@ -229,6 +232,14 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
             .as_ref()
             .fetch_size
             .unwrap_or(self.driver_config.fetch_size)
+    }
+
+    #[inline]
+    fn session_auth(&self) -> SessionAuth {
+        match &self.config.as_ref().auth {
+            Some(auth) => SessionAuth::Reauth(auth),
+            None => SessionAuth::None,
+        }
     }
 }
 

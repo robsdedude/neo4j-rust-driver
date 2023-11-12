@@ -689,6 +689,9 @@ impl SessionHolderRunner {
                                 .take()
                                 .unwrap_or_else(|| panic!("about to swallow closure error: {e:?}"));
                             command.reply_error(&self.tx_res, e.into());
+                            if matches!(command, Command::Close) {
+                                return;
+                            }
                         } else {
                             self.tx_res
                                 .send(
@@ -1227,6 +1230,7 @@ fn result_out_of_scope_error() -> TestKitError {
         msg: String::from("The record stream's transaction has been closed"),
         code: None,
         id: None,
+        retryable: false,
     }
 }
 
@@ -1236,6 +1240,7 @@ fn result_consumed_error() -> TestKitError {
         msg: String::from("The record stream has been consumed"),
         code: None,
         id: None,
+        retryable: false,
     }
 }
 
@@ -1245,6 +1250,7 @@ fn transaction_out_of_scope_error() -> TestKitError {
         msg: String::from("The transaction has been closed"),
         code: None,
         id: None,
+        retryable: false,
     }
 }
 
@@ -1254,6 +1260,7 @@ fn session_already_executing_tx_error() -> TestKitError {
         msg: String::from("Session is already executing a transaction"),
         code: None,
         id: None,
+        retryable: false,
     }
 }
 

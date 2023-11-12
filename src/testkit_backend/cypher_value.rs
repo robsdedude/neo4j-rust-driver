@@ -21,7 +21,7 @@ use std::str::FromStr;
 use chrono::{Datelike, Duration, LocalResult, Offset, TimeZone, Timelike};
 use serde::de::Unexpected;
 use serde::{de::Error as DeError, de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue};
+use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue, Value};
 use thiserror::Error;
 
 use crate::driver::Record;
@@ -526,14 +526,53 @@ impl From<ValueSend> for CypherValue {
                 y: value.longitude(),
                 z: Some(value.altitude()),
             },
-            ValueSend::Duration(value) => duration_to_cyper_value(value),
-            ValueSend::LocalTime(value) => local_time_to_cyper_value(value),
-            ValueSend::Time(value) => time_to_cyper_value(value),
-            ValueSend::Date(value) => date_to_cyper_value(value),
-            ValueSend::LocalDateTime(value) => local_date_time_to_cyper_value(value),
-            ValueSend::DateTime(value) => date_time_to_cyper_value(value),
-            ValueSend::DateTimeFixed(value) => date_time_fixed_to_cyper_value(value),
+            ValueSend::Duration(value) => duration_to_cypher_value(value),
+            ValueSend::LocalTime(value) => local_time_to_cypher_value(value),
+            ValueSend::Time(value) => time_to_cypher_value(value),
+            ValueSend::Date(value) => date_to_cypher_value(value),
+            ValueSend::LocalDateTime(value) => local_date_time_to_cypher_value(value),
+            ValueSend::DateTime(value) => date_time_to_cypher_value(value),
+            ValueSend::DateTimeFixed(value) => date_time_fixed_to_cypher_value(value),
         }
+    }
+}
+
+impl From<JsonValue> for ValueSend {
+    fn from(value: JsonValue) -> Self {
+        match value {
+            Value::Null => ValueSend::Null,
+            Value::Bool(v) => v.into(),
+            Value::Number(n) => match n.as_i64() {
+                Some(n) => ValueSend::Integer(n),
+                None => ValueSend::Float(n.as_f64().unwrap()),
+            },
+            Value::String(s) => ValueSend::String(s),
+            Value::Array(a) => ValueSend::List(a.into_iter().map(Into::into).collect()),
+            Value::Object(o) => ValueSend::Map(
+                o.into_iter()
+                    .map(|(k, v)| (k, v.into()))
+                    .collect::<HashMap<_, _>>(),
+            ),
+        }
+    }
+}
+
+impl TryFrom<ValueSend> for JsonValue {
+    type Error = String;
+
+    fn try_from(v: ValueSend) -> Result<Self, Self::Error> {
+        Ok(match v {
+            ValueSend::Null => JsonValue::Null,
+            ValueSend::Boolean(v) => JsonValue::Bool(v),
+            ValueSend::Integer(v) => JsonValue::Number(v.into()),
+            ValueSend::Float(v) => JsonValue::Number(
+                JsonNumber::from_f64(v).ok_or(format!("Failed to serialize float: {v}"))?,
+            ),
+            ValueSend::String(v) => JsonValue::String(v),
+            ValueSend::List(v) => JsonValue::Array(try_into_vec(v)?),
+            ValueSend::Map(v) => JsonValue::Object(try_into_json_map(v)?),
+            _ => return Err(format!("Failed to serialize to json: {:?}", v)),
+        })
     }
 }
 
@@ -611,13 +650,13 @@ impl TryFrom<ValueReceive> for CypherValue {
                     }),
                 }
             }
-            ValueReceive::Duration(value) => duration_to_cyper_value(value),
-            ValueReceive::LocalTime(value) => local_time_to_cyper_value(value),
-            ValueReceive::Time(value) => time_to_cyper_value(value),
-            ValueReceive::Date(value) => date_to_cyper_value(value),
-            ValueReceive::LocalDateTime(value) => local_date_time_to_cyper_value(value),
-            ValueReceive::DateTime(value) => date_time_to_cyper_value(value),
-            ValueReceive::DateTimeFixed(value) => date_time_fixed_to_cyper_value(value),
+            ValueReceive::Duration(value) => duration_to_cypher_value(value),
+            ValueReceive::LocalTime(value) => local_time_to_cypher_value(value),
+            ValueReceive::Time(value) => time_to_cypher_value(value),
+            ValueReceive::Date(value) => date_to_cypher_value(value),
+            ValueReceive::LocalDateTime(value) => local_date_time_to_cypher_value(value),
+            ValueReceive::DateTime(value) => date_time_to_cypher_value(value),
+            ValueReceive::DateTimeFixed(value) => date_time_fixed_to_cypher_value(value),
             ValueReceive::BrokenValue(v) => {
                 return Err(Self::Error {
                     reason: v.reason().into(),
@@ -627,7 +666,7 @@ impl TryFrom<ValueReceive> for CypherValue {
     }
 }
 
-fn duration_to_cyper_value(value: time::Duration) -> CypherValue {
+fn duration_to_cypher_value(value: time::Duration) -> CypherValue {
     CypherValue::CypherDuration {
         months: value.months(),
         days: value.days(),
@@ -636,7 +675,7 @@ fn duration_to_cyper_value(value: time::Duration) -> CypherValue {
     }
 }
 
-fn local_time_to_cyper_value(value: time::LocalTime) -> CypherValue {
+fn local_time_to_cypher_value(value: time::LocalTime) -> CypherValue {
     CypherValue::CypherTime {
         hour: value.hour().into(),
         minute: value.minute().into(),
@@ -646,7 +685,7 @@ fn local_time_to_cyper_value(value: time::LocalTime) -> CypherValue {
     }
 }
 
-fn time_to_cyper_value(value: time::Time) -> CypherValue {
+fn time_to_cypher_value(value: time::Time) -> CypherValue {
     let time::Time { time, offset } = value;
     CypherValue::CypherTime {
         hour: time.hour().into(),
@@ -657,7 +696,7 @@ fn time_to_cyper_value(value: time::Time) -> CypherValue {
     }
 }
 
-fn date_to_cyper_value(value: time::Date) -> CypherValue {
+fn date_to_cypher_value(value: time::Date) -> CypherValue {
     CypherValue::CypherDate {
         year: value.year().into(),
         month: value.month().into(),
@@ -665,7 +704,7 @@ fn date_to_cyper_value(value: time::Date) -> CypherValue {
     }
 }
 
-fn local_date_time_to_cyper_value(value: time::LocalDateTime) -> CypherValue {
+fn local_date_time_to_cypher_value(value: time::LocalDateTime) -> CypherValue {
     CypherValue::CypherDateTime {
         year: value.year().into(),
         month: value.month().into(),
@@ -679,7 +718,7 @@ fn local_date_time_to_cyper_value(value: time::LocalDateTime) -> CypherValue {
     }
 }
 
-fn date_time_to_cyper_value(value: time::DateTime) -> CypherValue {
+fn date_time_to_cypher_value(value: time::DateTime) -> CypherValue {
     CypherValue::CypherDateTime {
         year: value.year().into(),
         month: value.month().into(),
@@ -693,7 +732,7 @@ fn date_time_to_cyper_value(value: time::DateTime) -> CypherValue {
     }
 }
 
-fn date_time_fixed_to_cyper_value(value: time::DateTimeFixed) -> CypherValue {
+fn date_time_fixed_to_cypher_value(value: time::DateTimeFixed) -> CypherValue {
     CypherValue::CypherDateTime {
         year: value.year().into(),
         month: value.month().into(),
