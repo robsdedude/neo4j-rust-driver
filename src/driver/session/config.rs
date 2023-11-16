@@ -16,6 +16,7 @@ use crate::driver::config::auth::AuthToken;
 use crate::driver::config::ConfigureFetchSizeError;
 use crate::driver::session::Bookmarks;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Default)]
 pub struct SessionConfig {
@@ -112,4 +113,10 @@ impl AsRef<SessionConfig> for SessionConfig {
     fn as_ref(&self) -> &SessionConfig {
         self
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct InternalSessionConfig<C: AsRef<SessionConfig>> {
+    pub(crate) config: C,
+    pub(crate) idle_time_before_connection_test: Option<Duration>,
 }

@@ -21,9 +21,11 @@ use flume;
 use flume::{Receiver, Sender};
 use log::warn;
 
+use crate::driver::auth::AuthToken;
 use crate::driver::{ConnectionConfig, Driver, DriverConfig, RoutingControl};
 use crate::retry::ExponentialBackoff;
 use crate::session::SessionConfig;
+use crate::summary::ServerInfo;
 use crate::testkit_backend::session_holder::RetryableOutcome;
 
 use super::backend_id::{BackendId, Generator};
@@ -86,11 +88,46 @@ impl DriverHolder {
         }
     }
 
+    pub(super) fn verify_connectivity(&self) -> VerifyConnectivityResult {
+        self.tx_req.send(Command::VerifyConnectivity).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::VerifyConnectivity(result) => result,
+            res => panic!("expected CommandResult::VerifyConnectivity, found {res:?}"),
+        }
+    }
+
+    pub(super) fn get_server_info(&self) -> GetServerInfoResult {
+        self.tx_req.send(Command::GetServerInfo).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::GetServerInfo(result) => result,
+            res => panic!("expected CommandResult::GetServerInfo, found {res:?}"),
+        }
+    }
+
     pub(super) fn supports_multi_db(&self) -> SupportsMultiDbResult {
         self.tx_req.send(Command::SupportsMultiDb).unwrap();
         match self.rx_res.recv().unwrap() {
             CommandResult::SupportsMultiDb(result) => result,
             res => panic!("expected CommandResult::SupportsMultiDb, found {res:?}"),
+        }
+    }
+
+    pub(super) fn verify_authentication(
+        &self,
+        args: VerifyAuthentication,
+    ) -> VerifyAuthenticationResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::VerifyAuthentication(result) => result,
+            res => panic!("expected CommandResult::VerifyAuthentication, found {res:?}"),
+        }
+    }
+
+    pub(super) fn supports_session_auth(&self) -> SupportsSessionAuthResult {
+        self.tx_req.send(Command::SupportsSessionAuth).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::SupportsSessionAuth(result) => result,
+            res => panic!("expected CommandResult::SupportsSessionAuth, found {res:?}"),
         }
     }
 
@@ -530,9 +567,32 @@ impl DriverHolderRunner {
                     Some(session.close().into())
                 }
 
+                Command::VerifyConnectivity => {
+                    let result = self.driver.verify_connectivity().map_err(Into::into);
+                    Some(VerifyConnectivityResult { result }.into())
+                }
+
+                Command::GetServerInfo => {
+                    let result = self.driver.get_server_info().map_err(Into::into);
+                    Some(GetServerInfoResult { result }.into())
+                }
+
                 Command::SupportsMultiDb => {
                     let result = self.driver.supports_multi_db().map_err(Into::into);
                     Some(SupportsMultiDbResult { result }.into())
+                }
+
+                Command::SupportsSessionAuth => {
+                    let result = self.driver.supports_session_auth().map_err(Into::into);
+                    Some(SupportsSessionAuthResult { result }.into())
+                }
+
+                Command::VerifyAuthentication(VerifyAuthentication { auth }) => {
+                    let result = self
+                        .driver
+                        .verify_authentication(Arc::new(auth))
+                        .map_err(Into::into);
+                    Some(VerifyAuthenticationResult { result }.into())
                 }
 
                 Command::Close => {
@@ -568,7 +628,11 @@ enum Command {
     ResultSingle(ResultSingle),
     ResultConsume(ResultConsume),
     LastBookmarks(LastBookmarks),
+    VerifyConnectivity,
+    GetServerInfo,
     SupportsMultiDb,
+    SupportsSessionAuth,
+    VerifyAuthentication(VerifyAuthentication),
     Close,
 }
 
@@ -589,7 +653,11 @@ enum CommandResult {
     ResultSingle(ResultSingleResult),
     ResultConsume(ResultConsumeResult),
     LastBookmarks(LastBookmarksResult),
+    VerifyConnectivity(VerifyConnectivityResult),
+    GetServerInfo(GetServerInfoResult),
     SupportsMultiDb(SupportsMultiDbResult),
+    SupportsSessionAuth(SupportsSessionAuthResult),
+    VerifyAuthentication(VerifyAuthenticationResult),
     Close(CloseResult),
 }
 
@@ -792,6 +860,30 @@ impl From<ResultConsumeResult> for CommandResult {
 
 #[must_use]
 #[derive(Debug)]
+pub(super) struct VerifyConnectivityResult {
+    pub(super) result: Result<(), TestKitError>,
+}
+
+impl From<VerifyConnectivityResult> for CommandResult {
+    fn from(r: VerifyConnectivityResult) -> Self {
+        CommandResult::VerifyConnectivity(r)
+    }
+}
+
+#[must_use]
+#[derive(Debug)]
+pub(super) struct GetServerInfoResult {
+    pub(super) result: Result<ServerInfo, TestKitError>,
+}
+
+impl From<GetServerInfoResult> for CommandResult {
+    fn from(r: GetServerInfoResult) -> Self {
+        CommandResult::GetServerInfo(r)
+    }
+}
+
+#[must_use]
+#[derive(Debug)]
 pub(super) struct SupportsMultiDbResult {
     pub(super) result: Result<bool, TestKitError>,
 }
@@ -799,6 +891,41 @@ pub(super) struct SupportsMultiDbResult {
 impl From<SupportsMultiDbResult> for CommandResult {
     fn from(r: SupportsMultiDbResult) -> Self {
         CommandResult::SupportsMultiDb(r)
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct VerifyAuthentication {
+    pub(super) auth: AuthToken,
+}
+
+impl From<VerifyAuthentication> for Command {
+    fn from(c: VerifyAuthentication) -> Self {
+        Command::VerifyAuthentication(c)
+    }
+}
+
+#[must_use]
+#[derive(Debug)]
+pub(super) struct VerifyAuthenticationResult {
+    pub(super) result: Result<bool, TestKitError>,
+}
+
+impl From<VerifyAuthenticationResult> for CommandResult {
+    fn from(r: VerifyAuthenticationResult) -> Self {
+        CommandResult::VerifyAuthentication(r)
+    }
+}
+
+#[must_use]
+#[derive(Debug)]
+pub(super) struct SupportsSessionAuthResult {
+    pub(super) result: Result<bool, TestKitError>,
+}
+
+impl From<SupportsSessionAuthResult> for CommandResult {
+    fn from(r: SupportsSessionAuthResult) -> Self {
+        CommandResult::SupportsSessionAuth(r)
     }
 }
 

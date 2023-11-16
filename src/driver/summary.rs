@@ -46,11 +46,7 @@ impl Summary {
             plan: Default::default(),
             query_type: Default::default(),
             database: Default::default(),
-            server_info: ServerInfo {
-                address: connection.address(),
-                server_agent: connection.server_agent(),
-                protocol_version: connection.protocol_version(),
-            },
+            server_info: ServerInfo::new(connection),
         }
     }
 
@@ -592,6 +588,16 @@ pub struct ServerInfo {
     pub address: Arc<Address>,
     pub server_agent: Arc<String>,
     pub protocol_version: (u8, u8),
+}
+
+impl ServerInfo {
+    pub(crate) fn new(connection: &PooledBolt) -> Self {
+        Self {
+            address: connection.address(),
+            server_agent: connection.server_agent(),
+            protocol_version: connection.protocol_version(),
+        }
+    }
 }
 
 fn try_into_bool(v: ValueReceive, context: &str) -> Result<bool> {

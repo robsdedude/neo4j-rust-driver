@@ -26,7 +26,9 @@ use crate::ValueSend;
 
 use super::auth::TestKitAuthManagers;
 use super::cypher_value::CypherValue;
-use super::driver_holder::{CloseSession, DriverHolder, EmulatedDriverConfig, NewSession};
+use super::driver_holder::{
+    CloseSession, DriverHolder, EmulatedDriverConfig, NewSession, VerifyAuthentication,
+};
 use super::errors::TestKitError;
 use super::resolver::TestKitResolver;
 use super::responses::Response;
@@ -108,6 +110,16 @@ pub(super) enum Request {
     },
     #[serde(rename_all = "camelCase")]
     CheckMultiDBSupport {
+        driver_id: BackendId,
+    },
+    #[serde(rename_all = "camelCase")]
+    VerifyAuthentication {
+        driver_id: BackendId,
+        #[serde(rename = "authorizationToken")]
+        auth: Option<TestKitAuth>,
+    },
+    #[serde(rename_all = "camelCase")]
+    CheckSessionAuthSupport {
         driver_id: BackendId,
     },
     #[serde(rename_all = "camelCase")]
@@ -297,7 +309,7 @@ pub(super) enum TestKitAuth {
 impl From<TestKitAuth> for AuthToken {
     fn from(value: TestKitAuth) -> Self {
         let TestKitAuth::AuthorizationToken(data) = value;
-        let auth = match data {
+        match data {
             AuthTokenData::Basic {
                 principal,
                 credentials,
@@ -322,8 +334,16 @@ impl From<TestKitAuth> for AuthToken {
                 });
                 AuthToken::new_custom_auth(principal, credentials, realm, Some(scheme), parameters)
             }
-        };
-        auth
+        }
+    }
+}
+
+impl From<Option<TestKitAuth>> for AuthToken {
+    fn from(value: Option<TestKitAuth>) -> Self {
+        match value {
+            None => AuthToken::new_none_auth(),
+            Some(value) => value.into(),
+        }
     }
 }
 
@@ -489,8 +509,9 @@ pub(super) enum AuthTokenData {
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(tag = "name", content = "data", rename_all = "camelCase")]
+#[serde(tag = "name", content = "data")]
 pub(super) enum AuthTokenAndExpiration {
+    #[serde(rename_all = "camelCase")]
     AuthTokenAndExpiration {
         auth: TestKitAuth,
         expires_in_ms: Option<i64>,
@@ -621,9 +642,11 @@ impl Request {
             Request::BearerAuthTokenProviderCompleted { .. } => {
                 return self.unexpected_resolution()
             }
-            // Request::VerifyConnectivity { .. } => {},
-            // Request::GetServerInfo { .. } => {},
+            Request::VerifyConnectivity { .. } => self.verify_connectivity(backend)?,
+            Request::GetServerInfo { .. } => self.get_server_info(backend)?,
             Request::CheckMultiDBSupport { .. } => self.check_multi_db_support(backend)?,
+            Request::VerifyAuthentication { .. } => self.verify_authentication(backend)?,
+            Request::CheckSessionAuthSupport { .. } => self.check_session_auth_support(backend)?,
             // Request::CheckDriverIsEncrypted { .. } => {},
             Request::ResolverResolutionCompleted { .. } => return self.unexpected_resolution(),
             Request::BookmarksSupplierCompleted { .. } => return self.unexpected_resolution(),
@@ -854,6 +877,26 @@ impl Request {
         backend.send(&Response::BearerAuthTokenManager { id })
     }
 
+    fn verify_connectivity(self, backend: &Backend) -> TestKitResult {
+        let Request::VerifyConnectivity { driver_id } = self else {
+            panic!("expected Request::VerifyConnectivity");
+        };
+        let data = backend.data.borrow();
+        let driver_holder = get_driver(&data, &driver_id)?;
+        driver_holder.verify_connectivity().result?;
+        backend.send(&Response::Driver { id: driver_id })
+    }
+
+    fn get_server_info(self, backend: &Backend) -> TestKitResult {
+        let Request::GetServerInfo { driver_id } = self else {
+            panic!("expected Request::GetServerInfo");
+        };
+        let data = backend.data.borrow();
+        let driver_holder = get_driver(&data, &driver_id)?;
+        let server_info = driver_holder.get_server_info().result?;
+        backend.send(&Response::ServerInfo(server_info.into()))
+    }
+
     fn check_multi_db_support(self, backend: &Backend) -> TestKitResult {
         let Request::CheckMultiDBSupport { driver_id } = self else {
             panic!("expected Request::CheckMultiDBSupport");
@@ -863,6 +906,32 @@ impl Request {
         let available = driver_holder.supports_multi_db().result?;
         let id = backend.next_id();
         backend.send(&Response::MultiDBSupport { id, available })
+    }
+
+    fn verify_authentication(self, backend: &Backend) -> TestKitResult {
+        let Request::VerifyAuthentication { driver_id, auth } = self else {
+            panic!("expected Request::VerifyAuthentication");
+        };
+        let data = backend.data.borrow();
+        let driver_holder = get_driver(&data, &driver_id)?;
+        let authenticated = driver_holder
+            .verify_authentication(VerifyAuthentication { auth: auth.into() })
+            .result?;
+        backend.send(&Response::DriverIsAuthenticated {
+            id: driver_id,
+            authenticated,
+        })
+    }
+
+    fn check_session_auth_support(self, backend: &Backend) -> TestKitResult {
+        let Request::CheckSessionAuthSupport { driver_id } = self else {
+            panic!("expected Request::CheckMultiDBSupport");
+        };
+        let data = backend.data.borrow();
+        let driver_holder = get_driver(&data, &driver_id)?;
+        let available = driver_holder.supports_session_auth().result?;
+        let id = backend.next_id();
+        backend.send(&Response::SessionAuthSupport { id, available })
     }
 
     fn driver_close(self, backend: &Backend) -> TestKitResult {

@@ -163,6 +163,7 @@ pub(super) enum Response {
     },
     #[serde(rename_all = "camelCase")]
     Summary(Summary),
+    ServerInfo(ServerInfo),
     Bookmarks {
         bookmarks: Vec<String>,
     },
@@ -545,7 +546,7 @@ pub(super) struct ServerInfo {
 impl From<crate::summary::ServerInfo> for ServerInfo {
     fn from(server_info: crate::summary::ServerInfo) -> Self {
         Self {
-            address: format!("{}", server_info.address),
+            address: server_info.address.to_string(),
             agent: server_info.server_agent.deref().clone(),
             protocol_version: format!(
                 "{}.{}",
@@ -581,11 +582,11 @@ impl Response {
                 // "Feature:API:BookmarkManager",
                 "Feature:API:ConnectionAcquisitionTimeout",
                 // "Feature:API:Driver.ExecuteQuery",
-                // "Feature:API:Driver:GetServerInfo",
-                // "Feature:API:Driver.IsEncrypted",
+                "Feature:API:Driver:GetServerInfo",
+                // "Feature:API:Driver.IsEncrypted" ,
                 "Feature:API:Driver:NotificationsConfig",
-                // "Feature:API:Driver.VerifyConnectivity",
-                // "Feature:API:Driver.SupportsSessionAuth",
+                "Feature:API:Driver.VerifyConnectivity",
+                "Feature:API:Driver.SupportsSessionAuth",
                 // "Feature:API:Liveness.Check",
                 // "Feature:API:Result.List",
                 // "Feature:API:Result.Peek",

@@ -39,7 +39,9 @@ pub struct AuthToken {
 impl AuthToken {
     pub fn new_none_auth() -> Self {
         Self {
-            data: HashMap::new(),
+            data: value_map!({
+                "scheme": "none",
+            }),
         }
     }
 

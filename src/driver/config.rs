@@ -41,6 +41,7 @@ pub struct DriverConfig {
     pub(crate) user_agent: String,
     pub(crate) auth: AuthConfig,
     // max_connection_lifetime
+    pub(crate) idle_time_before_connection_test: Option<Duration>,
     pub(crate) max_connection_pool_size: usize,
     pub(crate) fetch_size: i64,
     pub(crate) connection_timeout: Option<Duration>,
@@ -68,6 +69,7 @@ impl Default for DriverConfig {
         Self {
             user_agent: String::from(DEFAULT_USER_AGENT),
             auth: AuthConfig::Static(Default::default()),
+            idle_time_before_connection_test: None,
             max_connection_pool_size: 100,
             fetch_size: DEFAULT_FETCH_SIZE,
             connection_timeout: Some(DEFAULT_CONNECTION_TIMEOUT),
@@ -94,6 +96,16 @@ impl DriverConfig {
 
     pub fn with_auth_manager(mut self, manager: Arc<dyn AuthManager>) -> Self {
         self.auth = AuthConfig::Manager(manager);
+        self
+    }
+
+    pub fn with_idle_time_before_connection_test(mut self, idle_time: Duration) -> Self {
+        self.idle_time_before_connection_test = Some(idle_time);
+        self
+    }
+
+    pub fn without_idle_time_before_connection_test(mut self) -> Self {
+        self.idle_time_before_connection_test = None;
         self
     }
 

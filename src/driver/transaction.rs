@@ -185,7 +185,10 @@ impl<'driver> InnerTransaction<'driver> {
 
     pub(crate) fn rollback(&mut self) -> Result<()> {
         self.closed = true;
-        self.check_error()?;
+        if self.error_propagator.deref().borrow().error().is_some() {
+            // transaction already failed, nothing to rollback
+            return Ok(());
+        }
         let mut cx = self.connection.borrow_mut();
         cx.rollback()?;
         cx.write_all(None)?;

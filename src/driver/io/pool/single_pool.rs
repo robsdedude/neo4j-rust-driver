@@ -12,21 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use log::info;
+use log::{info, log_enabled, Level};
 use std::collections::{HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use parking_lot::lock_api::MutexGuard;
 use parking_lot::{Condvar, Mutex, RawMutex};
 
 use super::super::bolt::message_parameters::{HelloParameters, ReauthParameters};
-use super::super::bolt::{self, TcpBolt};
+use super::super::bolt::{self, OnServerErrorCb, TcpBolt, TcpRW};
 use super::PoolConfig;
 use crate::driver::config::auth::{AuthManagers, AuthToken};
 use crate::driver::config::AuthConfig;
 use crate::driver::io::bolt::AuthResetHandle;
+use crate::util::RefContainer;
 use crate::{Address, Neo4jError, Result};
 
 type PoolElement = TcpBolt;
@@ -86,29 +87,15 @@ impl InnerPool {
         deadline: Option<Instant>,
         session_auth: SessionAuth,
     ) -> Result<PoolElement> {
-        enum Container<'a, T> {
-            Owned(T),
-            Borrowed(&'a T),
-        }
-
-        impl<'a, T> AsRef<T> for Container<'a, T> {
-            fn as_ref(&self) -> &T {
-                match self {
-                    Container::Owned(t) => t,
-                    Container::Borrowed(t) => t,
-                }
-            }
-        }
-
         let auth = match session_auth {
             SessionAuth::None => match &self.config.auth {
-                AuthConfig::Static(auth) => Container::Borrowed(auth),
+                AuthConfig::Static(auth) => RefContainer::Borrowed(auth),
                 AuthConfig::Manager(manager) => {
-                    Container::Owned(AuthManagers::get_auth(manager.as_ref())?)
+                    RefContainer::Owned(AuthManagers::get_auth(manager.as_ref())?)
                 }
             },
-            SessionAuth::Reauth(auth) => Container::Borrowed(auth),
-            SessionAuth::Forced(auth) => Container::Borrowed(auth),
+            SessionAuth::Reauth(auth) => RefContainer::Borrowed(auth),
+            SessionAuth::Forced(auth) => RefContainer::Borrowed(auth),
         };
 
         let address = Arc::clone(&self.address);
@@ -119,8 +106,12 @@ impl InnerPool {
             auth.as_ref(),
             self.config.routing_context.as_ref(),
         ))?;
-        if connection.supports_reauth() {
-            let is_session_auth = !matches!(session_auth, SessionAuth::None);
+        let is_session_auth = !matches!(session_auth, SessionAuth::None);
+        let supports_reauth = connection.supports_reauth();
+        if is_session_auth || supports_reauth {
+            if log_enabled!(Level::Debug) && is_session_auth && !supports_reauth {
+                connection.debug_log(|| "lacking session auth support".into());
+            };
             connection.reauth(ReauthParameters::new(auth.as_ref(), is_session_auth))?;
         }
         connection.write_all(deadline)?;
@@ -306,7 +297,9 @@ impl UnpreparedSinglePooledBolt {
     pub(crate) fn prepare(
         mut self,
         deadline: Option<Instant>,
+        idle_time_before_connection_test: Option<Duration>,
         session_auth: SessionAuth,
+        on_server_error: OnServerErrorCb<TcpRW>,
     ) -> Result<Option<SinglePooledBolt>> {
         let bolt = self.bolt.take();
         let pool = Arc::clone(&self.pool);
@@ -317,18 +310,35 @@ impl UnpreparedSinglePooledBolt {
             }
             Some(mut connection) => {
                 // room for health check etc. (return None on failed health check)
+                match idle_time_before_connection_test {
+                    None => {}
+                    Some(timeout) => {
+                        if let Err(err) = Self::liveness_check(
+                            &mut connection,
+                            timeout,
+                            deadline,
+                            on_server_error,
+                        ) {
+                            connection.debug_log(|| format!("liveness check failed: {}", err));
+                            SimplePool::release(&self.pool, connection);
+                            return Ok(None);
+                        }
+                    }
+                }
                 match self.reauth(&mut connection, session_auth) {
-                    Ok(Some(())) => {}
-                    Ok(None) => return Ok(None),
+                    Ok(Some(())) => Ok(Some(SinglePooledBolt {
+                        pool,
+                        bolt: Some(connection),
+                    })),
+                    Ok(None) => {
+                        SimplePool::release(&self.pool, connection);
+                        Ok(None)
+                    }
                     Err(e) => {
                         SimplePool::release(&self.pool, connection);
-                        return Err(e);
+                        Err(e)
                     }
-                };
-                Ok(Some(SinglePooledBolt {
-                    pool,
-                    bolt: Some(connection),
-                }))
+                }
             }
         }
     }
@@ -340,18 +350,22 @@ impl UnpreparedSinglePooledBolt {
     ) -> Result<Option<()>> {
         match session_auth {
             SessionAuth::None => {
-                if let AuthConfig::Manager(manager) = &self.pool.config.auth {
-                    let new_auth = AuthManagers::get_auth(manager.as_ref())?;
-                    let reauth_params = ReauthParameters::new(&new_auth, false);
-                    if connection.needs_reauth(reauth_params) {
-                        if !connection.supports_reauth() {
-                            connection.debug_log(|| {
-                                "backwards compatible auth token refresh: purge connection".into()
-                            });
-                            return Ok(None);
-                        }
-                        connection.reauth(reauth_params)?;
+                let new_auth = match &self.pool.config.auth {
+                    AuthConfig::Static(auth) => RefContainer::Borrowed(auth),
+                    AuthConfig::Manager(manager) => {
+                        RefContainer::Owned(AuthManagers::get_auth(manager.as_ref())?)
                     }
+                };
+                let reauth_params = ReauthParameters::new(new_auth.as_ref(), false);
+                if connection.needs_reauth(reauth_params) {
+                    if !connection.supports_reauth() {
+                        connection.debug_log(|| {
+                            "backwards compatible auth token refresh: purge connection".into()
+                        });
+                        connection.close();
+                        return Ok(None);
+                    }
+                    connection.reauth(reauth_params)?;
                 }
             }
             SessionAuth::Reauth(auth) => {
@@ -366,6 +380,21 @@ impl UnpreparedSinglePooledBolt {
         }
         Ok(Some(()))
     }
+
+    fn liveness_check(
+        connection: &mut PoolElement,
+        timeout: Duration,
+        deadline: Option<Instant>,
+        on_server_error: OnServerErrorCb<TcpRW>,
+    ) -> Result<()> {
+        if connection.is_idle_for(timeout) {
+            connection.debug_log(|| String::from("liveness check"));
+            connection.reset()?;
+            connection.write_all(None)?;
+            connection.read_all(deadline, on_server_error)?;
+        }
+        Ok(())
+    }
 }
 
 impl Drop for UnpreparedSinglePooledBolt {
@@ -373,10 +402,7 @@ impl Drop for UnpreparedSinglePooledBolt {
         if self.bolt.is_none() {
             return;
         }
-        let bolt = self
-            .bolt
-            .take()
-            .expect("bolt option should be Some from init to drop");
+        let bolt = self.bolt.take().expect("checked above that bolt is Some");
         SimplePool::release(&self.pool, bolt);
     }
 }

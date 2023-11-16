@@ -29,9 +29,11 @@ Feature Progress:
      * [x] `TLS`
    * [x] `.session`
    * [x] `.supports_multi_db`
+   * [x] `.supports_session_auth`
    * [ ] `.execute_query`
-   * [ ] `.verify_connectivity`
-   * [ ] `.get_server_info`
+   * [x] `.verify_connectivity`
+   * [x] `.verify_authentication`
+   * [x] `.get_server_info`
    * [ ] `.encrypted` (not sure if needed?)
  * [x] Session
    * [x] Config
@@ -39,6 +41,7 @@ Feature Progress:
      * [x] bookmarks
      * [x] impersonated_user
      * [x] fetch_size
+     * [x] session_auth
    * [x] Auto Commit
    * [x] Transaction
      * [x] Config

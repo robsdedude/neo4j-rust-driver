@@ -24,9 +24,11 @@ use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::result;
+use std::sync::Arc;
 
 use thiserror::Error;
 
+use super::config::auth::AuthToken;
 use super::io::bolt::message_parameters::RunParameters;
 use super::io::PooledBolt;
 use super::io::{AcquireConfig, Pool, UpdateRtArgs};
@@ -35,14 +37,15 @@ use super::transaction::Transaction;
 use super::{EagerResult, ReducedDriverConfig, RoutingControl};
 use crate::driver::io::SessionAuth;
 use crate::transaction::InnerTransaction;
-use crate::{Result, ValueSend};
+use crate::{Neo4jError, Result, ValueSend};
 use bookmarks::Bookmarks;
+use config::InternalSessionConfig;
 pub use config::SessionConfig;
 use retry::RetryPolicy;
 
 #[derive(Debug)]
 pub struct Session<'driver, C: AsRef<SessionConfig>> {
-    config: C,
+    config: InternalSessionConfig<C>,
     pool: &'driver Pool,
     driver_config: &'driver ReducedDriverConfig,
     resolved_db: Option<String>,
@@ -51,7 +54,7 @@ pub struct Session<'driver, C: AsRef<SessionConfig>> {
 
 impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
     pub(crate) fn new(
-        config: C,
+        config: InternalSessionConfig<C>,
         pool: &'driver Pool,
         driver_config: &'driver ReducedDriverConfig,
     ) -> Self {
@@ -106,7 +109,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
                 Some(builder.meta.borrow()),
                 builder.mode.as_protocol_str(),
                 self.resolved_db().as_deref(),
-                self.config.as_ref().impersonated_user.as_deref(),
+                self.config.config.as_ref().impersonated_user.as_deref(),
             ))
             .and_then(|_| (builder.receiver)(&mut record_stream));
         let res = match res {
@@ -151,7 +154,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
             builder.meta.borrow(),
             builder.mode.as_protocol_str(),
             self.resolved_db().as_deref(),
-            self.config.as_ref().impersonated_user.as_deref(),
+            self.config.config.as_ref().impersonated_user.as_deref(),
         )?;
         let res = receiver(Transaction::new(&mut tx));
         let res = match res {
@@ -183,8 +186,9 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
             self.resolved_db = self.pool.resolve_home_db(UpdateRtArgs {
                 db: &None,
                 bookmarks: self.last_raw_bookmarks(),
-                imp_user: &self.config.as_ref().impersonated_user,
+                imp_user: &self.config.config.as_ref().impersonated_user,
                 session_auth: self.session_auth(),
+                idle_time_before_connection_test: self.config.idle_time_before_connection_test,
             })?;
             debug!("Resolved home db to {:?}", &self.resolved_db);
         }
@@ -194,22 +198,62 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
     #[inline]
     fn resolved_db(&self) -> &Option<String> {
         match self.resolved_db {
-            None => &self.config.as_ref().database,
+            None => &self.config.config.as_ref().database,
             Some(_) => &self.resolved_db,
         }
     }
 
-    fn acquire_connection(&mut self, mode: RoutingControl) -> Result<PooledBolt<'driver>> {
+    pub(super) fn acquire_connection(
+        &mut self,
+        mode: RoutingControl,
+    ) -> Result<PooledBolt<'driver>> {
         self.resolve_db()?;
         self.pool.acquire(AcquireConfig {
             mode,
             update_rt_args: UpdateRtArgs {
                 db: self.resolved_db(),
                 bookmarks: self.last_raw_bookmarks(),
-                imp_user: &self.config.as_ref().impersonated_user,
+                imp_user: &self.config.config.as_ref().impersonated_user,
                 session_auth: self.session_auth(),
+                idle_time_before_connection_test: self.config.idle_time_before_connection_test,
             },
         })
+    }
+
+    pub(super) fn verify_authentication(&mut self, auth: &Arc<AuthToken>) -> Result<bool> {
+        match self.forced_auth(auth) {
+            Ok(_) => Ok(true),
+            Err(err) => match &err {
+                Neo4jError::ServerError { error } => match error.code() {
+                    "Neo.ClientError.Security.CredentialsExpired"
+                    | "Neo.ClientError.Security.Forbidden"
+                    | "Neo.ClientError.Security.TokenExpired"
+                    | "Neo.ClientError.Security.Unauthorized" => Ok(false),
+                    _ => Err(err),
+                },
+                Neo4jError::Disconnect { .. }
+                | Neo4jError::InvalidConfig { .. }
+                | Neo4jError::Timeout { .. }
+                | Neo4jError::UserCallback { .. }
+                | Neo4jError::ProtocolError { .. } => Err(err),
+            },
+        }
+    }
+
+    fn forced_auth(&mut self, auth: &Arc<AuthToken>) -> Result<()> {
+        self.resolve_db()?;
+        let mut connection = self.pool.acquire(AcquireConfig {
+            mode: RoutingControl::Read,
+            update_rt_args: UpdateRtArgs {
+                db: self.resolved_db(),
+                bookmarks: self.last_raw_bookmarks(),
+                imp_user: &self.config.config.as_ref().impersonated_user,
+                session_auth: SessionAuth::Forced(auth),
+                idle_time_before_connection_test: self.config.idle_time_before_connection_test,
+            },
+        })?;
+        connection.write_all(None)?;
+        connection.read_all(None)
     }
 
     #[inline]
@@ -217,7 +261,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         if self.last_bookmarks.is_some() {
             &self.last_bookmarks
         } else {
-            &self.config.as_ref().bookmarks
+            &self.config.config.as_ref().bookmarks
         }
     }
 
@@ -229,6 +273,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
     #[inline]
     fn fetch_size(&self) -> i64 {
         self.config
+            .config
             .as_ref()
             .fetch_size
             .unwrap_or(self.driver_config.fetch_size)
@@ -236,7 +281,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
 
     #[inline]
     fn session_auth(&self) -> SessionAuth {
-        match &self.config.as_ref().auth {
+        match &self.config.config.as_ref().auth {
             Some(auth) => SessionAuth::Reauth(auth),
             None => SessionAuth::None,
         }

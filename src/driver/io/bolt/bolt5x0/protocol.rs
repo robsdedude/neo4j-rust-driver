@@ -724,7 +724,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
                         let res1 = cb(bolt_data, &mut error);
                         let res2 = response.callbacks.on_failure(error);
                         match res1 {
-                            Ok(_) => res2,
+                            Ok(()) => res2,
                             Err(e1) => {
                                 if let Err(e2) = res2 {
                                     warn!(

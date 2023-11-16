@@ -142,7 +142,8 @@ pub(crate) fn dbg_extra(port: Option<u16>, bolt_id: Option<&str>) -> String {
     )
 }
 
-pub(crate) type TcpBolt = Bolt<Socket<BufTcpStream>>;
+pub(crate) type TcpRW = Socket<BufTcpStream>;
+pub(crate) type TcpBolt = Bolt<TcpRW>;
 
 pub(crate) type OnServerErrorCb<'a, 'b, RW> =
     Option<&'a mut (dyn FnMut(&mut BoltData<RW>, &mut ServerError) -> Result<()> + 'b)>;
@@ -170,6 +171,21 @@ impl<RW: Read + Write> Bolt<RW> {
                 _ => panic!("implement protocol for version {:?}", version),
             },
         }
+    }
+
+    pub(crate) fn close(&mut self) {
+        if self.data.closed() {
+            return;
+        }
+        self.data.connection_state = ConnectionState::Closed;
+        self.data.message_buff.clear();
+        self.data.responses.clear();
+        if self.goodbye().is_err() {
+            return;
+        }
+        let _ = self
+            .data
+            .write_all(Some(Instant::now() + Duration::from_millis(100)));
     }
 
     pub(crate) fn closed(&self) -> bool {
@@ -303,6 +319,7 @@ impl<RW: Read + Write> Bolt<RW> {
         drop(dechunker);
         let message_result = reader.rewrite_error(message_result);
         let message = self.wrap_read_result(message_result)?;
+        self.data.idle_since = Instant::now();
         self.protocol
             .handle_response(&mut self.data, message, on_server_error)
     }
@@ -325,7 +342,9 @@ impl<RW: Read + Write> Bolt<RW> {
     }
     pub(crate) fn write_one(&mut self, deadline: Option<Instant>) -> Result<()> {
         self.data.write_one(deadline)?;
-        self.data.flush(deadline)
+        self.data.flush(deadline)?;
+        self.data.idle_since = Instant::now();
+        Ok(())
     }
     pub(crate) fn has_buffered_message(&self) -> bool {
         self.data.has_buffered_message()
@@ -342,6 +361,9 @@ impl<RW: Read + Write> Bolt<RW> {
     pub(crate) fn needs_reset(&self) -> bool {
         self.data.needs_reset()
     }
+    pub(crate) fn is_idle_for(&self, timeout: Duration) -> bool {
+        self.data.is_idle_for(timeout)
+    }
 
     #[inline(always)]
     pub(crate) fn debug_log(&self, msg: impl FnOnce() -> String) {
@@ -351,17 +373,7 @@ impl<RW: Read + Write> Bolt<RW> {
 
 impl<RW: Read + Write> Drop for Bolt<RW> {
     fn drop(&mut self) {
-        if self.data.closed() {
-            return;
-        }
-        self.data.message_buff.clear();
-        self.data.responses.clear();
-        if self.goodbye().is_err() {
-            return;
-        }
-        let _ = self
-            .data
-            .write_all(Some(Instant::now() + Duration::from_millis(100)));
+        self.close();
     }
 }
 
@@ -471,6 +483,7 @@ pub(crate) struct BoltData<RW: Read + Write> {
     auth: Option<Arc<AuthToken>>,
     session_auth: bool,
     auth_reset: AuthResetHandle,
+    idle_since: Instant,
 }
 
 impl<RW: Read + Write> BoltData<RW> {
@@ -499,6 +512,7 @@ impl<RW: Read + Write> BoltData<RW> {
             auth: None,
             session_auth: false,
             auth_reset: Default::default(),
+            idle_since: Instant::now(),
         }
     }
 
@@ -660,6 +674,10 @@ impl<RW: Read + Write> BoltData<RW> {
                 .as_ref()
                 .map(|auth| !auth.eq_data(parameters.auth))
                 .unwrap_or(true)
+    }
+
+    fn is_idle_for(&self, timeout: Duration) -> bool {
+        self.idle_since.elapsed() >= timeout
     }
 }
 

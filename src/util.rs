@@ -34,3 +34,17 @@ pub(crate) fn truncate_string(string: &str, start: usize, end: usize) -> &str {
     }
     chars.as_str()
 }
+
+pub(crate) enum RefContainer<'a, T> {
+    Owned(T),
+    Borrowed(&'a T),
+}
+
+impl<'a, T> AsRef<T> for RefContainer<'a, T> {
+    fn as_ref(&self) -> &T {
+        match self {
+            RefContainer::Owned(t) => t,
+            RefContainer::Borrowed(t) => t,
+        }
+    }
+}

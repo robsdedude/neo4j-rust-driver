@@ -89,27 +89,7 @@ impl<'pool> PooledBolt<'pool> {
     fn new_server_error_handler<RW: Read + Write>(
         pool: &'pool Pool,
     ) -> impl FnMut(&mut BoltData<RW>, &mut ServerError) -> Result<()> + 'pool {
-        move |bolt_data, error| {
-            if error.deactivates_server() {
-                pool.deactivate_server(bolt_data.address());
-            } else if error.invalidates_writer() {
-                pool.deactivate_writer(bolt_data.address());
-            }
-            if error.is_security_error() {
-                let current_auth = bolt_data.auth().ok_or_else(|| {
-                    Neo4jError::protocol_error(
-                        "server sent security error over unauthenticated connection",
-                    )
-                })?;
-                pool.handle_security_error(
-                    bolt_data.address(),
-                    current_auth,
-                    bolt_data.session_auth(),
-                    error,
-                )?;
-            }
-            Ok(())
-        }
+        move |bolt_data, error| pool.handle_server_error(bolt_data, error)
     }
 
     #[inline]
@@ -230,9 +210,12 @@ impl Pool {
                     let mut connection = None;
                     let deadline = self.config.connection_acquisition_deadline();
                     while connection.is_none() {
-                        connection = single_pool
-                            .acquire(deadline)?
-                            .prepare(deadline, args.update_rt_args.session_auth)?;
+                        connection = single_pool.acquire(deadline)?.prepare(
+                            deadline,
+                            args.update_rt_args.idle_time_before_connection_test,
+                            args.update_rt_args.session_auth,
+                            None,
+                        )?;
                     }
                     connection.expect("loop above asserts existence")
                 }
@@ -240,6 +223,24 @@ impl Pool {
             }),
             pool: self,
         })
+    }
+
+    fn handle_server_error<RW: Read + Write>(
+        &self,
+        bolt_data: &mut BoltData<RW>,
+        error: &mut ServerError,
+    ) -> Result<()> {
+        match &self.pools {
+            Pools::Direct(pool) => handle_server_error(
+                PoolsRef::Direct(pool),
+                &self.config,
+                bolt_data.address(),
+                bolt_data.auth(),
+                bolt_data.session_auth(),
+                error,
+            ),
+            Pools::Routing(pool) => pool.handle_server_error(bolt_data, error),
+        }
     }
 
     fn deactivate_server(&self, addr: &Address) {
@@ -253,40 +254,18 @@ impl Pool {
             routing_pool.deactivate_writer(addr)
         }
     }
-
-    fn handle_security_error(
-        &self,
-        address: &Arc<Address>,
-        current_auth: &Arc<AuthToken>,
-        session_auth: bool,
-        error: &mut ServerError,
-    ) -> Result<()> {
-        if error.unauthenticates_all_connections() {
-            match &self.pools {
-                Pools::Direct(pool) => pool.reset_all_auth(),
-                Pools::Routing(pool) => pool.reset_all_auth(address),
-            }
-        }
-        if !session_auth {
-            match &self.config.auth {
-                AuthConfig::Static(_) => {}
-                AuthConfig::Manager(manager) => {
-                    let handled =
-                        AuthManagers::handle_security_error(&**manager, current_auth, error)?;
-                    if handled {
-                        error.overwrite_retryable();
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug)]
 enum Pools {
     Direct(SimplePool),
     Routing(RoutingPool),
+}
+
+#[derive(Debug)]
+enum PoolsRef<'a> {
+    Direct(&'a SimplePool),
+    Routing(&'a RoutingPool),
 }
 
 impl Pools {
@@ -335,7 +314,14 @@ impl RoutingPool {
         let deadline = self.config.connection_acquisition_deadline();
         'target: for target in &targets {
             while let Some(connection) = self.acquire_routing_address_no_wait(target) {
-                match connection.prepare(deadline, args.update_rt_args.session_auth) {
+                let mut on_server_error =
+                    |bolt_data: &mut _, error: &mut _| self.handle_server_error(bolt_data, error);
+                match connection.prepare(
+                    deadline,
+                    args.update_rt_args.idle_time_before_connection_test,
+                    args.update_rt_args.session_auth,
+                    Some(&mut on_server_error),
+                ) {
                     Ok(Some(connection)) => return Ok(connection),
                     Ok(None) => continue,
                     Err(Neo4jError::Disconnect { .. }) => {
@@ -361,7 +347,14 @@ impl RoutingPool {
                 .next();
             if let Some(connection) = connection {
                 drop(cond_lock);
-                match connection.prepare(deadline, args.update_rt_args.session_auth) {
+                let mut on_server_error =
+                    |bolt_data: &mut _, error: &mut _| self.handle_server_error(bolt_data, error);
+                match connection.prepare(
+                    deadline,
+                    args.update_rt_args.idle_time_before_connection_test,
+                    args.update_rt_args.session_auth,
+                    Some(&mut on_server_error),
+                ) {
                     Ok(Some(connection)) => return Ok(connection),
                     Ok(None) => {
                         cond_lock = self.wait_cond.0.lock();
@@ -432,14 +425,21 @@ impl RoutingPool {
         let mut connection = None;
         let deadline = self.config.connection_acquisition_deadline();
         while connection.is_none() {
-            connection = {
+            let unprepared_connection = {
                 let pools = self.ensure_pool_exists(target);
                 pools
                     .get(target)
                     .expect("just created above")
                     .acquire(deadline)
-            }?
-            .prepare(deadline, args.session_auth)?
+            }?;
+            let mut on_server_error =
+                |bolt_data: &mut _, error: &mut _| self.handle_server_error(bolt_data, error);
+            connection = unprepared_connection.prepare(
+                deadline,
+                args.idle_time_before_connection_test,
+                args.session_auth,
+                Some(&mut on_server_error),
+            )?;
         }
         Ok(connection.expect("loop above asserts existence"))
     }
@@ -732,6 +732,21 @@ impl RoutingPool {
             .for_each(|(_, rt)| rt.deactivate_writer(addr));
     }
 
+    fn handle_server_error<RW: Read + Write>(
+        &self,
+        bolt_data: &mut BoltData<RW>,
+        error: &mut ServerError,
+    ) -> Result<()> {
+        handle_server_error(
+            PoolsRef::Routing(self),
+            &self.config,
+            bolt_data.address(),
+            bolt_data.auth(),
+            bolt_data.session_auth(),
+            error,
+        )
+    }
+
     fn reset_all_auth(&self, address: &Arc<Address>) {
         self.pools.read().get(address).map(|pool| {
             pool.reset_all_auth();
@@ -753,6 +768,55 @@ impl RoutingPool {
     }
 }
 
+fn handle_server_error(
+    pools: PoolsRef,
+    config: &Arc<PoolConfig>,
+    address: &Arc<Address>,
+    current_auth: Option<&Arc<AuthToken>>,
+    session_auth: bool,
+    error: &mut ServerError,
+) -> Result<()> {
+    let current_auth = current_auth.ok_or_else(|| {
+        Neo4jError::protocol_error("server sent security error over unauthenticated connection")
+    })?;
+    if error.deactivates_server() {
+        match pools {
+            PoolsRef::Direct(_) => {}
+            PoolsRef::Routing(pool) => pool.deactivate_server(address),
+        }
+    } else if error.invalidates_writer() {
+        match pools {
+            PoolsRef::Direct(_) => {}
+            PoolsRef::Routing(pool) => pool.deactivate_writer(address),
+        }
+    }
+    if error.is_security_error() {
+        if error.unauthenticates_all_connections() {
+            debug!(
+                "mark all connections to {} as unauthenticated",
+                address.deref()
+            );
+            match pools {
+                PoolsRef::Direct(pool) => pool.reset_all_auth(),
+                PoolsRef::Routing(pool) => pool.reset_all_auth(address),
+            }
+        }
+        if !session_auth {
+            match &config.auth {
+                AuthConfig::Static(_) => {}
+                AuthConfig::Manager(manager) => {
+                    let handled =
+                        AuthManagers::handle_security_error(&**manager, current_auth, error)?;
+                    if handled {
+                        error.overwrite_retryable();
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct AcquireConfig<'a> {
     pub(crate) mode: RoutingControl,
@@ -765,6 +829,7 @@ pub(crate) struct UpdateRtArgs<'a> {
     pub(crate) bookmarks: &'a Option<Vec<String>>,
     pub(crate) imp_user: &'a Option<String>,
     pub(crate) session_auth: SessionAuth<'a>,
+    pub(crate) idle_time_before_connection_test: Option<Duration>,
 }
 
 enum DbName<'a> {
