@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::{TcpListener, TcpStream};
+use std::panic;
 use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
@@ -24,6 +25,7 @@ use serde::Serialize;
 
 mod auth;
 mod backend_id;
+mod bookmarks;
 mod cypher_value;
 mod driver_holder;
 mod errors;
@@ -32,6 +34,7 @@ mod resolver;
 mod responses;
 mod session_holder;
 
+use crate::bookmarks::BookmarkManager;
 use crate::driver::auth::AuthManager;
 
 use backend_id::BackendId;
@@ -57,8 +60,11 @@ fn start_server() {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                let err = handle_stream(stream);
-                println!("TestKit disconnected {err:?}")
+                let res = panic::catch_unwind(|| handle_stream(stream));
+                match res {
+                    Ok(res) => println!("TestKit disconnected {res:?}"),
+                    Err(err) => eprintln!("TestKit panicked {err:?}"),
+                }
             }
             Err(err) => {
                 println!("Connection failed {:?}", err);
@@ -108,6 +114,7 @@ struct BackendData {
     result_id_to_driver_id: HashMap<BackendId, BackendId>,
     tx_id_to_driver_id: HashMap<BackendId, BackendId>,
     auth_managers: HashMap<BackendId, Arc<dyn AuthManager>>,
+    bookmark_managers: HashMap<BackendId, Arc<dyn BookmarkManager>>,
 }
 
 impl Backend {
@@ -124,7 +131,10 @@ impl Backend {
 
 impl Backend {
     fn handle_request(&self) -> Result<(), DynError> {
-        let request = self.io.borrow_mut().read_request()?;
+        let request = {
+            let mut io = self.io.borrow_mut();
+            io.read_request()?
+        };
         self.process_request(request)?;
         Ok(())
     }

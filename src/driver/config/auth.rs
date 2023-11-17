@@ -163,11 +163,9 @@ pub trait AuthManager: Send + Sync + Debug {
     }
 }
 
-pub struct AuthManagers {
-    private: (),
-}
+pub mod auth_managers {
+    use super::*;
 
-impl AuthManagers {
     pub fn new_static(auth: AuthToken) -> impl AuthManager {
         StaticAuthManager {
             auth: Arc::new(auth),
@@ -199,7 +197,7 @@ impl AuthManagers {
 
     pub(crate) fn get_auth(manager: &'_ dyn AuthManager) -> Result<Arc<AuthToken>> {
         manager.get_auth().map_err(|err| Neo4jError::UserCallback {
-            error: UserCallbackError::AuthManagerError(err),
+            error: UserCallbackError::AuthManager(err),
         })
     }
 
@@ -211,130 +209,130 @@ impl AuthManagers {
         manager
             .handle_security_error(auth, error)
             .map_err(|err| Neo4jError::UserCallback {
-                error: UserCallbackError::AuthManagerError(err),
+                error: UserCallbackError::AuthManager(err),
             })
     }
-}
 
-#[derive(Debug)]
-struct StaticAuthManager {
-    auth: Arc<AuthToken>,
-}
-
-impl AuthManager for StaticAuthManager {
-    fn get_auth(&self) -> ManagerGetAuthReturn {
-        Ok(Arc::clone(&self.auth))
+    #[derive(Debug)]
+    struct StaticAuthManager {
+        auth: Arc<AuthToken>,
     }
-}
 
-#[derive(Debug)]
-struct Neo4jAuthCache {
-    auth: Arc<AuthToken>,
-    expiry: Option<Instant>,
-}
-
-struct Neo4jAuthManager<P, const N: usize> {
-    provider: P,
-    handled_codes: [&'static str; N],
-    cached_auth: Mutex<Option<Neo4jAuthCache>>,
-}
-
-impl<P, const N: usize> Neo4jAuthManager<P, N> {
-    fn handle_security_error(
-        &self,
-        auth: &AuthToken,
-        error: &ServerError,
-    ) -> ManagerHandleErrReturn {
-        if !self.handled_codes.contains(&error.code()) {
-            return Ok(false);
+    impl AuthManager for StaticAuthManager {
+        fn get_auth(&self) -> ManagerGetAuthReturn {
+            Ok(Arc::clone(&self.auth))
         }
-        let mut cache_guard = self.cached_auth.lock();
-        let Some(cached_auth) = &*cache_guard else {
-            return Ok(true);
-        };
-        if auth.eq_data(&cached_auth.auth) {
-            *cache_guard = None;
-        }
-        Ok(true)
-    }
-}
-
-struct BasicAuthManager<P, const N: usize>(Neo4jAuthManager<P, N>);
-impl<P, const N: usize> Debug for BasicAuthManager<P, N> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Neo4jBasicAuthManager")
-            .field("handled_codes", &self.0.handled_codes)
-            .field("cached_auth", &self.0.cached_auth)
-            .finish()
-    }
-}
-
-struct BearerAuthManager<P, const N: usize>(Neo4jAuthManager<P, N>);
-impl<P, const N: usize> Debug for BearerAuthManager<P, N> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Neo4jBearerAuthManager")
-            .field("handled_codes", &self.0.handled_codes)
-            .field("cached_auth", &self.0.cached_auth)
-            .finish()
-    }
-}
-
-impl<P: Fn() -> BasicProviderReturn + Sync + Send, const N: usize> AuthManager
-    for BasicAuthManager<P, N>
-{
-    fn get_auth(&self) -> ManagerGetAuthReturn {
-        let mut cache_guard = self.0.cached_auth.lock();
-        if let Some(cache) = &*cache_guard {
-            return Ok(Arc::clone(&cache.auth));
-        }
-        let auth = Arc::new((self.0.provider)()?);
-        *cache_guard = Some(Neo4jAuthCache {
-            auth: Arc::clone(&auth),
-            expiry: None,
-        });
-        Ok(auth)
     }
 
-    #[inline]
-    fn handle_security_error(
-        &self,
-        auth: &Arc<AuthToken>,
-        error: &ServerError,
-    ) -> ManagerHandleErrReturn {
-        self.0.handle_security_error(auth, error)
+    #[derive(Debug)]
+    struct Neo4jAuthCache {
+        auth: Arc<AuthToken>,
+        expiry: Option<Instant>,
     }
-}
 
-impl<P: Fn() -> BearerProviderReturn + Sync + Send, const N: usize> AuthManager
-    for BearerAuthManager<P, N>
-{
-    fn get_auth(&self) -> ManagerGetAuthReturn {
-        let mut cache_guard = self.0.cached_auth.lock();
-        if let Some(cache) = &*cache_guard {
-            let expired = match cache.expiry {
-                Some(expiry) => expiry <= Instant::now(),
-                None => false,
+    struct Neo4jAuthManager<P, const N: usize> {
+        provider: P,
+        handled_codes: [&'static str; N],
+        cached_auth: Mutex<Option<Neo4jAuthCache>>,
+    }
+
+    impl<P, const N: usize> Neo4jAuthManager<P, N> {
+        fn handle_security_error(
+            &self,
+            auth: &AuthToken,
+            error: &ServerError,
+        ) -> ManagerHandleErrReturn {
+            if !self.handled_codes.contains(&error.code()) {
+                return Ok(false);
+            }
+            let mut cache_guard = self.cached_auth.lock();
+            let Some(cached_auth) = &*cache_guard else {
+                return Ok(true);
             };
-            if !expired {
+            if auth.eq_data(&cached_auth.auth) {
+                *cache_guard = None;
+            }
+            Ok(true)
+        }
+    }
+
+    struct BasicAuthManager<P, const N: usize>(Neo4jAuthManager<P, N>);
+    impl<P, const N: usize> Debug for BasicAuthManager<P, N> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("Neo4jBasicAuthManager")
+                .field("handled_codes", &self.0.handled_codes)
+                .field("cached_auth", &self.0.cached_auth)
+                .finish()
+        }
+    }
+
+    struct BearerAuthManager<P, const N: usize>(Neo4jAuthManager<P, N>);
+    impl<P, const N: usize> Debug for BearerAuthManager<P, N> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("Neo4jBearerAuthManager")
+                .field("handled_codes", &self.0.handled_codes)
+                .field("cached_auth", &self.0.cached_auth)
+                .finish()
+        }
+    }
+
+    impl<P: Fn() -> BasicProviderReturn + Sync + Send, const N: usize> AuthManager
+        for BasicAuthManager<P, N>
+    {
+        fn get_auth(&self) -> ManagerGetAuthReturn {
+            let mut cache_guard = self.0.cached_auth.lock();
+            if let Some(cache) = &*cache_guard {
                 return Ok(Arc::clone(&cache.auth));
             }
-            *cache_guard = None;
+            let auth = Arc::new((self.0.provider)()?);
+            *cache_guard = Some(Neo4jAuthCache {
+                auth: Arc::clone(&auth),
+                expiry: None,
+            });
+            Ok(auth)
         }
-        let (auth, expiry) = (self.0.provider)()?;
-        let auth = Arc::new(auth);
-        *cache_guard = Some(Neo4jAuthCache {
-            auth: Arc::clone(&auth),
-            expiry,
-        });
-        Ok(auth)
+
+        #[inline]
+        fn handle_security_error(
+            &self,
+            auth: &Arc<AuthToken>,
+            error: &ServerError,
+        ) -> ManagerHandleErrReturn {
+            self.0.handle_security_error(auth, error)
+        }
     }
 
-    #[inline]
-    fn handle_security_error(
-        &self,
-        auth: &Arc<AuthToken>,
-        error: &ServerError,
-    ) -> ManagerHandleErrReturn {
-        self.0.handle_security_error(auth, error)
+    impl<P: Fn() -> BearerProviderReturn + Sync + Send, const N: usize> AuthManager
+        for BearerAuthManager<P, N>
+    {
+        fn get_auth(&self) -> ManagerGetAuthReturn {
+            let mut cache_guard = self.0.cached_auth.lock();
+            if let Some(cache) = &*cache_guard {
+                let expired = match cache.expiry {
+                    Some(expiry) => expiry <= Instant::now(),
+                    None => false,
+                };
+                if !expired {
+                    return Ok(Arc::clone(&cache.auth));
+                }
+                *cache_guard = None;
+            }
+            let (auth, expiry) = (self.0.provider)()?;
+            let auth = Arc::new(auth);
+            *cache_guard = Some(Neo4jAuthCache {
+                auth: Arc::clone(&auth),
+                expiry,
+            });
+            Ok(auth)
+        }
+
+        #[inline]
+        fn handle_security_error(
+            &self,
+            auth: &Arc<AuthToken>,
+            error: &ServerError,
+        ) -> ManagerHandleErrReturn {
+            self.0.handle_security_error(auth, error)
+        }
     }
 }

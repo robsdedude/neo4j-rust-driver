@@ -68,7 +68,7 @@ Feature Progress:
    * [x] `.single`
    * [ ] `.into::<EagerResult>()`
    * [ ] `.closed` (not sure if needed?)
- * [ ] Bookmark Management
+ * [x] Bookmark Management
  * [ ] Protocol Versions
    * [x] 4.4
    * [x] 5.0 (utc fix)

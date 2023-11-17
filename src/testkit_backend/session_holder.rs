@@ -467,7 +467,7 @@ impl SessionHolderRunner {
                                 BackendId,
                                 Arc<Option<HashMap<String, ValueSend>>>,
                             > = Default::default();
-                            loop {
+                            let result = loop {
                                 match Self::next_command(&self.rx_req, &mut buffered_command) {
                                     Command::TransactionRun(command) => {
                                         if command.transaction_id != id {
@@ -496,11 +496,15 @@ impl SessionHolderRunner {
                                             }
                                             Err(err) => {
                                                 known_transactions.insert(id, TxFailState::Failed);
-                                                let msg = TransactionRunResult {
-                                                    result: Err(err.into()),
-                                                };
-                                                tx_res.send(msg.into()).unwrap();
-                                                break;
+                                                // outside the receiver, we'll just reply with an
+                                                // error to the command. So query and parameters
+                                                // don't matter.
+                                                _ = buffered_command.insert(TransactionRun {
+                                                    transaction_id: command.transaction_id,
+                                                    query: String::from(""),
+                                                    params: None,
+                                                }.into());
+                                                break Err(err);
                                             }
                                         }
                                     }
@@ -618,8 +622,8 @@ impl SessionHolderRunner {
                                         if result.is_err() {
                                             known_transactions.insert(id, TxFailState::Failed);
                                         }
-                                        command.real_response(result, tx_res);
-                                        return Ok(());
+                                        _ = buffered_command.insert(Command::CommitTransaction(command));
+                                        return result;
                                     }
                                     Command::RollbackTransaction(command) => {
                                         if command.transaction_id != id {
@@ -634,8 +638,8 @@ impl SessionHolderRunner {
                                         if result.is_err() {
                                             known_transactions.insert(id, TxFailState::Failed);
                                         }
-                                        command.real_response(result, tx_res);
-                                        return Ok(());
+                                        _ = buffered_command.insert(Command::RollbackTransaction(command));
+                                        return result;
                                     }
                                     Command::CloseTransaction(command) => {
                                         if command.transaction_id != id {
@@ -650,8 +654,8 @@ impl SessionHolderRunner {
                                         if result.is_err() {
                                             known_transactions.insert(id, TxFailState::Failed);
                                         }
-                                        command.real_response(result, tx_res);
-                                        return Ok(());
+                                        _ = buffered_command.insert(Command::CloseTransaction(command));
+                                        return result;
                                     }
                                     Command::LastBookmarks(command) => {
                                         command.buffered_response(tx_res, last_bookmarks.clone());
@@ -673,34 +677,54 @@ impl SessionHolderRunner {
                                     command @ (
                                     | Command::Close) => {
                                         _ = buffered_command.insert(command);
-                                        break;
+                                        break Ok(());
                                     }
                                 }
-                            }
+                            };
                             streams.into_keys().for_each(|id| {
                                 record_holders.insert(id, RecordBuffer::new_transaction());
                             });
-                            Ok(())
+                            result
                         })
                     };
-                    if let Err(e) = res {
-                        if started_receiver {
-                            let command = buffered_command
-                                .take()
-                                .unwrap_or_else(|| panic!("about to swallow closure error: {e:?}"));
-                            command.reply_error(&self.tx_res, e.into());
-                            if matches!(command, Command::Close) {
+                    let res = res.map_err(Into::into);
+                    if !started_receiver {
+                        let err = res.expect_err(
+                            "unmanaged transaction succeeded without calling the receiver",
+                        );
+
+                        self.tx_res
+                            .send(BeginTransactionResult { result: Err(err) }.into())
+                            .unwrap();
+                    } else {
+                        let command = buffered_command.take().unwrap_or_else(|| {
+                            panic!("left unmanaged transaction without buffered command")
+                        });
+                        match command {
+                            Command::TransactionRun(_) => {
+                                let err = res.expect_err("unmanaged transaction left of successful run");
+                                self.tx_res.send(TransactionRunResult{ result:Err(err) }.into()).unwrap();
+                            }
+                            Command::CommitTransaction(command) => {
+                                command.real_response(res, &self.tx_res)
+                            }
+
+                            Command::RollbackTransaction(command) => {
+                                command.real_response(res, &self.tx_res)
+                            }
+
+                            Command::CloseTransaction(command) => {
+                                command.real_response(res, &self.tx_res)
+                            }
+                            Command::Close => {
+                                self.tx_res
+                                    .send(CloseResult { result: res }.into())
+                                    .unwrap();
                                 return;
                             }
-                        } else {
-                            self.tx_res
-                                .send(
-                                    BeginTransactionResult {
-                                        result: Err(e.into()),
-                                    }
-                                    .into(),
-                                )
-                                .unwrap();
+                            _ => panic!(
+                                "left transaction function with unexpected buffered command {command:?}"
+                            ),
                         }
                     }
                 }
@@ -1100,7 +1124,7 @@ impl SessionHolderRunner {
                             return;
                         }
                         _ => panic!(
-                            "left transaction function ok unexpected buffered command {command:?}"
+                            "left transaction function with unexpected buffered command {command:?}"
                         ),
                     }
                 }
@@ -1773,10 +1797,8 @@ impl CommitTransaction {
         tx_res.send(msg).unwrap();
     }
 
-    fn real_response(&self, result: Result<(), Neo4jError>, tx_res: &Sender<CommandResult>) {
-        let msg = CommandResult::CommitTransaction(CommitTransactionResult {
-            result: result.map_err(Into::into),
-        });
+    fn real_response(&self, result: Result<(), TestKitError>, tx_res: &Sender<CommandResult>) {
+        let msg = CommandResult::CommitTransaction(CommitTransactionResult { result });
         tx_res.send(msg).unwrap();
     }
 }
@@ -1812,16 +1834,15 @@ impl RollbackTransaction {
     ) {
         let result = match known_transactions.get(&self.transaction_id) {
             Some(TxFailState::Passed) => Err(transaction_out_of_scope_error()),
-            Some(TxFailState::Failed) => Ok(Ok(())),
+            Some(TxFailState::Failed) => Ok(()),
             None => Err(TestKitError::backend_err("transaction not found")),
         };
         let msg = CommandResult::RollbackTransaction(RollbackTransactionResult { result });
         tx_res.send(msg).unwrap();
     }
 
-    fn real_response(&self, result: Result<(), Neo4jError>, tx_res: &Sender<CommandResult>) {
-        let msg =
-            CommandResult::RollbackTransaction(RollbackTransactionResult { result: Ok(result) });
+    fn real_response(&self, result: Result<(), TestKitError>, tx_res: &Sender<CommandResult>) {
+        let msg = CommandResult::RollbackTransaction(RollbackTransactionResult { result });
         tx_res.send(msg).unwrap();
     }
 }
@@ -1829,7 +1850,7 @@ impl RollbackTransaction {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct RollbackTransactionResult {
-    pub(super) result: Result<Result<(), Neo4jError>, TestKitError>,
+    pub(super) result: Result<(), TestKitError>,
 }
 
 impl From<RollbackTransactionResult> for CommandResult {
@@ -1856,15 +1877,15 @@ impl CloseTransaction {
         known_transactions: &HashMap<BackendId, TxFailState>,
     ) {
         let result = match known_transactions.get(&self.transaction_id) {
-            Some(_) => Ok(Ok(())),
+            Some(_) => Ok(()),
             None => Err(TestKitError::backend_err("transaction not found")),
         };
         let msg = CommandResult::CloseTransaction(CloseTransactionResult { result });
         tx_res.send(msg).unwrap();
     }
 
-    fn real_response(&self, result: Result<(), Neo4jError>, tx_res: &Sender<CommandResult>) {
-        let msg = CommandResult::CloseTransaction(CloseTransactionResult { result: Ok(result) });
+    fn real_response(&self, result: Result<(), TestKitError>, tx_res: &Sender<CommandResult>) {
+        let msg = CommandResult::CloseTransaction(CloseTransactionResult { result });
         tx_res.send(msg).unwrap();
     }
 }
@@ -1872,7 +1893,7 @@ impl CloseTransaction {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct CloseTransactionResult {
-    pub(super) result: Result<Result<(), Neo4jError>, TestKitError>,
+    pub(super) result: Result<(), TestKitError>,
 }
 
 impl From<CloseTransactionResult> for CommandResult {
@@ -1977,7 +1998,7 @@ impl LastBookmarks {
         self.buffered_response(tx_res, session.last_bookmarks())
     }
 
-    fn buffered_response(&self, tx_res: &Sender<CommandResult>, bookmarks: Bookmarks) {
+    fn buffered_response(&self, tx_res: &Sender<CommandResult>, bookmarks: Arc<Bookmarks>) {
         let msg = LastBookmarksResult {
             result: Ok(bookmarks),
         };
@@ -1988,7 +2009,7 @@ impl LastBookmarks {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct LastBookmarksResult {
-    pub(super) result: Result<Bookmarks, TestKitError>,
+    pub(super) result: Result<Arc<Bookmarks>, TestKitError>,
 }
 
 impl From<LastBookmarksResult> for CommandResult {

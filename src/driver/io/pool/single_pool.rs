@@ -24,7 +24,7 @@ use parking_lot::{Condvar, Mutex, RawMutex};
 use super::super::bolt::message_parameters::{HelloParameters, ReauthParameters};
 use super::super::bolt::{self, OnServerErrorCb, TcpBolt, TcpRW};
 use super::PoolConfig;
-use crate::driver::config::auth::{AuthManagers, AuthToken};
+use crate::driver::config::auth::{auth_managers, AuthToken};
 use crate::driver::config::AuthConfig;
 use crate::driver::io::bolt::AuthResetHandle;
 use crate::util::RefContainer;
@@ -91,7 +91,7 @@ impl InnerPool {
             SessionAuth::None => match &self.config.auth {
                 AuthConfig::Static(auth) => RefContainer::Borrowed(auth),
                 AuthConfig::Manager(manager) => {
-                    RefContainer::Owned(AuthManagers::get_auth(manager.as_ref())?)
+                    RefContainer::Owned(auth_managers::get_auth(manager.as_ref())?)
                 }
             },
             SessionAuth::Reauth(auth) => RefContainer::Borrowed(auth),
@@ -353,7 +353,7 @@ impl UnpreparedSinglePooledBolt {
                 let new_auth = match &self.pool.config.auth {
                     AuthConfig::Static(auth) => RefContainer::Borrowed(auth),
                     AuthConfig::Manager(manager) => {
-                        RefContainer::Owned(AuthManagers::get_auth(manager.as_ref())?)
+                        RefContainer::Owned(auth_managers::get_auth(manager.as_ref())?)
                     }
                 };
                 let reauth_params = ReauthParameters::new(new_auth.as_ref(), false);

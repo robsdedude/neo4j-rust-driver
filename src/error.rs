@@ -320,24 +320,36 @@ impl Display for ServerError {
 pub enum UserCallbackError {
     /// `DriverConfig::resolver` returned an error
     #[error("resolver callback failed: {0}")]
-    ResolverError(BoxError),
+    Resolver(BoxError),
     /// [`AuthManager`] `DriverConfig::auth` returned an error
-    #[error("AuthManager.get_auth() failed: {0}")]
-    AuthManagerError(BoxError),
+    #[error("AuthManager failed: {0}")]
+    AuthManager(BoxError),
+    /// [`BookmarkManager`] `SessionConfig::bookmark_manager::get_bookmarks` returned an error.
+    /// In this case, the transaction will not have taken place.
+    #[error("BookmarkManager get failed: {0}")]
+    BookmarkManagerGet(BoxError),
+    /// [`BookmarkManager`] `SessionConfig::bookmark_manager::update_bookmarks` returned an error.
+    /// In this case, the transaction will have taken place already.
+    #[error("BookmarkManager update failed: {0}")]
+    BookmarkManagerUpdate(BoxError),
 }
 
 impl UserCallbackError {
     pub fn user_error(&self) -> &dyn StdError {
         match self {
-            UserCallbackError::ResolverError(err) => err.as_ref(),
-            UserCallbackError::AuthManagerError(err) => err.as_ref(),
+            UserCallbackError::Resolver(err)
+            | UserCallbackError::AuthManager(err)
+            | UserCallbackError::BookmarkManagerGet(err)
+            | UserCallbackError::BookmarkManagerUpdate(err) => err.as_ref(),
         }
     }
 
     pub fn into_user_error(self) -> BoxError {
         match self {
-            UserCallbackError::ResolverError(err) => err,
-            UserCallbackError::AuthManagerError(err) => err,
+            UserCallbackError::Resolver(err)
+            | UserCallbackError::AuthManager(err)
+            | UserCallbackError::BookmarkManagerGet(err)
+            | UserCallbackError::BookmarkManagerUpdate(err) => err,
         }
     }
 }

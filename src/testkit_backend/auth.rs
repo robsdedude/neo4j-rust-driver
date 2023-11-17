@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use atomic_refcell::AtomicRefCell;
 
 use crate::driver::auth::{
-    AuthManager, AuthManagers, AuthToken, ManagerGetAuthReturn, ManagerHandleErrReturn,
+    auth_managers, AuthManager, AuthToken, ManagerGetAuthReturn, ManagerHandleErrReturn,
 };
 use crate::error::ServerError;
 
@@ -37,7 +37,7 @@ impl TestKitAuthManagers {
     ) -> (BackendId, Arc<dyn AuthManager>) {
         let manager_id = id_generator.next_id();
 
-        let manager = Arc::new(AuthManagers::new_basic(move || {
+        let manager = Arc::new(auth_managers::new_basic(move || {
             let mut io = backend_io.borrow_mut();
             let id = id_generator.next_id();
             io.send(&Response::BasicAuthTokenProviderRequest {
@@ -75,7 +75,7 @@ impl TestKitAuthManagers {
     ) -> (BackendId, Arc<dyn AuthManager>) {
         let manager_id = id_generator.next_id();
 
-        let manager = Arc::new(AuthManagers::new_bearer(move || {
+        let manager = Arc::new(auth_managers::new_bearer(move || {
             let mut io = backend_io.borrow_mut();
             let id = id_generator.next_id();
             io.send(&Response::BearerAuthTokenProviderRequest {

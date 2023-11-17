@@ -72,7 +72,7 @@ impl CustomResolution {
                     Err(err) => {
                         debug!("custom resolver failed: {:?}", err);
                         Err(Neo4jError::UserCallback {
-                            error: UserCallbackError::ResolverError(err),
+                            error: UserCallbackError::Resolver(err),
                         })
                     }
                 }

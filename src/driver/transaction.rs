@@ -29,6 +29,7 @@ use super::io::bolt::ResponseCallbacks;
 use super::io::PooledBolt;
 use super::record_stream::{GetSingleRecordError, RecordStream, SharedErrorPropagator};
 use super::Record;
+use crate::bookmarks::Bookmarks;
 use crate::error::ServerError;
 use crate::summary::Summary;
 use crate::{Neo4jError, Result, ValueReceive, ValueSend};
@@ -141,7 +142,7 @@ impl<'driver> InnerTransaction<'driver> {
 
     pub(crate) fn begin<K: Borrow<str> + Debug>(
         &mut self,
-        bookmarks: Option<&[String]>,
+        bookmarks: Option<&Bookmarks>,
         tx_timeout: Option<i64>,
         tx_metadata: &HashMap<K, ValueSend>,
         mode: Option<&str>,

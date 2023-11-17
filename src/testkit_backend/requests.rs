@@ -25,6 +25,7 @@ use crate::session::SessionConfig;
 use crate::ValueSend;
 
 use super::auth::TestKitAuthManagers;
+use super::bookmarks::new_bookmark_manager;
 use super::cypher_value::CypherValue;
 use super::driver_holder::{
     CloseSession, DriverHolder, EmulatedDriverConfig, NewSession, VerifyAuthentication,
@@ -133,7 +134,7 @@ pub(super) enum Request {
     },
     #[serde(rename_all = "camelCase")]
     BookmarksSupplierCompleted {
-        request_id: usize,
+        request_id: BackendId,
         bookmarks: Vec<String>,
     },
     #[serde(rename_all = "camelCase")]
@@ -143,8 +144,8 @@ pub(super) enum Request {
     #[serde(rename_all = "camelCase")]
     NewBookmarkManager {
         initial_bookmarks: Option<Vec<String>>,
-        bookmarks_supplier_registered: Option<bool>,
-        bookmarks_consumer_registered: Option<bool>,
+        bookmarks_supplier_registered: bool,
+        bookmarks_consumer_registered: bool,
     },
     #[serde(rename_all = "camelCase")]
     BookmarkManagerClose {
@@ -651,8 +652,8 @@ impl Request {
             Request::ResolverResolutionCompleted { .. } => return self.unexpected_resolution(),
             Request::BookmarksSupplierCompleted { .. } => return self.unexpected_resolution(),
             Request::BookmarksConsumerCompleted { .. } => return self.unexpected_resolution(),
-            // Request::NewBookmarkManager { .. } => {},
-            // Request::BookmarkManagerClose { .. } => {},
+            Request::NewBookmarkManager { .. } => self.new_bookmark_manager(backend)?,
+            Request::BookmarkManagerClose { .. } => self.close_bookmark_manager(backend)?,
             Request::DomainNameResolutionCompleted { .. } => return self.unexpected_resolution(),
             Request::DriverClose { .. } => self.driver_close(backend)?,
             Request::NewSession { .. } => self.new_session(backend)?,
@@ -934,6 +935,40 @@ impl Request {
         backend.send(&Response::SessionAuthSupport { id, available })
     }
 
+    fn new_bookmark_manager(self, backend: &Backend) -> TestKitResult {
+        let Request::NewBookmarkManager {
+            initial_bookmarks,
+            bookmarks_supplier_registered,
+            bookmarks_consumer_registered,
+        } = self
+        else {
+            panic!("expected Request::NewBookmarkManager");
+        };
+        let (id, manager) = new_bookmark_manager(
+            initial_bookmarks,
+            bookmarks_supplier_registered,
+            bookmarks_consumer_registered,
+            Arc::clone(&backend.io),
+            backend.id_generator.clone(),
+        );
+        backend
+            .data
+            .borrow_mut()
+            .bookmark_managers
+            .insert(id, Arc::new(manager));
+        backend.send(&Response::BookmarkManager { id })
+    }
+    fn close_bookmark_manager(self, backend: &Backend) -> TestKitResult {
+        let Request::BookmarkManagerClose { id } = self else {
+            panic!("expected Request::BookmarkManagerClose");
+        };
+        let mut data = backend.data.borrow_mut();
+        let Some(_) = data.bookmark_managers.remove(&id) else {
+            return Err(missing_bookmark_manager_error(&id));
+        };
+        backend.send(&Response::BookmarkManager { id })
+    }
+
     fn driver_close(self, backend: &Backend) -> TestKitResult {
         let Request::DriverClose { driver_id } = self else {
             panic!("expected Request::DriverClose");
@@ -969,7 +1004,7 @@ impl Request {
         let driver_holder = get_driver(&data, &driver_id)?;
         let mut config = SessionConfig::new();
         if let Some(bookmarks) = bookmarks {
-            config = config.with_bookmarks(Bookmarks::from_raw(bookmarks));
+            config = config.with_bookmarks(Arc::new(Bookmarks::from_raw(bookmarks)));
         }
         if let Some(database) = database {
             config = config.with_database(database);
@@ -995,9 +1030,11 @@ impl Request {
             return Err(TestKitError::backend_err(format!("Driver does not yet support notifications_disabled_categories, found {notifications_disabled_categories:?}")));
         }
         if let Some(bookmark_manager_id) = bookmark_manager_id {
-            return Err(TestKitError::backend_err(format!(
-                "Driver does not yet support bookmark_manager_id, found {bookmark_manager_id}"
-            )));
+            let manager = data
+                .bookmark_managers
+                .get(&bookmark_manager_id)
+                .ok_or_else(|| missing_bookmark_manager_error(&bookmark_manager_id))?;
+            config = config.with_bookmark_manager(Arc::clone(manager));
         }
         if let Some(auth) = auth {
             config = config.with_session_auth(Arc::new(auth.into()));
@@ -1150,7 +1187,7 @@ impl Request {
             .last_bookmarks(LastBookmarks { session_id })
             .result?;
         backend.send(&Response::Bookmarks {
-            bookmarks: bookmarks.into_raw().collect(),
+            bookmarks: bookmarks.raw().map(String::from).collect(),
         })
     }
 
@@ -1212,7 +1249,7 @@ impl Request {
         };
         get_driver(&data, &driver_id)?
             .rollback_transaction(RollbackTransaction { transaction_id })
-            .result??;
+            .result?;
         backend.send(&Response::Transaction { id: transaction_id })
     }
 
@@ -1228,7 +1265,7 @@ impl Request {
         };
         get_driver(&data, &driver_id)?
             .close_transaction(CloseTransaction { transaction_id })
-            .result??;
+            .result?;
         backend.send(&Response::Transaction { id: transaction_id })
     }
 
@@ -1382,6 +1419,12 @@ fn missing_driver_error(driver_id: &BackendId) -> TestKitError {
 fn missing_auth_token_manager_error(auth_token_manager_id: &BackendId) -> TestKitError {
     TestKitError::backend_err(format!(
         "No auth token manager with id {auth_token_manager_id} found"
+    ))
+}
+
+fn missing_bookmark_manager_error(bookmark_manager_id: &BackendId) -> TestKitError {
+    TestKitError::backend_err(format!(
+        "No bookmark manager with id {bookmark_manager_id} found"
     ))
 }
 

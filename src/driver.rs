@@ -131,8 +131,8 @@ impl Driver {
             mode: RoutingControl::Read,
             update_rt_args: UpdateRtArgs {
                 db: &self.capability_check_config.database,
-                bookmarks: &None,
-                imp_user: &None,
+                bookmarks: None,
+                imp_user: None,
                 session_auth: SessionAuth::None,
                 idle_time_before_connection_test: None,
             },

@@ -138,7 +138,7 @@ impl<T: Debug> MostlyRLock<T> {
         mut updater: UPDATE,
     ) -> Result<RwLockReadGuard<'a, T>> {
         let Some(timeout) = timeout else {
-            return self.maybe_write(needs_update, updater)
+            return self.maybe_write(needs_update, updater);
         };
         loop {
             {

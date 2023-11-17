@@ -12,19 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::driver::config::auth::AuthToken;
-use crate::driver::config::ConfigureFetchSizeError;
-use crate::driver::session::Bookmarks;
 use std::sync::Arc;
 use std::time::Duration;
+
+use super::super::config::auth::AuthToken;
+use super::super::config::ConfigureFetchSizeError;
+use super::super::session::bookmarks::{BookmarkManager, Bookmarks};
 
 #[derive(Debug, Clone, Default)]
 pub struct SessionConfig {
     pub(crate) database: Option<String>,
-    pub(crate) bookmarks: Option<Vec<String>>,
+    pub(crate) bookmarks: Option<Arc<Bookmarks>>,
     pub(crate) impersonated_user: Option<String>,
     pub(crate) fetch_size: Option<i64>,
     pub(crate) auth: Option<Arc<AuthToken>>,
+    pub(crate) bookmark_manager: Option<Arc<dyn BookmarkManager>>,
 }
 
 impl SessionConfig {
@@ -45,14 +47,26 @@ impl SessionConfig {
     }
 
     #[inline]
-    pub fn with_bookmarks(mut self, bookmarks: Bookmarks) -> Self {
-        self.bookmarks = Some(bookmarks.into_raw().collect());
+    pub fn with_bookmarks(mut self, bookmarks: Arc<Bookmarks>) -> Self {
+        self.bookmarks = Some(bookmarks);
         self
     }
 
     #[inline]
     pub fn without_bookmarks(mut self) -> Self {
         self.bookmarks = None;
+        self
+    }
+
+    #[inline]
+    pub fn with_bookmark_manager(mut self, manager: Arc<dyn BookmarkManager>) -> Self {
+        self.bookmark_manager = Some(manager);
+        self
+    }
+
+    #[inline]
+    pub fn without_bookmark_manager(mut self) -> Self {
+        self.bookmark_manager = None;
         self
     }
 

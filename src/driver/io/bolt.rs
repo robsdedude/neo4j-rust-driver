@@ -578,6 +578,14 @@ impl<RW: Read + Write> BoltData<RW> {
         Ok(())
     }
 
+    fn serialize_str_iter<S: PackStreamSerializer, V: Borrow<str>, I: Iterator<Item = V>>(
+        &self,
+        serializer: &mut S,
+        iter: I,
+    ) -> result::Result<(), S::Error> {
+        self.serialize_str_slice(serializer, &iter.collect::<Vec<_>>())
+    }
+
     fn serialize_value<S: PackStreamSerializer, T: BoltStructTranslator>(
         &self,
         serializer: &mut S,

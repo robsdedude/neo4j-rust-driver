@@ -32,7 +32,8 @@ use parking_lot::{Condvar, Mutex, RwLockReadGuard};
 use super::bolt::message_parameters::RouteParameters;
 use super::bolt::{BoltData, ResponseCallbacks};
 use crate::address::AddressResolver;
-use crate::driver::config::auth::{AuthManagers, AuthToken};
+use crate::bookmarks::Bookmarks;
+use crate::driver::config::auth::{auth_managers, AuthToken};
 use crate::driver::config::AuthConfig;
 use crate::driver::RoutingControl;
 use crate::error::ServerError;
@@ -601,9 +602,9 @@ impl RoutingPool {
         con.route(
             RouteParameters::new(
                 self.config.routing_context.as_ref().unwrap(),
-                args.bookmarks.as_deref(),
+                args.bookmarks,
                 args.db.as_deref(),
-                args.imp_user.as_deref(),
+                args.imp_user,
             ),
             ResponseCallbacks::new().with_on_success({
                 let rt = Arc::clone(&rt);
@@ -806,7 +807,7 @@ fn handle_server_error(
                 AuthConfig::Static(_) => {}
                 AuthConfig::Manager(manager) => {
                     let handled =
-                        AuthManagers::handle_security_error(&**manager, current_auth, error)?;
+                        auth_managers::handle_security_error(&**manager, current_auth, error)?;
                     if handled {
                         error.overwrite_retryable();
                     }
@@ -826,8 +827,8 @@ pub(crate) struct AcquireConfig<'a> {
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct UpdateRtArgs<'a> {
     pub(crate) db: &'a Option<String>,
-    pub(crate) bookmarks: &'a Option<Vec<String>>,
-    pub(crate) imp_user: &'a Option<String>,
+    pub(crate) bookmarks: Option<&'a Bookmarks>,
+    pub(crate) imp_user: Option<&'a str>,
     pub(crate) session_auth: SessionAuth<'a>,
     pub(crate) idle_time_before_connection_test: Option<Duration>,
 }

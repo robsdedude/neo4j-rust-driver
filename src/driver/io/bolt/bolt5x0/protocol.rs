@@ -316,10 +316,10 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         if let Some(bookmarks) = bookmarks {
             if !bookmarks.is_empty() {
                 serializer.write_string("bookmarks")?;
-                data.serialize_str_slice(&mut serializer, bookmarks)?;
+                data.serialize_str_iter(&mut serializer, bookmarks.raw())?;
                 debug_buf!(log_buf, "{}", {
                     dbg_serializer.write_string("bookmarks").unwrap();
-                    data.serialize_str_slice(&mut dbg_serializer, bookmarks)
+                    data.serialize_str_iter(&mut dbg_serializer, bookmarks.raw())
                         .unwrap();
                     dbg_serializer.flush()
                 });
@@ -488,12 +488,12 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
             if !bookmarks.is_empty() {
                 debug_buf!(log_buf, "{}", {
                     dbg_serializer.write_string("bookmarks").unwrap();
-                    data.serialize_str_slice(&mut dbg_serializer, bookmarks)
+                    data.serialize_str_iter(&mut dbg_serializer, bookmarks.raw())
                         .unwrap();
                     dbg_serializer.flush()
                 });
                 serializer.write_string("bookmarks").unwrap();
-                data.serialize_str_slice(&mut serializer, bookmarks)?;
+                data.serialize_str_iter(&mut serializer, bookmarks.raw())?;
             }
         }
 
@@ -626,10 +626,11 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
             }
             Some(bms) => {
                 debug_buf!(log_buf, " {}", {
-                    data.serialize_str_slice(&mut dbg_serializer, bms).unwrap();
+                    data.serialize_str_iter(&mut dbg_serializer, bms.raw())
+                        .unwrap();
                     dbg_serializer.flush()
                 });
-                data.serialize_str_slice(&mut serializer, bms)?;
+                data.serialize_str_iter(&mut serializer, bms.raw())?;
             }
         }
 

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::bookmarks::Bookmarks;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -75,7 +76,7 @@ impl ResetParameters {
 pub(crate) struct RunParameters<'a, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug> {
     pub(super) query: &'a str,
     pub(super) parameters: Option<&'a HashMap<KP, ValueSend>>,
-    pub(super) bookmarks: Option<&'a [String]>,
+    pub(super) bookmarks: Option<&'a Bookmarks>,
     pub(super) tx_timeout: Option<i64>,
     pub(super) tx_metadata: Option<&'a HashMap<KM, ValueSend>>,
     pub(super) mode: Option<&'a str>,
@@ -88,7 +89,7 @@ impl<'a, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug> RunParameters<'a, KP,
     pub(crate) fn new_auto_commit_run(
         query: &'a str,
         parameters: Option<&'a HashMap<KP, ValueSend>>,
-        bookmarks: Option<&'a [String]>,
+        bookmarks: Option<&'a Bookmarks>,
         tx_timeout: Option<i64>,
         tx_metadata: Option<&'a HashMap<KM, ValueSend>>,
         mode: Option<&'a str>,
@@ -152,7 +153,7 @@ impl PullParameters {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BeginParameters<'a, K: Borrow<str> + Debug> {
-    pub(super) bookmarks: Option<&'a [String]>,
+    pub(super) bookmarks: Option<&'a Bookmarks>,
     pub(super) tx_timeout: Option<i64>,
     pub(super) tx_metadata: Option<&'a HashMap<K, ValueSend>>,
     pub(super) mode: Option<&'a str>,
@@ -162,7 +163,7 @@ pub(crate) struct BeginParameters<'a, K: Borrow<str> + Debug> {
 
 impl<'a, K: Borrow<str> + Debug> BeginParameters<'a, K> {
     pub(crate) fn new(
-        bookmarks: Option<&'a [String]>,
+        bookmarks: Option<&'a Bookmarks>,
         tx_timeout: Option<i64>,
         tx_metadata: Option<&'a HashMap<K, ValueSend>>,
         mode: Option<&'a str>,
@@ -201,7 +202,7 @@ impl RollbackParameters {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RouteParameters<'a> {
     pub(super) routing_context: &'a HashMap<String, ValueSend>,
-    pub(super) bookmarks: Option<&'a [String]>,
+    pub(super) bookmarks: Option<&'a Bookmarks>,
     pub(super) db: Option<&'a str>,
     pub(super) imp_user: Option<&'a str>,
 }
@@ -209,7 +210,7 @@ pub(crate) struct RouteParameters<'a> {
 impl<'a> RouteParameters<'a> {
     pub(crate) fn new(
         routing_context: &'a HashMap<String, ValueSend>,
-        bookmarks: Option<&'a [String]>,
+        bookmarks: Option<&'a Bookmarks>,
         db: Option<&'a str>,
         imp_user: Option<&'a str>,
     ) -> Self {

@@ -38,7 +38,7 @@ use super::{EagerResult, ReducedDriverConfig, RoutingControl};
 use crate::driver::io::SessionAuth;
 use crate::transaction::InnerTransaction;
 use crate::{Neo4jError, Result, ValueSend};
-use bookmarks::Bookmarks;
+use bookmarks::{bookmark_managers, BookmarkManager, Bookmarks};
 use config::InternalSessionConfig;
 pub use config::SessionConfig;
 use retry::RetryPolicy;
@@ -49,7 +49,7 @@ pub struct Session<'driver, C: AsRef<SessionConfig>> {
     pool: &'driver Pool,
     driver_config: &'driver ReducedDriverConfig,
     resolved_db: Option<String>,
-    last_bookmarks: Option<Vec<String>>,
+    session_bookmarks: SessionBookmarks,
 }
 
 impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
@@ -58,12 +58,19 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         pool: &'driver Pool,
         driver_config: &'driver ReducedDriverConfig,
     ) -> Self {
+        let bookmarks = config.config.as_ref().bookmarks.as_ref().map(Arc::clone);
+        let manager = config
+            .config
+            .as_ref()
+            .bookmark_manager
+            .as_ref()
+            .map(Arc::clone);
         Session {
             config,
             pool,
             driver_config,
             resolved_db: None,
-            last_bookmarks: None,
+            session_bookmarks: SessionBookmarks::new(bookmarks, manager),
         }
     }
 
@@ -104,7 +111,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
             .run(RunParameters::new_auto_commit_run(
                 builder.query.as_ref(),
                 Some(builder.param.borrow()),
-                self.last_raw_bookmarks().as_deref(),
+                Some(&*self.session_bookmarks.get_bookmarks_for_work()?),
                 builder.timeout,
                 Some(builder.meta.borrow()),
                 builder.mode.as_protocol_str(),
@@ -124,7 +131,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         };
         let bookmark = record_stream.into_bookmark();
         if let Some(bookmark) = bookmark {
-            self.last_bookmarks = Some(vec![bookmark])
+            self.session_bookmarks.update_bookmarks(bookmark)?;
         }
         res
     }
@@ -149,7 +156,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         let connection = self.acquire_connection(builder.mode)?;
         let mut tx = InnerTransaction::new(connection, self.fetch_size());
         tx.begin(
-            self.last_raw_bookmarks().as_deref(),
+            Some(&*self.session_bookmarks.get_bookmarks_for_work()?),
             builder.timeout,
             builder.meta.borrow(),
             builder.mode.as_protocol_str(),
@@ -175,7 +182,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         };
         let bookmark = tx.into_bookmark();
         if let Some(bookmark) = bookmark {
-            self.last_bookmarks = Some(vec![bookmark])
+            self.session_bookmarks.update_bookmarks(bookmark)?;
         }
         res
     }
@@ -185,8 +192,8 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
             debug!("Resolving home db");
             self.resolved_db = self.pool.resolve_home_db(UpdateRtArgs {
                 db: &None,
-                bookmarks: self.last_raw_bookmarks(),
-                imp_user: &self.config.config.as_ref().impersonated_user,
+                bookmarks: Some(&*self.session_bookmarks.get_bookmarks_for_work()?),
+                imp_user: self.config.config.as_ref().impersonated_user.as_deref(),
                 session_auth: self.session_auth(),
                 idle_time_before_connection_test: self.config.idle_time_before_connection_test,
             })?;
@@ -208,12 +215,13 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         mode: RoutingControl,
     ) -> Result<PooledBolt<'driver>> {
         self.resolve_db()?;
+        let bookmarks = self.session_bookmarks.get_bookmarks_for_work()?;
         self.pool.acquire(AcquireConfig {
             mode,
             update_rt_args: UpdateRtArgs {
                 db: self.resolved_db(),
-                bookmarks: self.last_raw_bookmarks(),
-                imp_user: &self.config.config.as_ref().impersonated_user,
+                bookmarks: Some(&*bookmarks),
+                imp_user: self.config.config.as_ref().impersonated_user.as_deref(),
                 session_auth: self.session_auth(),
                 idle_time_before_connection_test: self.config.idle_time_before_connection_test,
             },
@@ -242,12 +250,13 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
 
     fn forced_auth(&mut self, auth: &Arc<AuthToken>) -> Result<()> {
         self.resolve_db()?;
+        let bookmarks = self.session_bookmarks.get_bookmarks_for_work()?;
         let mut connection = self.pool.acquire(AcquireConfig {
             mode: RoutingControl::Read,
             update_rt_args: UpdateRtArgs {
                 db: self.resolved_db(),
-                bookmarks: self.last_raw_bookmarks(),
-                imp_user: &self.config.config.as_ref().impersonated_user,
+                bookmarks: Some(&*bookmarks),
+                imp_user: self.config.config.as_ref().impersonated_user.as_deref(),
                 session_auth: SessionAuth::Forced(auth),
                 idle_time_before_connection_test: self.config.idle_time_before_connection_test,
             },
@@ -257,17 +266,8 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
     }
 
     #[inline]
-    fn last_raw_bookmarks(&self) -> &Option<Vec<String>> {
-        if self.last_bookmarks.is_some() {
-            &self.last_bookmarks
-        } else {
-            &self.config.config.as_ref().bookmarks
-        }
-    }
-
-    #[inline]
-    pub fn last_bookmarks(&self) -> Bookmarks {
-        Bookmarks::from_raw(self.last_raw_bookmarks().clone().unwrap_or_default())
+    pub fn last_bookmarks(&self) -> Arc<Bookmarks> {
+        self.session_bookmarks.get_current_bookmarks()
     }
 
     #[inline]
@@ -672,5 +672,117 @@ pub struct ConfigureTimeoutError<Builder> {
 impl<Builder> ConfigureTimeoutError<Builder> {
     fn new(builder: Builder) -> Self {
         Self { builder }
+    }
+}
+
+#[derive(Debug)]
+enum SessionBookmarks {
+    Unmanaged {
+        bookmarks: Arc<Bookmarks>,
+    },
+    ManagedInit {
+        bookmarks: Arc<Bookmarks>,
+        manager: Arc<dyn BookmarkManager>,
+    },
+    ManagedGet {
+        bookmarks: Arc<Bookmarks>,
+        previous_bookmarks: Arc<Bookmarks>,
+        manager: Arc<dyn BookmarkManager>,
+    },
+    ManagedUpdated {
+        bookmarks: Arc<Bookmarks>,
+        previous_bookmarks: Arc<Bookmarks>,
+        manager: Arc<dyn BookmarkManager>,
+    },
+}
+
+impl SessionBookmarks {
+    fn new(bookmarks: Option<Arc<Bookmarks>>, manager: Option<Arc<dyn BookmarkManager>>) -> Self {
+        match manager {
+            None => Self::Unmanaged {
+                bookmarks: bookmarks.unwrap_or_default(),
+            },
+            Some(manager) => Self::ManagedInit {
+                bookmarks: bookmarks.unwrap_or_default(),
+                manager,
+            },
+        }
+    }
+
+    fn get_current_bookmarks(&self) -> Arc<Bookmarks> {
+        match &self {
+            Self::Unmanaged { bookmarks }
+            | Self::ManagedInit { bookmarks, .. }
+            | Self::ManagedGet { bookmarks, .. }
+            | Self::ManagedUpdated { bookmarks, .. } => Arc::clone(bookmarks),
+        }
+    }
+
+    fn get_bookmarks_for_work(&mut self) -> Result<Arc<Bookmarks>> {
+        match self {
+            Self::Unmanaged { bookmarks } => Ok(Arc::clone(bookmarks)),
+            Self::ManagedInit { bookmarks, manager }
+            | Self::ManagedGet {
+                bookmarks, manager, ..
+            } => {
+                let manager_bookmarks = bookmark_managers::get_bookmarks(&**manager)?;
+                let previous_bookmarks = Arc::new(&*manager_bookmarks + &**bookmarks);
+                *self = Self::ManagedGet {
+                    bookmarks: Arc::clone(bookmarks),
+                    previous_bookmarks: Arc::clone(&previous_bookmarks),
+                    manager: Arc::clone(manager),
+                };
+                Ok(previous_bookmarks)
+            }
+            Self::ManagedUpdated {
+                manager,
+                previous_bookmarks,
+                ..
+            } => {
+                *previous_bookmarks = bookmark_managers::get_bookmarks(&**manager)?;
+                Ok(Arc::clone(previous_bookmarks))
+            }
+        }
+    }
+
+    fn update_bookmarks(&mut self, bookmark: String) -> Result<()> {
+        match self {
+            SessionBookmarks::Unmanaged { bookmarks } => {
+                *bookmarks = Arc::new(Bookmarks::from_raw([bookmark]));
+            }
+            SessionBookmarks::ManagedInit { .. } => {
+                panic!("Cannot update bookmarks before first get")
+            }
+            SessionBookmarks::ManagedGet {
+                bookmarks,
+                previous_bookmarks,
+                manager,
+            } => {
+                *bookmarks = Arc::new(Bookmarks::from_raw([bookmark]));
+                bookmark_managers::update_bookmarks(
+                    &**manager,
+                    Arc::clone(previous_bookmarks),
+                    Arc::clone(bookmarks),
+                )?;
+                *self = Self::ManagedUpdated {
+                    bookmarks: Arc::clone(bookmarks),
+                    previous_bookmarks: Arc::clone(previous_bookmarks),
+                    manager: Arc::clone(manager),
+                };
+            }
+            SessionBookmarks::ManagedUpdated {
+                bookmarks,
+                previous_bookmarks,
+                manager,
+            } => {
+                *bookmarks = Arc::new(Bookmarks::from_raw([bookmark]));
+                bookmark_managers::update_bookmarks(
+                    &**manager,
+                    Arc::clone(previous_bookmarks),
+                    Arc::clone(bookmarks),
+                )?;
+            }
+        }
+        Ok(())
     }
 }

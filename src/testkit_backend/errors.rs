@@ -109,16 +109,28 @@ impl From<Neo4jError> for TestKitError {
 impl From<UserCallbackError> for TestKitError {
     fn from(value: UserCallbackError) -> Self {
         match value {
-            UserCallbackError::ResolverError(err) => match err.downcast::<Self>() {
+            UserCallbackError::Resolver(err) => match err.downcast::<Self>() {
                 Ok(err) => *err,
                 Err(err) => TestKitError::BackendError {
                     msg: format!("unexpected resolver error: {}", err),
                 },
             },
-            UserCallbackError::AuthManagerError(err) => match err.downcast::<Self>() {
+            UserCallbackError::AuthManager(err) => match err.downcast::<Self>() {
                 Ok(err) => *err,
                 Err(err) => TestKitError::BackendError {
                     msg: format!("unexpected auth manager error: {}", err),
+                },
+            },
+            UserCallbackError::BookmarkManagerGet(err) => match err.downcast::<Self>() {
+                Ok(err) => *err,
+                Err(err) => TestKitError::BackendError {
+                    msg: format!("unexpected bookmark manager get error: {}", err),
+                },
+            },
+            UserCallbackError::BookmarkManagerUpdate(err) => match err.downcast::<Self>() {
+                Ok(err) => *err,
+                Err(err) => TestKitError::BackendError {
+                    msg: format!("unexpected bookmark manager update error: {}", err),
                 },
             },
         }
@@ -128,16 +140,28 @@ impl From<UserCallbackError> for TestKitError {
 impl From<&UserCallbackError> for TestKitError {
     fn from(value: &UserCallbackError) -> Self {
         match value {
-            UserCallbackError::ResolverError(err) => match err.downcast_ref::<Self>() {
+            UserCallbackError::Resolver(err) => match err.downcast_ref::<Self>() {
                 Some(err) => err.clone(),
                 None => TestKitError::BackendError {
                     msg: format!("unexpected resolver error: {}", err),
                 },
             },
-            UserCallbackError::AuthManagerError(err) => match err.downcast_ref::<Self>() {
+            UserCallbackError::AuthManager(err) => match err.downcast_ref::<Self>() {
                 Some(err) => err.clone(),
                 None => TestKitError::BackendError {
                     msg: format!("unexpected auth manager error: {}", err),
+                },
+            },
+            UserCallbackError::BookmarkManagerGet(err) => match err.downcast_ref::<Self>() {
+                Some(err) => err.clone(),
+                None => TestKitError::BackendError {
+                    msg: format!("unexpected bookmark manager get error: {}", err),
+                },
+            },
+            UserCallbackError::BookmarkManagerUpdate(err) => match err.downcast_ref::<Self>() {
+                Some(err) => err.clone(),
+                None => TestKitError::BackendError {
+                    msg: format!("unexpected bookmark manager update error: {}", err),
                 },
             },
         }

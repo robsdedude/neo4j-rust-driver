@@ -579,7 +579,7 @@ impl Response {
         Self::FeatureList {
             features: [
                 // === FUNCTIONAL FEATURES ===
-                // "Feature:API:BookmarkManager",
+                "Feature:API:BookmarkManager",
                 "Feature:API:ConnectionAcquisitionTimeout",
                 // "Feature:API:Driver.ExecuteQuery",
                 "Feature:API:Driver:GetServerInfo",
