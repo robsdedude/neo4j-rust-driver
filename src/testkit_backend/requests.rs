@@ -770,8 +770,9 @@ impl Request {
         if let Some(timeout) = max_tx_retry_time_ms {
             emulated_config = emulated_config.with_max_retry_time(Duration::from_millis(timeout));
         }
-        if liveness_check_timeout_ms.is_some() {
-            return Err(TestKitError::backend_err("liveness check unsupported"));
+        if let Some(timeout) = liveness_check_timeout_ms {
+            driver_config =
+                driver_config.with_idle_time_before_connection_test(Duration::from_millis(timeout));
         }
         if let Some(max_connection_pool_size) = max_connection_pool_size {
             driver_config = driver_config.with_max_connection_pool_size(max_connection_pool_size);

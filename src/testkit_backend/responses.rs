@@ -19,7 +19,7 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 
 use crate::summary::SummaryQueryType;
-use lazy_regex::Regex;
+use lazy_regex::{regex, Regex};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
@@ -49,9 +49,11 @@ fn get_plain_skipped_tests() -> &'static HashMap<&'static str, &'static str> {
 
 fn get_regex_skipped_tests() -> &'static [(&'static Regex, &'static str)] {
     REGEX_SKIPPED_TESTS.get_or_init(|| {
-        // use lazy_regex::regex;
         vec![
-            // (regex!(r"^test_.*$"), "reason"),
+            (
+                regex!(r"^.*\.routing\..*\.test_should_drop_connections_failing_liveness_check$"),
+                "requires support for GetConnectionPoolMetrics TestKit message",
+            ), // (regex!(r"^test_.*$"), "reason"),
         ]
     })
 }
@@ -584,10 +586,13 @@ impl Response {
                 // "Feature:API:Driver.ExecuteQuery",
                 "Feature:API:Driver:GetServerInfo",
                 // "Feature:API:Driver.IsEncrypted" ,
+                // Even tough the driver does not support notification config,
+                // TestKit uses this flag to change assertions on the notification objects
                 "Feature:API:Driver:NotificationsConfig",
+                "Feature:API:Driver.VerifyAuthentication",
                 "Feature:API:Driver.VerifyConnectivity",
                 "Feature:API:Driver.SupportsSessionAuth",
-                // "Feature:API:Liveness.Check",
+                "Feature:API:Liveness.Check",
                 // "Feature:API:Result.List",
                 // "Feature:API:Result.Peek",
                 "Feature:API:Result.Single",
