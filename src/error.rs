@@ -32,7 +32,8 @@ pub enum Neo4jError {
     ///  * Experiencing a connectivity error.  
     ///    E.g., not able to connect, a broken socket,
     ///    not able to fetch routing information
-    #[error("connection failed: {message} (during commit: {during_commit})")]
+    #[error("connection failed: {message} (during commit: {during_commit}){}",
+            source.as_ref().map(|err| format!(" caused by: {err}")).unwrap_or_default())]
     #[non_exhaustive]
     Disconnect {
         message: String,
@@ -110,7 +111,7 @@ impl Neo4jError {
     pub(crate) fn read_err(err: io::Error) -> Self {
         info!("read error: {}", err);
         Self::Disconnect {
-            message: format!("failed to read: {}", err),
+            message: String::from("failed to read"),
             source: Some(err),
             during_commit: false,
         }
@@ -126,7 +127,7 @@ impl Neo4jError {
     pub(crate) fn write_error(err: io::Error) -> Neo4jError {
         info!("write error: {}", err);
         Self::Disconnect {
-            message: format!("failed to write: {}", err),
+            message: String::from("failed to write"),
             source: Some(err),
             during_commit: false,
         }
@@ -134,7 +135,7 @@ impl Neo4jError {
 
     pub(crate) fn connect_error(err: io::Error) -> Neo4jError {
         Self::Disconnect {
-            message: format!("failed to open connection: {}", err),
+            message: String::from("failed to open connection"),
             source: Some(err),
             during_commit: false,
         }

@@ -16,7 +16,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
 use crate::driver::{ConfigureFetchSizeError, ConnectionConfigParseError, TlsConfigError};
-use crate::error::UserCallbackError;
+use crate::error::{ServerError, UserCallbackError};
 use crate::retry::RetryableError;
 use crate::session::ConfigureTimeoutError;
 use crate::Neo4jError;
@@ -55,24 +55,20 @@ impl From<Neo4jError> for TestKitError {
     fn from(err: Neo4jError) -> Self {
         let retryable = err.is_retryable();
         match err {
-            Neo4jError::Disconnect {
-                message,
-                source,
-                during_commit,
-            } => TestKitError::DriverError {
-                error_type: String::from(if during_commit {
-                    "IncompleteCommitError"
-                } else {
-                    "DriverError"
-                }),
-                msg: match source {
-                    None => message,
-                    Some(source) => format!("{}: {}", message, source),
-                },
-                code: None,
-                id: None,
-                retryable,
-            },
+            Neo4jError::Disconnect { during_commit, .. } => {
+                let msg = err.to_string();
+                TestKitError::DriverError {
+                    error_type: String::from(if during_commit {
+                        "IncompleteCommit"
+                    } else {
+                        "Disconnect"
+                    }),
+                    msg,
+                    code: None,
+                    id: None,
+                    retryable,
+                }
+            }
             Neo4jError::InvalidConfig { message } => TestKitError::DriverError {
                 error_type: String::from("ConfigError"),
                 msg: message,
@@ -80,15 +76,18 @@ impl From<Neo4jError> for TestKitError {
                 id: None,
                 retryable,
             },
-            Neo4jError::ServerError { error } => TestKitError::DriverError {
-                error_type: String::from("ServerError"),
-                msg: String::from(error.message()),
-                code: Some(String::from(error.code())),
-                id: None,
-                retryable,
-            },
+            Neo4jError::ServerError { error } => {
+                let ServerError { code, message, .. } = error;
+                TestKitError::DriverError {
+                    error_type: String::from("ServerError"),
+                    msg: message,
+                    code: Some(code),
+                    id: None,
+                    retryable,
+                }
+            }
             Neo4jError::Timeout { message } => TestKitError::DriverError {
-                error_type: String::from("TimeoutError"),
+                error_type: String::from("Timeout"),
                 msg: message,
                 code: None,
                 id: None,
@@ -311,27 +310,23 @@ impl TestKitError {
         }
     }
 
-    pub(super) fn clone_neo4j_error(e: &Neo4jError) -> Self {
-        let retryable = e.is_retryable();
-        match e {
-            Neo4jError::Disconnect {
-                message,
-                source,
-                during_commit,
-            } => TestKitError::DriverError {
-                error_type: String::from(if *during_commit {
-                    "IncompleteCommitError"
-                } else {
-                    "DriverError"
-                }),
-                msg: match source {
-                    None => message.clone(),
-                    Some(source) => format!("{}: {}", message, source),
-                },
-                code: None,
-                id: None,
-                retryable,
-            },
+    pub(super) fn clone_neo4j_error(err: &Neo4jError) -> Self {
+        let retryable = err.is_retryable();
+        match err {
+            Neo4jError::Disconnect { during_commit, .. } => {
+                let msg = err.to_string();
+                TestKitError::DriverError {
+                    error_type: String::from(if *during_commit {
+                        "IncompleteCommit"
+                    } else {
+                        "Disconnect"
+                    }),
+                    msg,
+                    code: None,
+                    id: None,
+                    retryable,
+                }
+            }
             Neo4jError::InvalidConfig { message } => TestKitError::DriverError {
                 error_type: String::from("ConfigError"),
                 msg: message.clone(),
@@ -347,7 +342,7 @@ impl TestKitError {
                 retryable,
             },
             Neo4jError::Timeout { message } => TestKitError::DriverError {
-                error_type: String::from("TimeoutError"),
+                error_type: String::from("Timeout"),
                 msg: message.clone(),
                 code: None,
                 id: None,

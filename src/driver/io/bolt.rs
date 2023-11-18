@@ -158,7 +158,7 @@ impl<RW: Read + Write> Bolt<RW> {
     fn new(
         version: (u8, u8),
         stream: RW,
-        socket: Option<TcpStream>,
+        socket: Arc<Option<TcpStream>>,
         local_port: Option<u16>,
         address: Arc<Address>,
     ) -> Self {
@@ -311,8 +311,11 @@ impl<RW: Read + Write> Bolt<RW> {
         deadline: Option<Instant>,
         on_server_error: OnServerErrorCb<RW>,
     ) -> Result<()> {
-        let mut reader =
-            DeadlineIO::new(&mut self.data.stream, deadline, self.data.socket.as_ref());
+        let mut reader = DeadlineIO::new(
+            &mut self.data.stream,
+            deadline,
+            self.data.socket.deref().as_ref(),
+        );
         let mut dechunker = Dechunker::new(&mut reader);
         let message_result: Result<BoltMessage<ValueReceive>> =
             BoltMessage::load(&mut dechunker, |r| self.protocol.load_value(r));
@@ -330,6 +333,7 @@ impl<RW: Read + Write> Bolt<RW> {
             self.data.connection_state = ConnectionState::Broken;
             self.data
                 .socket
+                .deref()
                 .as_ref()
                 .map(|s| s.shutdown(Shutdown::Both));
         }
@@ -470,7 +474,7 @@ pub(crate) struct BoltData<RW: Read + Write> {
     message_buff: VecDeque<Vec<Vec<u8>>>,
     responses: VecDeque<BoltResponse>,
     stream: RW,
-    socket: Option<TcpStream>,
+    socket: Arc<Option<TcpStream>>,
     local_port: Option<u16>,
     version: (u8, u8),
     connection_state: ConnectionState,
@@ -490,7 +494,7 @@ impl<RW: Read + Write> BoltData<RW> {
     fn new(
         version: (u8, u8),
         stream: RW,
-        socket: Option<TcpStream>,
+        socket: Arc<Option<TcpStream>>,
         local_port: Option<u16>,
         address: Arc<Address>,
     ) -> Self {
@@ -619,7 +623,8 @@ impl<RW: Read + Write> BoltData<RW> {
     fn write_one(&mut self, deadline: Option<Instant>) -> Result<()> {
         if let Some(message_buff) = self.message_buff.pop_front() {
             let chunker = Chunker::new(&message_buff);
-            let mut writer = DeadlineIO::new(&mut self.stream, deadline, self.socket.as_ref());
+            let mut writer =
+                DeadlineIO::new(&mut self.stream, deadline, self.socket.deref().as_ref());
             for chunk in chunker {
                 let res = Neo4jError::wrap_write(writer.write_all(&chunk));
                 let res = writer.rewrite_error(res);
@@ -633,7 +638,7 @@ impl<RW: Read + Write> BoltData<RW> {
     }
 
     fn flush(&mut self, deadline: Option<Instant>) -> Result<()> {
-        let mut writer = DeadlineIO::new(&mut self.stream, deadline, self.socket.as_ref());
+        let mut writer = DeadlineIO::new(&mut self.stream, deadline, self.socket.deref().as_ref());
         let res = Neo4jError::wrap_write(writer.flush());
         let res = writer.rewrite_error(res);
         if let Err(err) = &res {
@@ -646,7 +651,10 @@ impl<RW: Read + Write> BoltData<RW> {
     fn handle_write_error(&mut self, err: &Neo4jError) {
         bolt_debug!(self, "write failed: {}", err);
         self.connection_state = ConnectionState::Broken;
-        self.socket.as_ref().map(|s| s.shutdown(Shutdown::Both));
+        self.socket
+            .deref()
+            .as_ref()
+            .map(|s| s.shutdown(Shutdown::Both));
     }
 
     fn has_buffered_message(&self) -> bool {
@@ -824,10 +832,7 @@ pub(crate) fn open(
         .map(|addr| addr.port())
         .unwrap_or_default();
 
-    // don't use a buffered socket if TLS is enabled
-    // https://github.com/rustls/rustls/issues/1537
-    let buffered = tls_config.is_none();
-    let buffered_socket = BufTcpStream::new(&raw_socket, buffered)?;
+    let buffered_socket = BufTcpStream::new(&raw_socket, true)?;
     let mut socket = Socket::new(buffered_socket, address.unresolved_host(), tls_config)?;
 
     let mut deadline_io = DeadlineIO::new(&mut socket, deadline, Some(&raw_socket));
@@ -881,7 +886,7 @@ pub(crate) fn open(
     Ok(Bolt::new(
         version,
         socket,
-        Some(raw_socket),
+        Arc::new(Some(raw_socket)),
         Some(local_port),
         address,
     ))

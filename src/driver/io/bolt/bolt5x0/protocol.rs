@@ -14,9 +14,11 @@
 
 use std::borrow::Borrow;
 use std::fmt::Debug;
-use std::io::{Read, Write};
+use std::io::{Error as IoError, Read, Write};
 use std::mem;
+use std::ops::Deref;
 use std::sync::Arc;
+use std::time::Duration;
 
 use log::{debug, log_enabled, warn, Level};
 use usize_cast::FromUsize;
@@ -41,6 +43,8 @@ use crate::error::ServerError;
 use crate::{Neo4jError, Result, ValueReceive};
 
 const SERVER_AGENT_KEY: &str = "server";
+const HINTS_KEY: &str = "hints";
+const RECV_TIMEOUT_KEY: &str = "connection.recv_timeout_seconds";
 
 #[derive(Debug, Default)]
 pub(crate) struct Bolt5x0<T: BoltStructTranslator> {
@@ -179,6 +183,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
 
         let bolt_meta = Arc::clone(&data.meta);
         let bolt_server_agent = Arc::clone(&data.server_agent);
+        let socket = Arc::clone(&data.socket);
         data.responses.push_back(BoltResponse::new(
             ResponseMessage::Hello,
             ResponseCallbacks::new().with_on_success(move |mut meta| {
@@ -190,6 +195,42 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
                         _ => {
                             warn!("Server sent unexpected server_agent type {:?}", &value);
                             meta.insert(key, value);
+                        }
+                    }
+                }
+                if let Some(value) = meta.get(HINTS_KEY) {
+                    match value {
+                        ValueReceive::Map(value) => {
+                            if let Some(timeout) = value.get(RECV_TIMEOUT_KEY) {
+                                match timeout {
+                                    ValueReceive::Integer(timeout) if timeout > &0 => {
+                                        socket.deref().as_ref().map(|socket| {
+                                            let timeout = Some(Duration::from_secs(*timeout as u64));
+                                            socket.set_read_timeout(timeout)?;
+                                            socket.set_write_timeout(timeout)?;
+                                            Ok(())
+                                        }).transpose().unwrap_or_else(|err: IoError| {
+                                            warn!("Failed to set socket timeout as hinted by the server: {err}");
+                                            None
+                                        });
+                                    }
+                                    ValueReceive::Integer(_) => {
+                                        warn!(
+                                            "Server sent unexpected {RECV_TIMEOUT_KEY} value {:?}",
+                                            timeout
+                                        );
+                                    }
+                                    _ => {
+                                        warn!(
+                                            "Server sent unexpected {RECV_TIMEOUT_KEY} type {:?}",
+                                            timeout
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        _ => {
+                            warn!("Server sent unexpected {HINTS_KEY} type {:?}", value);
                         }
                     }
                 }

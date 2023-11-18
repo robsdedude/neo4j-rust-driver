@@ -637,7 +637,7 @@ impl Response {
                 // "Detail:DefaultSecurityConfigValueEquality",
                 //
                 // === CONFIGURATION HINTS (BOLT 4.3+) ===
-                // "ConfHint:connection.recv_timeout_seconds",
+                "ConfHint:connection.recv_timeout_seconds",
                 //
                 // === BACKEND FEATURES FOR TESTING ===
                 // "Backend:MockTime",
