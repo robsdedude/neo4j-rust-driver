@@ -224,7 +224,7 @@ struct SessionHolderRunner {
 
 impl SessionHolderRunner {
     fn run(&mut self) {
-        let mut session = self.driver.session(&self.config);
+        let mut session = self.driver.session(self.config.clone());
         let mut record_holders: HashMap<BackendId, RecordBuffer> = Default::default();
         let mut known_transactions: HashMap<BackendId, TxFailState> = Default::default();
         let mut buffered_command = None;
@@ -1990,11 +1990,7 @@ impl From<LastBookmarks> for Command {
 }
 
 impl LastBookmarks {
-    fn real_response<C: AsRef<SessionConfig>>(
-        &self,
-        tx_res: &Sender<CommandResult>,
-        session: &Session<'_, C>,
-    ) {
+    fn real_response(&self, tx_res: &Sender<CommandResult>, session: &Session) {
         self.buffered_response(tx_res, session.last_bookmarks())
     }
 

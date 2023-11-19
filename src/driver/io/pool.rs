@@ -186,7 +186,7 @@ impl Pool {
             .map(|t| Instant::now() + t)
     }
 
-    pub(crate) fn resolve_home_db(&self, args: UpdateRtArgs) -> Result<Option<String>> {
+    pub(crate) fn resolve_home_db(&self, args: UpdateRtArgs) -> Result<Option<Arc<String>>> {
         let Pools::Routing(pools) = &self.pools else {
             panic!("don't call resolve_home_db on a direct pool")
         };
@@ -286,7 +286,7 @@ impl Pools {
     }
 }
 
-type RoutingTables = HashMap<Option<String>, RoutingTable>;
+type RoutingTables = HashMap<Option<Arc<String>>, RoutingTable>;
 type RoutingPools = HashMap<Arc<Address>, SimplePool>;
 
 #[derive(Debug)]
@@ -388,17 +388,23 @@ impl RoutingPool {
     }
 
     /// Guarantees that Vec is not empty
-    fn choose_addresses_from_fresh_rt<'a>(
+    fn choose_addresses_from_fresh_rt(
         &self,
-        args: AcquireConfig<'a>,
-    ) -> Result<(Vec<Arc<Address>>, DbName<'a>)> {
+        args: AcquireConfig,
+    ) -> Result<(Vec<Arc<Address>>, Option<Arc<String>>)> {
         let (lock, db) = self.get_fresh_rt(args)?;
-        let rt = lock.get(&*db).expect("created above");
+        let rt = lock
+            .get(&db.as_ref().map(Arc::clone))
+            .expect("created above");
         Ok((self.servers_by_usage(rt.servers_for_mode(args.mode))?, db))
     }
 
     /// Guarantees that Vec is not empty
-    fn choose_addresses(&self, args: AcquireConfig, db: &DbName) -> Result<Vec<Arc<Address>>> {
+    fn choose_addresses(
+        &self,
+        args: AcquireConfig,
+        db: &Option<Arc<String>>,
+    ) -> Result<Vec<Arc<Address>>> {
         let rts = self.routing_tables.read();
         self.servers_by_usage(
             rts.get(db)
@@ -460,12 +466,12 @@ impl RoutingPool {
             .expect("updater is infallible")
     }
 
-    fn get_fresh_rt<'lock, 'db>(
-        &'lock self,
-        args: AcquireConfig<'db>,
-    ) -> Result<(RwLockReadGuard<'lock, RoutingTables>, DbName<'db>)> {
+    fn get_fresh_rt(
+        &self,
+        args: AcquireConfig,
+    ) -> Result<(RwLockReadGuard<RoutingTables>, Option<Arc<String>>)> {
         let rt_args = args.update_rt_args;
-        let db_name = RefCell::new(DbName::Ref(rt_args.db));
+        let db_name = RefCell::new(rt_args.db.map(Arc::clone));
         let db_name_ref = &db_name;
         let lock = self.routing_tables.maybe_write(
             |rts| {
@@ -474,14 +480,11 @@ impl RoutingPool {
                     .unwrap_or(true)
             },
             |mut rts| {
-                if rts.get(rt_args.db).is_none() {
-                    rts.insert(rt_args.db.clone(), self.empty_rt());
-                }
-                let rt = rts.get(rt_args.db).expect("inserted above");
+                let key = rt_args.db.map(Arc::clone);
+                let rt = rts.entry(key).or_insert_with(|| self.empty_rt());
                 if !rt.is_fresh(args.mode) {
-                    let new_db = self.update_rts(rt_args, &mut rts)?;
-                    if db_name_ref.borrow().is_none() && new_db.is_some() {
-                        let mut new_db = DbName::Owned(new_db.clone());
+                    let mut new_db = self.update_rts(rt_args, &mut rts)?;
+                    if new_db.is_some() && db_name_ref.borrow().is_none() {
                         mem::swap(&mut *db_name_ref.borrow_mut(), &mut new_db);
                     }
                 }
@@ -513,14 +516,9 @@ impl RoutingPool {
         &self,
         args: UpdateRtArgs,
         rts: &'a mut RoutingTables,
-    ) -> Result<&'a Option<String>> {
-        let rt = match rts.get(args.db) {
-            None => {
-                rts.insert(args.db.clone(), self.empty_rt());
-                rts.get(args.db).expect("inserted above")
-            }
-            Some(rt) => rt,
-        };
+    ) -> Result<Option<Arc<String>>> {
+        let rt_key = args.db.map(Arc::clone);
+        let rt = rts.entry(rt_key).or_insert_with(|| self.empty_rt());
         let pref_init_router = rt.initialized_without_writers;
         let mut new_rt: Result<RoutingTable>;
         let routers = rt
@@ -547,18 +545,16 @@ impl RoutingPool {
             ))),
             Ok(mut new_rt) => {
                 if args.db.is_some() {
-                    new_rt.database = args.db.clone();
-                    rts.insert(new_rt.database.clone(), new_rt);
+                    let db = args.db.map(Arc::clone);
+                    new_rt.database = db.as_ref().map(Arc::clone);
+                    rts.insert(db.as_ref().map(Arc::clone), new_rt);
                     self.clean_up_pools(rts);
-                    Ok(&rts.get(args.db).expect("inserted above").database)
+                    Ok(db)
                 } else {
-                    // can get rid of the clone once
-                    // https://doc.rust-lang.org/std/collections/hash_map/enum.Entry.html#method.insert_entry
-                    // has been stabilized
-                    let db = new_rt.database.clone();
-                    rts.insert(new_rt.database.clone(), new_rt);
+                    let db = new_rt.database.as_ref().map(Arc::clone);
+                    rts.insert(db.as_ref().map(Arc::clone), new_rt);
                     self.clean_up_pools(rts);
-                    Ok(&rts.get(&db).expect("inserted above").database)
+                    Ok(db)
                 }
             }
         }
@@ -603,7 +599,7 @@ impl RoutingPool {
             RouteParameters::new(
                 self.config.routing_context.as_ref().unwrap(),
                 args.bookmarks,
-                args.db.as_deref(),
+                args.db.as_ref().map(|db| db.as_str()),
                 args.imp_user,
             ),
             ResponseCallbacks::new().with_on_success({
@@ -826,7 +822,7 @@ pub(crate) struct AcquireConfig<'a> {
 
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct UpdateRtArgs<'a> {
-    pub(crate) db: &'a Option<String>,
+    pub(crate) db: Option<&'a Arc<String>>,
     pub(crate) bookmarks: Option<&'a Bookmarks>,
     pub(crate) imp_user: Option<&'a str>,
     pub(crate) session_auth: SessionAuth<'a>,

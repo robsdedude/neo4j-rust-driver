@@ -21,21 +21,21 @@ use super::super::session::bookmarks::{BookmarkManager, Bookmarks};
 
 #[derive(Debug, Clone, Default)]
 pub struct SessionConfig {
-    pub(crate) database: Option<String>,
+    pub(crate) database: Option<Arc<String>>,
     pub(crate) bookmarks: Option<Arc<Bookmarks>>,
-    pub(crate) impersonated_user: Option<String>,
+    pub(crate) impersonated_user: Option<Arc<String>>,
     pub(crate) fetch_size: Option<i64>,
     pub(crate) auth: Option<Arc<AuthToken>>,
     pub(crate) bookmark_manager: Option<Arc<dyn BookmarkManager>>,
 }
 
 impl SessionConfig {
-    pub fn new() -> Self {
+    pub fn new() -> SessionConfig {
         Self::default()
     }
 
     #[inline]
-    pub fn with_database(mut self, database: String) -> Self {
+    pub fn with_database<'db_>(mut self, database: Arc<String>) -> Self {
         self.database = Some(database);
         self
     }
@@ -71,7 +71,7 @@ impl SessionConfig {
     }
 
     #[inline]
-    pub fn with_impersonated_user(mut self, user: String) -> Self {
+    pub fn with_impersonated_user(mut self, user: Arc<String>) -> Self {
         self.impersonated_user = Some(user);
         self
     }
@@ -130,7 +130,7 @@ impl AsRef<SessionConfig> for SessionConfig {
 }
 
 #[derive(Debug)]
-pub(crate) struct InternalSessionConfig<C: AsRef<SessionConfig>> {
-    pub(crate) config: C,
+pub(crate) struct InternalSessionConfig {
+    pub(crate) config: SessionConfig,
     pub(crate) idle_time_before_connection_test: Option<Duration>,
 }

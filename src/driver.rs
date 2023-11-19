@@ -76,11 +76,12 @@ impl Driver {
                 idle_time_before_connection_test: config.idle_time_before_connection_test,
             },
             pool: Pool::new(Arc::new(connection_config.address), pool_config),
-            capability_check_config: SessionConfig::default().with_database(String::from("system")),
+            capability_check_config: SessionConfig::default()
+                .with_database(Arc::new(String::from("system"))),
         }
     }
 
-    pub fn session<C: AsRef<SessionConfig>>(&self, config: C) -> Session<C> {
+    pub fn session(&self, config: SessionConfig) -> Session {
         let config = InternalSessionConfig {
             config,
             idle_time_before_connection_test: self.config.idle_time_before_connection_test,
@@ -98,7 +99,7 @@ impl Driver {
     }
 
     pub fn verify_authentication(&self, auth: Arc<AuthToken>) -> Result<bool> {
-        self.session(&self.capability_check_config)
+        self.session(self.capability_check_config.clone())
             .verify_authentication(&auth)
     }
 
@@ -130,7 +131,7 @@ impl Driver {
         self.pool.acquire(AcquireConfig {
             mode: RoutingControl::Read,
             update_rt_args: UpdateRtArgs {
-                db: &self.capability_check_config.database,
+                db: self.capability_check_config.database.as_ref(),
                 bookmarks: None,
                 imp_user: None,
                 session_auth: SessionAuth::None,

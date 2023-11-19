@@ -1008,7 +1008,7 @@ impl Request {
             config = config.with_bookmarks(Arc::new(Bookmarks::from_raw(bookmarks)));
         }
         if let Some(database) = database {
-            config = config.with_database(database);
+            config = config.with_database(Arc::new(database));
         }
         if let Some(fetch_size) = fetch_size {
             if fetch_size == -1 {
@@ -1022,7 +1022,7 @@ impl Request {
             }
         }
         if let Some(imp_user) = impersonated_user {
-            config = config.with_impersonated_user(imp_user);
+            config = config.with_impersonated_user(Arc::new(imp_user));
         }
         if let Some(notifications_min_severity) = notifications_min_severity {
             return Err(TestKitError::backend_err(format!("Driver does not yet support notifications_min_severity, found {notifications_min_severity}")));

@@ -44,21 +44,21 @@ pub use config::SessionConfig;
 use retry::RetryPolicy;
 
 #[derive(Debug)]
-pub struct Session<'driver, C: AsRef<SessionConfig>> {
-    config: InternalSessionConfig<C>,
+pub struct Session<'driver> {
+    config: InternalSessionConfig,
     pool: &'driver Pool,
     driver_config: &'driver ReducedDriverConfig,
-    resolved_db: Option<String>,
+    resolved_db: Option<Arc<String>>,
     session_bookmarks: SessionBookmarks,
 }
 
-impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
+impl<'driver> Session<'driver> {
     pub(crate) fn new(
-        config: InternalSessionConfig<C>,
+        config: InternalSessionConfig,
         pool: &'driver Pool,
         driver_config: &'driver ReducedDriverConfig,
     ) -> Self {
-        let bookmarks = config.config.as_ref().bookmarks.as_ref().map(Arc::clone);
+        let bookmarks = config.config.bookmarks.as_ref().map(Arc::clone);
         let manager = config
             .config
             .as_ref()
@@ -80,7 +80,6 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
     ) -> AutoCommitBuilder<
         'driver,
         'session,
-        C,
         Q,
         DefaultParamKey,
         DefaultParam,
@@ -102,7 +101,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         FRes: FnOnce(&mut RecordStream) -> Result<R>,
     >(
         &'session mut self,
-        builder: AutoCommitBuilder<'driver, 'session, C, Q, KP, P, KM, M, FRes>,
+        builder: AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>,
     ) -> Result<R> {
         let cx = self.acquire_connection(builder.mode)?;
         let mut record_stream =
@@ -115,8 +114,13 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
                 builder.timeout,
                 Some(builder.meta.borrow()),
                 builder.mode.as_protocol_str(),
-                self.resolved_db().as_deref(),
-                self.config.config.as_ref().impersonated_user.as_deref(),
+                self.resolved_db().as_ref().map(|db| db.as_str()),
+                self.config
+                    .config
+                    .as_ref()
+                    .impersonated_user
+                    .as_ref()
+                    .map(|imp| imp.as_str()),
             ))
             .and_then(|_| (builder.receiver)(&mut record_stream));
         let res = match res {
@@ -138,7 +142,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
 
     pub fn transaction<'session>(
         &'session mut self,
-    ) -> TransactionBuilder<'driver, 'session, C, DefaultMetaKey, DefaultMeta> {
+    ) -> TransactionBuilder<'driver, 'session, DefaultMetaKey, DefaultMeta> {
         TransactionBuilder::new(self)
     }
 
@@ -150,7 +154,7 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         FTx: for<'tx> FnOnce(Transaction<'driver, 'tx>) -> Result<R>,
     >(
         &'session mut self,
-        builder: &TransactionBuilder<'driver, 'session, C, KM, M>,
+        builder: &TransactionBuilder<'driver, 'session, KM, M>,
         receiver: FTx,
     ) -> Result<R> {
         let connection = self.acquire_connection(builder.mode)?;
@@ -160,8 +164,12 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
             builder.timeout,
             builder.meta.borrow(),
             builder.mode.as_protocol_str(),
-            self.resolved_db().as_deref(),
-            self.config.config.as_ref().impersonated_user.as_deref(),
+            self.resolved_db().as_ref().map(|db| db.as_str()),
+            self.config
+                .config
+                .impersonated_user
+                .as_ref()
+                .map(|imp| imp.as_str()),
         )?;
         let res = receiver(Transaction::new(&mut tx));
         let res = match res {
@@ -191,9 +199,14 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         if self.resolved_db().is_none() && self.pool.is_routing() {
             debug!("Resolving home db");
             self.resolved_db = self.pool.resolve_home_db(UpdateRtArgs {
-                db: &None,
+                db: None,
                 bookmarks: Some(&*self.session_bookmarks.get_bookmarks_for_work()?),
-                imp_user: self.config.config.as_ref().impersonated_user.as_deref(),
+                imp_user: self
+                    .config
+                    .config
+                    .impersonated_user
+                    .as_ref()
+                    .map(|imp| imp.as_str()),
                 session_auth: self.session_auth(),
                 idle_time_before_connection_test: self.config.idle_time_before_connection_test,
             })?;
@@ -203,9 +216,9 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
     }
 
     #[inline]
-    fn resolved_db(&self) -> &Option<String> {
+    fn resolved_db(&self) -> &Option<Arc<String>> {
         match self.resolved_db {
-            None => &self.config.config.as_ref().database,
+            None => &self.config.config.database,
             Some(_) => &self.resolved_db,
         }
     }
@@ -219,9 +232,14 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         self.pool.acquire(AcquireConfig {
             mode,
             update_rt_args: UpdateRtArgs {
-                db: self.resolved_db(),
+                db: self.resolved_db().as_ref(),
                 bookmarks: Some(&*bookmarks),
-                imp_user: self.config.config.as_ref().impersonated_user.as_deref(),
+                imp_user: self
+                    .config
+                    .config
+                    .impersonated_user
+                    .as_ref()
+                    .map(|imp| imp.as_str()),
                 session_auth: self.session_auth(),
                 idle_time_before_connection_test: self.config.idle_time_before_connection_test,
             },
@@ -254,9 +272,14 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
         let mut connection = self.pool.acquire(AcquireConfig {
             mode: RoutingControl::Read,
             update_rt_args: UpdateRtArgs {
-                db: self.resolved_db(),
+                db: self.resolved_db().as_ref(),
                 bookmarks: Some(&*bookmarks),
-                imp_user: self.config.config.as_ref().impersonated_user.as_deref(),
+                imp_user: self
+                    .config
+                    .config
+                    .impersonated_user
+                    .as_ref()
+                    .map(|imp| imp.as_str()),
                 session_auth: SessionAuth::Forced(auth),
                 idle_time_before_connection_test: self.config.idle_time_before_connection_test,
             },
@@ -281,15 +304,15 @@ impl<'driver, C: AsRef<SessionConfig>> Session<'driver, C> {
 
     #[inline]
     fn session_auth(&self) -> SessionAuth {
-        match &self.config.config.as_ref().auth {
+        match &self.config.config.auth {
             Some(auth) => SessionAuth::Reauth(auth),
             None => SessionAuth::None,
         }
     }
 }
 
-pub struct AutoCommitBuilder<'driver, 'session, C: AsRef<SessionConfig>, Q, KP, P, KM, M, FRes> {
-    session: Option<&'session mut Session<'driver, C>>,
+pub struct AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes> {
+    session: Option<&'session mut Session<'driver>>,
     query: Q,
     _kp: PhantomData<KP>,
     param: P,
@@ -319,11 +342,10 @@ type DefaultParam = HashMap<DefaultParamKey, ValueSend>;
 type DefaultMetaKey = String;
 type DefaultMeta = HashMap<DefaultMetaKey, ValueSend>;
 
-impl<'driver, 'session, C: AsRef<SessionConfig>, Q: AsRef<str>>
+impl<'driver, 'session, Q: AsRef<str>>
     AutoCommitBuilder<
         'driver,
         'session,
-        C,
         Q,
         DefaultParamKey,
         DefaultParam,
@@ -332,7 +354,7 @@ impl<'driver, 'session, C: AsRef<SessionConfig>, Q: AsRef<str>>
         DefaultReceiver,
     >
 {
-    fn new(session: &'session mut Session<'driver, C>, query: Q) -> Self {
+    fn new(session: &'session mut Session<'driver>, query: Q) -> Self {
         Self {
             session: Some(session),
             query,
@@ -350,7 +372,6 @@ impl<'driver, 'session, C: AsRef<SessionConfig>, Q: AsRef<str>>
 impl<
         'driver,
         'session,
-        C: AsRef<SessionConfig>,
         Q: AsRef<str>,
         KP: Borrow<str> + Debug,
         P: Borrow<HashMap<KP, ValueSend>>,
@@ -358,12 +379,12 @@ impl<
         M: Borrow<HashMap<KM, ValueSend>>,
         R,
         FRes: FnOnce(&mut RecordStream) -> Result<R>,
-    > AutoCommitBuilder<'driver, 'session, C, Q, KP, P, KM, M, FRes>
+    > AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>
 {
     pub fn with_parameters<KP_: Borrow<str> + Debug, P_: Borrow<HashMap<KP_, ValueSend>>>(
         self,
         param: P_,
-    ) -> AutoCommitBuilder<'driver, 'session, C, Q, KP_, P_, KM, M, FRes> {
+    ) -> AutoCommitBuilder<'driver, 'session, Q, KP_, P_, KM, M, FRes> {
         let Self {
             session,
             query,
@@ -390,8 +411,7 @@ impl<
 
     pub fn without_parameters(
         self,
-    ) -> AutoCommitBuilder<'driver, 'session, C, Q, DefaultParamKey, DefaultParam, KM, M, FRes>
-    {
+    ) -> AutoCommitBuilder<'driver, 'session, Q, DefaultParamKey, DefaultParam, KM, M, FRes> {
         let Self {
             session,
             query,
@@ -419,7 +439,7 @@ impl<
     pub fn with_tx_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
         self,
         meta: M_,
-    ) -> AutoCommitBuilder<'driver, 'session, C, Q, KP, P, KM_, M_, FRes> {
+    ) -> AutoCommitBuilder<'driver, 'session, Q, KP, P, KM_, M_, FRes> {
         let Self {
             session,
             query,
@@ -446,7 +466,7 @@ impl<
 
     pub fn without_tx_meta(
         self,
-    ) -> AutoCommitBuilder<'driver, 'session, C, Q, KP, P, DefaultMetaKey, DefaultMeta, FRes> {
+    ) -> AutoCommitBuilder<'driver, 'session, Q, KP, P, DefaultMetaKey, DefaultMeta, FRes> {
         let Self {
             session,
             query,
@@ -500,7 +520,7 @@ impl<
     pub fn with_receiver<R_, FRes_: FnOnce(&mut RecordStream) -> Result<R_>>(
         self,
         receiver: FRes_,
-    ) -> AutoCommitBuilder<'driver, 'session, C, Q, KP, P, KM, M, FRes_> {
+    ) -> AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes_> {
         let Self {
             session,
             query,
@@ -531,8 +551,8 @@ impl<
     }
 }
 
-impl<'driver, 'session, C: AsRef<SessionConfig>, Q: Debug, KP, P: Debug, KM, M: Debug, FRes> Debug
-    for AutoCommitBuilder<'driver, 'session, C, Q, KP, P, KM, M, FRes>
+impl<'driver, 'session, Q: Debug, KP, P: Debug, KM, M: Debug, FRes> Debug
+    for AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AutoCommitBuilder")
@@ -553,18 +573,16 @@ impl<'driver, 'session, C: AsRef<SessionConfig>, Q: Debug, KP, P: Debug, KM, M: 
     }
 }
 
-pub struct TransactionBuilder<'driver, 'session, C: AsRef<SessionConfig>, KM, M> {
-    session: Option<&'session mut Session<'driver, C>>,
+pub struct TransactionBuilder<'driver, 'session, KM, M> {
+    session: Option<&'session mut Session<'driver>>,
     _km: PhantomData<KM>,
     meta: M,
     timeout: Option<i64>,
     mode: RoutingControl,
 }
 
-impl<'driver, 'session, C: AsRef<SessionConfig>>
-    TransactionBuilder<'driver, 'session, C, DefaultMetaKey, DefaultMeta>
-{
-    fn new(session: &'session mut Session<'driver, C>) -> Self {
+impl<'driver, 'session> TransactionBuilder<'driver, 'session, DefaultMetaKey, DefaultMeta> {
+    fn new(session: &'session mut Session<'driver>) -> Self {
         Self {
             session: Some(session),
             _km: PhantomData,
@@ -575,18 +593,13 @@ impl<'driver, 'session, C: AsRef<SessionConfig>>
     }
 }
 
-impl<
-        'driver,
-        'session,
-        C: AsRef<SessionConfig>,
-        KM: Borrow<str> + Debug,
-        M: Borrow<HashMap<KM, ValueSend>>,
-    > TransactionBuilder<'driver, 'session, C, KM, M>
+impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend>>>
+    TransactionBuilder<'driver, 'session, KM, M>
 {
     pub fn with_tx_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
         self,
         meta: M_,
-    ) -> TransactionBuilder<'driver, 'session, C, KM_, M_> {
+    ) -> TransactionBuilder<'driver, 'session, KM_, M_> {
         let Self {
             session,
             _km: _,
@@ -605,7 +618,7 @@ impl<
 
     pub fn without_tx_meta(
         self,
-    ) -> TransactionBuilder<'driver, 'session, C, DefaultMetaKey, DefaultMeta> {
+    ) -> TransactionBuilder<'driver, 'session, DefaultMetaKey, DefaultMeta> {
         let Self {
             session,
             _km: _,
