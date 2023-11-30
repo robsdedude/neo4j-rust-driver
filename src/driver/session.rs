@@ -23,17 +23,15 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::rc::Rc;
-use std::result;
+use std::result::Result as StdResult;
 use std::sync::Arc;
-
-use thiserror::Error;
 
 use super::config::auth::AuthToken;
 use super::io::bolt::message_parameters::RunParameters;
 use super::io::PooledBolt;
 use super::io::{AcquireConfig, Pool, UpdateRtArgs};
 use super::record_stream::RecordStream;
-use super::transaction::Transaction;
+use super::transaction::{Transaction, TransactionTimeout};
 use super::{EagerResult, ReducedDriverConfig, RoutingControl};
 use crate::driver::io::SessionAuth;
 use crate::transaction::InnerTransaction;
@@ -111,7 +109,7 @@ impl<'driver> Session<'driver> {
                 builder.query.as_ref(),
                 Some(builder.param.borrow()),
                 Some(&*self.session_bookmarks.get_bookmarks_for_work()?),
-                builder.timeout,
+                builder.timeout.raw(),
                 Some(builder.meta.borrow()),
                 builder.mode.as_protocol_str(),
                 self.resolved_db().as_ref().map(|db| db.as_str()),
@@ -161,7 +159,7 @@ impl<'driver> Session<'driver> {
         let mut tx = InnerTransaction::new(connection, self.fetch_size());
         tx.begin(
             Some(&*self.session_bookmarks.get_bookmarks_for_work()?),
-            builder.timeout,
+            builder.timeout.raw(),
             builder.meta.borrow(),
             builder.mode.as_protocol_str(),
             self.resolved_db().as_ref().map(|db| db.as_str()),
@@ -170,6 +168,7 @@ impl<'driver> Session<'driver> {
                 .impersonated_user
                 .as_ref()
                 .map(|imp| imp.as_str()),
+            self.config.eager_begin,
         )?;
         let res = receiver(Transaction::new(&mut tx));
         let res = match res {
@@ -318,12 +317,12 @@ pub struct AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes> {
     param: P,
     _km: PhantomData<KM>,
     meta: M,
-    timeout: Option<i64>,
+    timeout: TransactionTimeout,
     mode: RoutingControl,
     receiver: FRes,
 }
 
-fn default_receiver(res: &mut RecordStream) -> Result<EagerResult> {
+pub(crate) fn default_receiver(res: &mut RecordStream) -> Result<EagerResult> {
     let keys = res.keys();
     let records = res.collect::<Result<_>>()?;
     let summary = res.consume().map(|summary| {
@@ -336,11 +335,11 @@ fn default_receiver(res: &mut RecordStream) -> Result<EagerResult> {
     })
 }
 
-type DefaultReceiver = fn(&mut RecordStream) -> Result<EagerResult>;
-type DefaultParamKey = String;
-type DefaultParam = HashMap<DefaultParamKey, ValueSend>;
-type DefaultMetaKey = String;
-type DefaultMeta = HashMap<DefaultMetaKey, ValueSend>;
+pub(crate) type DefaultReceiver = fn(&mut RecordStream) -> Result<EagerResult>;
+pub(crate) type DefaultParamKey = String;
+pub(crate) type DefaultParam = HashMap<DefaultParamKey, ValueSend>;
+pub(crate) type DefaultMetaKey = String;
+pub(crate) type DefaultMeta = HashMap<DefaultMetaKey, ValueSend>;
 
 impl<'driver, 'session, Q: AsRef<str>>
     AutoCommitBuilder<
@@ -362,7 +361,7 @@ impl<'driver, 'session, Q: AsRef<str>>
             param: Default::default(),
             _km: PhantomData,
             meta: Default::default(),
-            timeout: None,
+            timeout: Default::default(),
             mode: RoutingControl::Write,
             receiver: default_receiver,
         }
@@ -381,6 +380,7 @@ impl<
         FRes: FnOnce(&mut RecordStream) -> Result<R>,
     > AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>
 {
+    #[inline]
     pub fn with_parameters<KP_: Borrow<str> + Debug, P_: Borrow<HashMap<KP_, ValueSend>>>(
         self,
         param: P_,
@@ -409,6 +409,7 @@ impl<
         }
     }
 
+    #[inline]
     pub fn without_parameters(
         self,
     ) -> AutoCommitBuilder<'driver, 'session, Q, DefaultParamKey, DefaultParam, KM, M, FRes> {
@@ -436,7 +437,8 @@ impl<
         }
     }
 
-    pub fn with_tx_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
+    #[inline]
+    pub fn with_transaction_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
         self,
         meta: M_,
     ) -> AutoCommitBuilder<'driver, 'session, Q, KP, P, KM_, M_, FRes> {
@@ -464,7 +466,8 @@ impl<
         }
     }
 
-    pub fn without_tx_meta(
+    #[inline]
+    pub fn without_transaction_meta(
         self,
     ) -> AutoCommitBuilder<'driver, 'session, Q, KP, P, DefaultMetaKey, DefaultMeta, FRes> {
         let Self {
@@ -491,32 +494,31 @@ impl<
         }
     }
 
-    pub fn with_tx_timeout(
-        mut self,
-        timeout: i64,
-    ) -> result::Result<Self, ConfigureTimeoutError<Self>> {
-        if timeout <= 0 {
-            return Err(ConfigureTimeoutError::new(self));
-        }
-        self.timeout = Some(timeout);
-        Ok(self)
-    }
-
-    pub fn without_tx_timeout(mut self) -> Self {
-        self.timeout = Some(0);
+    #[inline]
+    pub fn with_transaction_timeout(mut self, timeout: TransactionTimeout) -> Self {
+        self.timeout = timeout;
         self
     }
 
-    pub fn with_default_tx_timeout(mut self) -> Self {
-        self.timeout = None;
+    #[inline]
+    pub fn without_transaction_timeout(mut self) -> Self {
+        self.timeout = TransactionTimeout::none();
         self
     }
 
+    #[inline]
+    pub fn with_default_transaction_timeout(mut self) -> Self {
+        self.timeout = TransactionTimeout::default();
+        self
+    }
+
+    #[inline]
     pub fn with_routing_control(mut self, mode: RoutingControl) -> Self {
         self.mode = mode;
         self
     }
 
+    #[inline]
     pub fn with_receiver<R_, FRes_: FnOnce(&mut RecordStream) -> Result<R_>>(
         self,
         receiver: FRes_,
@@ -545,14 +547,50 @@ impl<
         }
     }
 
+    #[inline]
+    pub fn with_default_receiver(
+        self,
+    ) -> AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, DefaultReceiver> {
+        let Self {
+            session,
+            query,
+            _kp,
+            param,
+            _km,
+            meta,
+            timeout,
+            mode,
+            receiver: _,
+        } = self;
+        AutoCommitBuilder {
+            session,
+            query,
+            _kp,
+            param,
+            _km,
+            meta,
+            timeout,
+            mode,
+            receiver: default_receiver,
+        }
+    }
+
     pub fn run(mut self) -> Result<R> {
         let session = self.session.take().unwrap();
         session.auto_commit_run(self)
     }
 }
 
-impl<'driver, 'session, Q: Debug, KP, P: Debug, KM, M: Debug, FRes> Debug
-    for AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>
+impl<
+        'driver,
+        'session,
+        Q: AsRef<str>,
+        KP: Borrow<str> + Debug,
+        P: Borrow<HashMap<KP, ValueSend>>,
+        KM: Borrow<str> + Debug,
+        M: Borrow<HashMap<KM, ValueSend>>,
+        FRes,
+    > Debug for AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AutoCommitBuilder")
@@ -563,9 +601,9 @@ impl<'driver, 'session, Q: Debug, KP, P: Debug, KM, M: Debug, FRes> Debug
                     Some(_) => "Some(...)",
                 },
             )
-            .field("query", &self.query)
-            .field("param", &self.param)
-            .field("meta", &self.meta)
+            .field("query", &self.query.as_ref())
+            .field("param", &self.param.borrow())
+            .field("meta", &self.meta.borrow())
             .field("timeout", &self.timeout)
             .field("mode", &self.mode)
             .field("receiver", &"...")
@@ -577,7 +615,7 @@ pub struct TransactionBuilder<'driver, 'session, KM, M> {
     session: Option<&'session mut Session<'driver>>,
     _km: PhantomData<KM>,
     meta: M,
-    timeout: Option<i64>,
+    timeout: TransactionTimeout,
     mode: RoutingControl,
 }
 
@@ -587,7 +625,7 @@ impl<'driver, 'session> TransactionBuilder<'driver, 'session, DefaultMetaKey, De
             session: Some(session),
             _km: PhantomData,
             meta: Default::default(),
-            timeout: None,
+            timeout: Default::default(),
             mode: RoutingControl::Write,
         }
     }
@@ -596,7 +634,8 @@ impl<'driver, 'session> TransactionBuilder<'driver, 'session, DefaultMetaKey, De
 impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend>>>
     TransactionBuilder<'driver, 'session, KM, M>
 {
-    pub fn with_tx_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
+    #[inline]
+    pub fn with_transaction_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
         self,
         meta: M_,
     ) -> TransactionBuilder<'driver, 'session, KM_, M_> {
@@ -616,7 +655,8 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
         }
     }
 
-    pub fn without_tx_meta(
+    #[inline]
+    pub fn without_transaction_meta(
         self,
     ) -> TransactionBuilder<'driver, 'session, DefaultMetaKey, DefaultMeta> {
         let Self {
@@ -635,27 +675,25 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
         }
     }
 
-    pub fn with_tx_timeout(
-        mut self,
-        timeout: i64,
-    ) -> result::Result<Self, ConfigureTimeoutError<Self>> {
-        if timeout <= 0 {
-            return Err(ConfigureTimeoutError::new(self));
-        }
-        self.timeout = Some(timeout);
-        Ok(self)
-    }
-
-    pub fn without_tx_timeout(mut self) -> Self {
-        self.timeout = Some(0);
+    #[inline]
+    pub fn with_transaction_timeout(mut self, timeout: TransactionTimeout) -> Self {
+        self.timeout = timeout;
         self
     }
 
-    pub fn with_default_tx_timeout(mut self) -> Self {
-        self.timeout = None;
+    #[inline]
+    pub fn without_transaction_timeout(mut self) -> Self {
+        self.timeout = TransactionTimeout::none();
         self
     }
 
+    #[inline]
+    pub fn with_default_transaction_timeout(mut self) -> Self {
+        self.timeout = TransactionTimeout::default();
+        self
+    }
+
+    #[inline]
     pub fn with_routing_control(mut self, mode: RoutingControl) -> Self {
         self.mode = mode;
         self
@@ -670,21 +708,26 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
         mut self,
         retry_policy: P,
         mut receiver: impl FnMut(Transaction) -> Result<R>,
-    ) -> result::Result<R, P::Error> {
+    ) -> StdResult<R, P::Error> {
         let session = self.session.take().unwrap();
         retry_policy.execute(|| session.transaction_run(&self, &mut receiver))
     }
 }
 
-#[derive(Debug, Error)]
-#[error("timeout must be > 0")]
-pub struct ConfigureTimeoutError<Builder> {
-    pub builder: Builder,
-}
-
-impl<Builder> ConfigureTimeoutError<Builder> {
-    fn new(builder: Builder) -> Self {
-        Self { builder }
+impl<'driver, 'session, KM, M: Debug> Debug for TransactionBuilder<'driver, 'session, KM, M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TransactionBuilder")
+            .field(
+                "session",
+                &match self.session {
+                    None => "None",
+                    Some(_) => "Some(...)",
+                },
+            )
+            .field("meta", &self.meta)
+            .field("timeout", &self.timeout)
+            .field("mode", &self.mode)
+            .finish()
     }
 }
 

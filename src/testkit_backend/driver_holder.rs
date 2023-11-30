@@ -21,15 +21,18 @@ use flume;
 use flume::{Receiver, Sender};
 use log::warn;
 
+use crate::bookmarks::BookmarkManager;
 use crate::driver::auth::AuthToken;
-use crate::driver::{ConnectionConfig, Driver, DriverConfig, RoutingControl};
+use crate::driver::{ConnectionConfig, Driver, DriverConfig, EagerResult, RoutingControl};
 use crate::retry::ExponentialBackoff;
 use crate::session::SessionConfig;
 use crate::summary::ServerInfo;
-use crate::testkit_backend::session_holder::RetryableOutcome;
+use crate::transaction::TransactionTimeout;
+use crate::ValueSend;
 
 use super::backend_id::{BackendId, Generator};
 use super::errors::TestKitError;
+use super::session_holder::RetryableOutcome;
 use super::session_holder::SessionHolder;
 use super::session_holder::{
     AutoCommit, AutoCommitResult, BeginTransaction, BeginTransactionResult,
@@ -128,6 +131,14 @@ impl DriverHolder {
         match self.rx_res.recv().unwrap() {
             CommandResult::SupportsSessionAuth(result) => result,
             res => panic!("expected CommandResult::SupportsSessionAuth, found {res:?}"),
+        }
+    }
+
+    pub(super) fn execute_query(&self, args: ExecuteQuery) -> ExecuteQueryResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::ExecuteQuery(result) => result,
+            res => panic!("expected CommandResult::ExecuteQuery, found {res:?}"),
         }
     }
 
@@ -595,6 +606,50 @@ impl DriverHolderRunner {
                     Some(VerifyAuthenticationResult { result }.into())
                 }
 
+                Command::ExecuteQuery(ExecuteQuery {
+                    query,
+                    params,
+                    database,
+                    routing,
+                    impersonated_user,
+                    bookmark_manager,
+                    tx_meta,
+                    timeout,
+                }) => {
+                    let mut builder = self.driver.execute_query(query);
+                    if let Some(params) = params {
+                        builder = builder.with_parameters(params);
+                    }
+                    if let Some(database) = database {
+                        builder = builder.with_database(Arc::new(database));
+                    }
+                    if let Some(routing) = routing {
+                        builder = builder.with_routing_control(routing);
+                    }
+                    if let Some(impersonated_user) = impersonated_user {
+                        builder = builder.with_impersonated_user(Arc::new(impersonated_user));
+                    }
+                    match bookmark_manager {
+                        ExecuteQueryBookmarkManager::Default => {}
+                        ExecuteQueryBookmarkManager::Custom(manager) => {
+                            builder = builder.with_bookmark_manager(manager);
+                        }
+                        ExecuteQueryBookmarkManager::None => {
+                            builder = builder.without_bookmark_manager();
+                        }
+                    }
+                    if let Some(tx_meta) = tx_meta {
+                        builder = builder.with_transaction_meta(tx_meta);
+                    }
+                    if let Some(timeout) = timeout {
+                        builder = builder.with_transaction_timeout(timeout);
+                    }
+                    let result = builder
+                        .run_with_retry(ExponentialBackoff::default())
+                        .map_err(Into::into);
+                    Some(ExecuteQueryResult { result }.into())
+                }
+
                 Command::Close => {
                     let result = sessions
                         .into_iter()
@@ -633,6 +688,7 @@ enum Command {
     SupportsMultiDb,
     SupportsSessionAuth,
     VerifyAuthentication(VerifyAuthentication),
+    ExecuteQuery(ExecuteQuery),
     Close,
 }
 
@@ -658,6 +714,7 @@ enum CommandResult {
     SupportsMultiDb(SupportsMultiDbResult),
     SupportsSessionAuth(SupportsSessionAuthResult),
     VerifyAuthentication(VerifyAuthenticationResult),
+    ExecuteQuery(ExecuteQueryResult),
     Close(CloseResult),
 }
 
@@ -914,6 +971,43 @@ pub(super) struct VerifyAuthenticationResult {
 impl From<VerifyAuthenticationResult> for CommandResult {
     fn from(r: VerifyAuthenticationResult) -> Self {
         CommandResult::VerifyAuthentication(r)
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct ExecuteQuery {
+    pub(super) query: String,
+    pub(super) params: Option<HashMap<String, ValueSend>>,
+    pub(super) database: Option<String>,
+    pub(super) routing: Option<RoutingControl>,
+    pub(crate) impersonated_user: Option<String>,
+    pub(crate) bookmark_manager: ExecuteQueryBookmarkManager,
+    pub(super) tx_meta: Option<HashMap<String, ValueSend>>,
+    pub(super) timeout: Option<TransactionTimeout>,
+}
+
+impl From<ExecuteQuery> for Command {
+    fn from(c: ExecuteQuery) -> Self {
+        Command::ExecuteQuery(c)
+    }
+}
+
+#[derive(Debug)]
+pub(super) enum ExecuteQueryBookmarkManager {
+    Default,
+    Custom(Arc<dyn BookmarkManager>),
+    None,
+}
+
+#[must_use]
+#[derive(Debug)]
+pub(super) struct ExecuteQueryResult {
+    pub(super) result: Result<EagerResult, TestKitError>,
+}
+
+impl From<ExecuteQueryResult> for CommandResult {
+    fn from(r: ExecuteQueryResult) -> Self {
+        CommandResult::ExecuteQuery(r)
     }
 }
 

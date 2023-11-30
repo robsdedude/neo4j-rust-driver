@@ -18,6 +18,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
+use crate::driver::EagerResult;
 use crate::summary::SummaryQueryType;
 use lazy_regex::{regex, Regex};
 use serde::Serialize;
@@ -558,21 +559,35 @@ impl From<crate::summary::ServerInfo> for ServerInfo {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rstest::rstest;
+impl TryFrom<EagerResult> for Response {
+    type Error = TestKitError;
 
-    #[rstest]
-    fn foo() {
-        let v = serde_json::to_string(&Response::RecordList(vec![
-            RecordListEntry { values: vec![] },
-            RecordListEntry {
-                values: vec![CypherValue::CypherNull { value: None }],
-            },
-        ]))
-        .unwrap();
-        println!("{v}");
+    fn try_from(value: EagerResult) -> Result<Self, Self::Error> {
+        let EagerResult {
+            keys,
+            records,
+            summary,
+        } = value;
+        let keys = keys.into_iter().map(|k| (*k).clone()).collect();
+        let records = records
+            .into_iter()
+            .map(|r| {
+                Ok(RecordListEntry {
+                    values: r
+                        .entries
+                        .into_iter()
+                        .map(|e| Ok(e.1.try_into()?))
+                        .collect::<Result<_, TestKitError>>()?,
+                })
+            })
+            .collect::<Result<_, TestKitError>>()?;
+        // let records: RecordListEntry = result.records.map(|r| {let values = r.entries.map(|e| e.1.try_into()).collect::<Result<Vec<_>, TestKitError>>()?;Ok(RecordListEntry { values }}))
+        let summary = summary.try_into()?;
+        Ok(Self::EagerResult {
+            keys,
+            records,
+            summary,
+        })
     }
 }
 
@@ -583,7 +598,7 @@ impl Response {
                 // === FUNCTIONAL FEATURES ===
                 "Feature:API:BookmarkManager",
                 "Feature:API:ConnectionAcquisitionTimeout",
-                // "Feature:API:Driver.ExecuteQuery",
+                "Feature:API:Driver.ExecuteQuery",
                 "Feature:API:Driver:GetServerInfo",
                 // "Feature:API:Driver.IsEncrypted" ,
                 // Even tough the driver does not support notification config,

@@ -133,4 +133,5 @@ impl AsRef<SessionConfig> for SessionConfig {
 pub(crate) struct InternalSessionConfig {
     pub(crate) config: SessionConfig,
     pub(crate) idle_time_before_connection_test: Option<Duration>,
+    pub(crate) eager_begin: bool,
 }

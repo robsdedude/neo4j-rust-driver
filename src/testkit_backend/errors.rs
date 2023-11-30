@@ -18,7 +18,6 @@ use std::fmt::{Debug, Display, Formatter};
 use crate::driver::{ConfigureFetchSizeError, ConnectionConfigParseError, TlsConfigError};
 use crate::error::{ServerError, UserCallbackError};
 use crate::retry::RetryableError;
-use crate::session::ConfigureTimeoutError;
 use crate::Neo4jError;
 
 use super::cypher_value::{BrokenValueError, NotADriverValueError};
@@ -202,18 +201,6 @@ impl<Builder> From<ConfigureFetchSizeError<Builder>> for TestKitError {
     fn from(e: ConfigureFetchSizeError<Builder>) -> Self {
         TestKitError::DriverError {
             error_type: String::from("ConfigureFetchSizeError"),
-            msg: format!("{e}"),
-            code: None,
-            id: None,
-            retryable: false,
-        }
-    }
-}
-
-impl<Builder> From<ConfigureTimeoutError<Builder>> for TestKitError {
-    fn from(e: ConfigureTimeoutError<Builder>) -> Self {
-        TestKitError::DriverError {
-            error_type: String::from("ConfigureTimeoutError"),
             msg: format!("{e}"),
             code: None,
             id: None,

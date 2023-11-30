@@ -27,6 +27,7 @@ use crate::driver::transaction::TransactionRecordStream;
 use crate::driver::{Driver, Record, RoutingControl};
 use crate::session::{Session, SessionConfig};
 use crate::summary::Summary;
+use crate::transaction::TransactionTimeout;
 use crate::{Neo4jError, ValueSend};
 
 use super::backend_id::Generator;
@@ -242,23 +243,10 @@ impl SessionHolderRunner {
                     let mut auto_commit = session.auto_commit(&*query);
                     auto_commit = auto_commit.with_routing_control(self.auto_commit_access_mode);
                     if let Some(timeout) = timeout {
-                        if timeout == 0 {
-                            auto_commit = auto_commit.without_tx_timeout();
-                        } else {
-                            auto_commit = match auto_commit.with_tx_timeout(timeout) {
-                                Ok(auto_commit) => auto_commit,
-                                Err(e) => {
-                                    let msg = AutoCommitResult {
-                                        result: Err(e.into()),
-                                    };
-                                    self.tx_res.send(msg.into()).unwrap();
-                                    continue;
-                                }
-                            };
-                        }
+                        auto_commit = auto_commit.with_transaction_timeout(timeout);
                     }
                     if let Some(tx_meta) = tx_meta {
-                        auto_commit = auto_commit.with_tx_meta(tx_meta)
+                        auto_commit = auto_commit.with_transaction_meta(tx_meta)
                     }
                     let mut started_receiver = false;
                     let known_transactions = &known_transactions;
@@ -425,23 +413,10 @@ impl SessionHolderRunner {
                     let mut transaction = session.transaction();
                     transaction = transaction.with_routing_control(self.auto_commit_access_mode);
                     if let Some(timeout) = timeout {
-                        if timeout == 0 {
-                            transaction = transaction.without_tx_timeout();
-                        } else {
-                            transaction = match transaction.with_tx_timeout(timeout) {
-                                Ok(transaction) => transaction,
-                                Err(e) => {
-                                    let msg = BeginTransactionResult {
-                                        result: Err(e.into()),
-                                    };
-                                    self.tx_res.send(msg.into()).unwrap();
-                                    continue;
-                                }
-                            };
-                        }
+                        transaction = transaction.with_transaction_timeout(timeout);
                     }
                     if let Some(tx_meta) = tx_meta {
-                        transaction = transaction.with_tx_meta(tx_meta)
+                        transaction = transaction.with_transaction_meta(tx_meta)
                     }
                     let mut started_receiver = false;
                     let res = {
@@ -739,23 +714,10 @@ impl SessionHolderRunner {
                     let mut transaction = session.transaction();
                     transaction = transaction.with_routing_control(access_mode);
                     if let Some(timeout) = timeout {
-                        if timeout == 0 {
-                            transaction = transaction.without_tx_timeout();
-                        } else {
-                            transaction = match transaction.with_tx_timeout(timeout) {
-                                Ok(transaction) => transaction,
-                                Err(e) => {
-                                    let msg = TransactionFunctionResult {
-                                        result: Err(e.into()),
-                                    };
-                                    self.tx_res.send(msg.into()).unwrap();
-                                    continue;
-                                }
-                            };
-                        }
+                        transaction = transaction.with_transaction_timeout(timeout);
                     }
                     if let Some(tx_meta) = tx_meta {
-                        transaction = transaction.with_tx_meta(tx_meta)
+                        transaction = transaction.with_transaction_meta(tx_meta)
                     }
                     let _ = buffered_command.insert(
                         TransactionFunction {
@@ -1603,7 +1565,7 @@ pub(super) struct AutoCommit {
     pub(super) query: String,
     pub(super) params: Option<HashMap<String, ValueSend>>,
     pub(super) tx_meta: Option<HashMap<String, ValueSend>>,
-    pub(super) timeout: Option<i64>,
+    pub(super) timeout: Option<TransactionTimeout>,
 }
 
 impl From<AutoCommit> for Command {
@@ -1628,7 +1590,7 @@ impl From<AutoCommitResult> for CommandResult {
 pub(super) struct TransactionFunction {
     pub(super) session_id: BackendId,
     pub(super) tx_meta: Option<HashMap<String, ValueSend>>,
-    pub(super) timeout: Option<i64>,
+    pub(super) timeout: Option<TransactionTimeout>,
     pub(super) access_mode: RoutingControl,
 }
 
@@ -1707,7 +1669,7 @@ impl From<RetryableNegativeResult> for CommandResult {
 pub(super) struct BeginTransaction {
     pub(super) session_id: BackendId,
     pub(super) tx_meta: Option<HashMap<String, ValueSend>>,
-    pub(super) timeout: Option<i64>,
+    pub(super) timeout: Option<TransactionTimeout>,
 }
 
 impl From<BeginTransaction> for Command {

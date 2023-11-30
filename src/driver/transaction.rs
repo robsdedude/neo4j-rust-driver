@@ -110,6 +110,10 @@ impl<'driver, 'tx, 'inner_tx> TransactionRecordStream<'driver, 'tx, 'inner_tx> {
     pub fn single(&mut self) -> result::Result<Result<Record>, GetSingleRecordError> {
         self.0.single()
     }
+
+    pub(crate) fn raw_stream_mut(&mut self) -> &mut RecordStream<'driver> {
+        &mut self.0
+    }
 }
 
 impl<'driver, 'tx, 'inner_tx> Iterator for TransactionRecordStream<'driver, 'tx, 'inner_tx> {
@@ -148,6 +152,7 @@ impl<'driver> InnerTransaction<'driver> {
         mode: Option<&str>,
         db: Option<&str>,
         imp_user: Option<&str>,
+        eager: bool,
     ) -> Result<()> {
         let mut cx = self.connection.borrow_mut();
         let tx_metadata = if tx_metadata.is_empty() {
@@ -163,8 +168,11 @@ impl<'driver> InnerTransaction<'driver> {
             db,
             imp_user,
         ))?;
-        cx.write_all(None)?;
-        cx.read_all(None)
+        if eager {
+            cx.write_all(None)?;
+            cx.read_all(None)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn commit(&mut self) -> Result<()> {
@@ -332,4 +340,38 @@ impl<
             .field("parameters", self.parameters.borrow())
             .finish()
     }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TransactionTimeout {
+    timeout: Option<i64>,
+}
+
+impl TransactionTimeout {
+    #[inline]
+    pub fn from_millis(timeout: i64) -> Option<Self> {
+        if timeout <= 0 {
+            return None;
+        }
+        Some(Self {
+            timeout: Some(timeout),
+        })
+    }
+
+    #[inline]
+    pub fn none() -> Self {
+        Self { timeout: Some(-1) }
+    }
+
+    #[inline]
+    pub(crate) fn raw(&self) -> Option<i64> {
+        self.timeout
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum InternalTransactionTimeout {
+    None,
+    Default,
+    Custom(i64),
 }

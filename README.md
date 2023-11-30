@@ -30,7 +30,7 @@ Feature Progress:
    * [x] `.session`
    * [x] `.supports_multi_db`
    * [x] `.supports_session_auth`
-   * [ ] `.execute_query`
+   * [x] `.execute_query`
    * [x] `.verify_connectivity`
    * [x] `.verify_authentication`
    * [x] `.get_server_info`

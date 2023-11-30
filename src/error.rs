@@ -270,7 +270,6 @@ impl ServerError {
     }
 
     pub(crate) fn fatal_during_discovery(&self) -> bool {
-        // TODO: add the other exceptions
         match self.code() {
             "Neo.ClientError.Database.DatabaseNotFound"
             | "Neo.ClientError.Transaction.InvalidBookmark"
@@ -291,7 +290,7 @@ impl ServerError {
 
     pub(crate) fn invalidates_writer(&self) -> bool {
         matches!(
-            self.code.as_str(),
+            self.code(),
             "Neo.ClientError.Cluster.NotALeader"
                 | "Neo.ClientError.General.ForbiddenOnReadOnlyDatabase"
         )

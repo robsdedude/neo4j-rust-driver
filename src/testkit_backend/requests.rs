@@ -12,23 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::bookmarks::Bookmarks;
-use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
-use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
+use serde_json::Value as JsonValue;
+
+use crate::bookmarks::{BookmarkManager, Bookmarks};
 use crate::driver::auth::AuthToken;
 use crate::driver::{ConnectionConfig, DriverConfig, RoutingControl};
 use crate::session::SessionConfig;
+use crate::transaction::TransactionTimeout;
 use crate::ValueSend;
 
 use super::auth::TestKitAuthManagers;
 use super::bookmarks::new_bookmark_manager;
 use super::cypher_value::CypherValue;
 use super::driver_holder::{
-    CloseSession, DriverHolder, EmulatedDriverConfig, NewSession, VerifyAuthentication,
+    CloseSession, DriverHolder, EmulatedDriverConfig, ExecuteQuery, ExecuteQueryBookmarkManager,
+    NewSession, VerifyAuthentication,
 };
 use super::errors::TestKitError;
 use super::resolver::TestKitResolver;
@@ -291,7 +294,8 @@ pub(super) enum Request {
         driver_id: BackendId,
         #[serde(rename = "cypher")]
         query: String,
-        config: Option<ExecuteQueryConfig>,
+        params: Option<HashMap<String, CypherValue>>,
+        config: ExecuteQueryConfig,
     },
     FakeTimeInstall {},
     #[serde(rename_all = "camelCase")]
@@ -568,6 +572,8 @@ pub(super) struct ExecuteQueryConfig {
     routing: Option<RequestAccessMode>,
     impersonated_user: Option<String>,
     bookmark_manager_id: Option<ExecuteQueryBmmId>,
+    tx_meta: Option<HashMap<String, CypherValue>>,
+    timeout: Option<i64>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -575,7 +581,7 @@ pub(super) struct ExecuteQueryConfig {
 pub(super) enum ExecuteQueryBmmId {
     BackendId(BackendId),
     #[serde(deserialize_with = "deserialize_default_bmm_id")]
-    Default,
+    None,
 }
 
 fn deserialize_default_bmm_id<'de, D>(d: D) -> Result<(), D::Error>
@@ -584,7 +590,7 @@ where
 {
     match i8::deserialize(d)? {
         -1 => Ok(()),
-        _ => Err(D::Error::custom("default BMM ID must be -1")),
+        _ => Err(D::Error::custom("None BMM ID must be -1")),
     }
 }
 
@@ -678,7 +684,7 @@ impl Request {
             // Request::ForcedRoutingTableUpdate { .. } => {},
             // Request::GetRoutingTable { .. } => {},
             // Request::GetConnectionPoolMetrics { .. } => {},
-            // Request::ExecuteQuery { .. } => {},
+            Request::ExecuteQuery { .. } => self.execute_query(backend)?,
             // Request::FakeTimeInstall { .. } => {},
             // Request::FakeTimeTick { .. } => {},
             // Request::FakeTimeUninstall { .. } => {},
@@ -959,6 +965,7 @@ impl Request {
             .insert(id, Arc::new(manager));
         backend.send(&Response::BookmarkManager { id })
     }
+
     fn close_bookmark_manager(self, backend: &Backend) -> TestKitResult {
         let Request::BookmarkManagerClose { id } = self else {
             panic!("expected Request::BookmarkManagerClose");
@@ -1030,12 +1037,11 @@ impl Request {
         if let Some(notifications_disabled_categories) = notifications_disabled_categories {
             return Err(TestKitError::backend_err(format!("Driver does not yet support notifications_disabled_categories, found {notifications_disabled_categories:?}")));
         }
-        if let Some(bookmark_manager_id) = bookmark_manager_id {
-            let manager = data
-                .bookmark_managers
-                .get(&bookmark_manager_id)
-                .ok_or_else(|| missing_bookmark_manager_error(&bookmark_manager_id))?;
-            config = config.with_bookmark_manager(Arc::clone(manager));
+        let bookmark_manager = bookmark_manager_id
+            .map(|id| get_bookmark_manager(&data, &id))
+            .transpose()?;
+        if let Some(bookmark_manager) = bookmark_manager {
+            config = config.with_bookmark_manager(bookmark_manager);
         }
         if let Some(auth) = auth {
             config = config.with_session_auth(Arc::new(auth.into()));
@@ -1079,6 +1085,7 @@ impl Request {
         else {
             panic!("expected Request::SessionRun");
         };
+        let timeout = read_transaction_timeout(timeout)?;
         let mut data = backend.data.borrow_mut();
         let (driver_holder, driver_id) = get_driver_for_session(&data, &session_id)?;
         let params = params.map(cypher_value_map_to_value_send_map).transpose()?;
@@ -1115,6 +1122,7 @@ impl Request {
         let tx_meta = tx_meta
             .map(cypher_value_map_to_value_send_map)
             .transpose()?;
+        let timeout = read_transaction_timeout(timeout)?;
         let retry_outcome = driver_holder
             .transaction_function(TransactionFunction {
                 session_id,
@@ -1141,6 +1149,7 @@ impl Request {
         let tx_meta = tx_meta
             .map(cypher_value_map_to_value_send_map)
             .transpose()?;
+        let timeout = read_transaction_timeout(timeout)?;
         let retry_outcome = driver_holder
             .transaction_function(TransactionFunction {
                 session_id,
@@ -1167,6 +1176,7 @@ impl Request {
         let tx_meta = tx_meta
             .map(cypher_value_map_to_value_send_map)
             .transpose()?;
+        let timeout = read_transaction_timeout(timeout)?;
         let tx_id = driver_holder
             .begin_transaction(BeginTransaction {
                 session_id,
@@ -1356,6 +1366,56 @@ impl Request {
         let msg = handle_retry_outcome(&mut data, retry_outcome, driver_id);
         backend.send(&msg)
     }
+
+    fn execute_query(self, backend: &Backend) -> TestKitResult {
+        let Request::ExecuteQuery {
+            driver_id,
+            query,
+            params,
+            config,
+        } = self
+        else {
+            panic!("expected Request::ExecuteQuery");
+        };
+        let ExecuteQueryConfig {
+            database,
+            routing,
+            impersonated_user,
+            bookmark_manager_id,
+            tx_meta,
+            timeout,
+        } = config;
+        let data = backend.data.borrow_mut();
+        let driver_holder = get_driver(&data, &driver_id)?;
+        let params = params.map(cypher_value_map_to_value_send_map).transpose()?;
+        let routing = routing.map(Into::into);
+        let bookmark_manager = match bookmark_manager_id {
+            None => ExecuteQueryBookmarkManager::Default,
+            Some(ExecuteQueryBmmId::BackendId(id)) => {
+                let manager = get_bookmark_manager(&data, &id)?;
+                ExecuteQueryBookmarkManager::Custom(manager)
+            }
+            Some(ExecuteQueryBmmId::None) => ExecuteQueryBookmarkManager::None,
+        };
+        let tx_meta = tx_meta
+            .map(cypher_value_map_to_value_send_map)
+            .transpose()?;
+        let timeout = read_transaction_timeout(timeout)?;
+        let result = driver_holder
+            .execute_query(ExecuteQuery {
+                query,
+                params,
+                database,
+                routing,
+                impersonated_user,
+                bookmark_manager,
+                tx_meta,
+                timeout,
+            })
+            .result?;
+        let response: Response = result.try_into()?;
+        backend.send(&response)
+    }
 }
 
 fn handle_retry_outcome(
@@ -1439,6 +1499,17 @@ fn closed_session_error() -> TestKitError {
     }
 }
 
+fn get_bookmark_manager<'a>(
+    backend_data: &'a BackendData,
+    bookmark_manager_id: &BackendId,
+) -> Result<Arc<dyn BookmarkManager>, TestKitError> {
+    backend_data
+        .bookmark_managers
+        .get(bookmark_manager_id)
+        .ok_or_else(|| missing_bookmark_manager_error(bookmark_manager_id))
+        .map(Arc::clone)
+}
+
 fn missing_session_error(session_id: &BackendId) -> TestKitError {
     TestKitError::backend_err(format!("No session with id {session_id} found"))
 }
@@ -1457,4 +1528,21 @@ fn write_record(values: Option<Vec<CypherValue>>) -> Result<Response, TestKitErr
         Some(values) => Response::Record { values },
     };
     Ok(response)
+}
+
+fn read_transaction_timeout(
+    timeout: Option<i64>,
+) -> Result<Option<TransactionTimeout>, TestKitError> {
+    match timeout {
+        None => Ok(None),
+        Some(timeout) => TransactionTimeout::from_millis(timeout)
+            .ok_or_else(|| TestKitError::DriverError {
+                error_type: String::from("ConfigureTimeoutError"),
+                msg: String::from("Invalid transaction timeout value"),
+                code: None,
+                id: None,
+                retryable: false,
+            })
+            .map(Some),
+    }
 }
