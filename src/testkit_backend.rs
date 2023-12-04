@@ -88,9 +88,15 @@ fn handle_stream(stream: TcpStream) -> DynError {
     let backend = Backend::new(reader, writer);
     loop {
         if let Err(err) = backend.handle_request() {
+            cleanup();
             return err;
         }
     }
+}
+
+fn cleanup() {
+    // ignore failure: we don't care if the time wasn't frozen
+    let _ = crate::time::unfreeze_time();
 }
 
 #[derive(Debug, Clone)]

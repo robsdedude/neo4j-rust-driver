@@ -21,6 +21,7 @@ pub mod driver;
 mod error;
 mod macros;
 mod sync;
+mod time;
 mod util;
 pub mod value;
 

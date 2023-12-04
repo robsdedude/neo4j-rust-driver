@@ -24,7 +24,7 @@ use std::io::{Read, Write};
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use log::{debug, info, warn};
 use parking_lot::{Condvar, Mutex, RwLockReadGuard};
@@ -38,6 +38,7 @@ use crate::driver::config::AuthConfig;
 use crate::driver::RoutingControl;
 use crate::error::ServerError;
 use crate::sync::MostlyRLock;
+use crate::time::Instant;
 use crate::{Address, Neo4jError, Result, ValueSend};
 use routing::RoutingTable;
 pub(crate) use single_pool::SessionAuth;
@@ -153,8 +154,12 @@ pub(crate) struct PoolConfig {
 
 impl PoolConfig {
     pub(crate) fn connection_acquisition_deadline(&self) -> Option<Instant> {
+        // Not mocking pool and connection timeouts as this could lead to preemptively giving up:
+        // assume time gets frozen at t0, connection_acquisition_timeout passes (for real),
+        // then every call to the pool will start to fail because APIs using the actual time are
+        // used under the hood.
         self.connection_acquisition_timeout
-            .map(|t| Instant::now() + t)
+            .map(|t| Instant::unmockable_now() + t)
     }
 }
 
@@ -375,7 +380,7 @@ impl RoutingPool {
                     if self
                         .wait_cond
                         .1
-                        .wait_until(&mut cond_lock, timeout)
+                        .wait_until(&mut cond_lock, timeout.raw())
                         .timed_out()
                     {
                         return Err(Neo4jError::connection_acquisition_timeout(

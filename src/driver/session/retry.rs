@@ -15,12 +15,13 @@
 use log::warn;
 use std::result::Result as StdResult;
 use std::thread::sleep;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use rand;
 use rand::Rng;
 use thiserror::Error;
 
+use crate::time::Instant;
 use crate::{Neo4jError, Result};
 
 pub trait RetryPolicy {

@@ -344,7 +344,7 @@ impl<
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct TransactionTimeout {
-    timeout: Option<i64>,
+    timeout: InternalTransactionTimeout,
 }
 
 impl TransactionTimeout {
@@ -354,24 +354,43 @@ impl TransactionTimeout {
             return None;
         }
         Some(Self {
-            timeout: Some(timeout),
+            timeout: InternalTransactionTimeout::Custom(timeout),
         })
     }
 
     #[inline]
     pub fn none() -> Self {
-        Self { timeout: Some(-1) }
+        Self {
+            timeout: InternalTransactionTimeout::None,
+        }
     }
 
     #[inline]
     pub(crate) fn raw(&self) -> Option<i64> {
-        self.timeout
+        self.timeout.raw()
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub(crate) enum InternalTransactionTimeout {
     None,
     Default,
     Custom(i64),
+}
+
+impl Default for InternalTransactionTimeout {
+    fn default() -> Self {
+        Self::Default
+    }
+}
+
+impl InternalTransactionTimeout {
+    #[inline]
+    pub(crate) fn raw(&self) -> Option<i64> {
+        match self {
+            Self::None => Some(0),
+            Self::Default => None,
+            Self::Custom(timeout) => Some(*timeout),
+        }
+    }
 }

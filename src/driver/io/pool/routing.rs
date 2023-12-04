@@ -15,11 +15,12 @@
 use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use log::{debug, warn};
 
 use crate::driver::RoutingControl;
+use crate::time::Instant;
 use crate::{Address, ValueReceive};
 
 use thiserror::Error;

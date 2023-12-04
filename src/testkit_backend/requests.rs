@@ -685,9 +685,9 @@ impl Request {
             // Request::GetRoutingTable { .. } => {},
             // Request::GetConnectionPoolMetrics { .. } => {},
             Request::ExecuteQuery { .. } => self.execute_query(backend)?,
-            // Request::FakeTimeInstall { .. } => {},
-            // Request::FakeTimeTick { .. } => {},
-            // Request::FakeTimeUninstall { .. } => {},
+            Request::FakeTimeInstall { .. } => self.fake_time_install(backend)?,
+            Request::FakeTimeTick { .. } => self.fake_time_tick(backend)?,
+            Request::FakeTimeUninstall { .. } => self.fake_time_uninstall(backend)?,
             _ => {
                 return Err(TestKitError::backend_err(format!(
                     "Unhandled request {:?}",
@@ -1416,6 +1416,30 @@ impl Request {
         let response: Response = result.try_into()?;
         backend.send(&response)
     }
+
+    fn fake_time_install(&self, backend: &Backend) -> TestKitResult {
+        crate::time::freeze_time();
+        let response = Response::FakeTimeAck;
+        backend.send(&response)
+    }
+
+    fn fake_time_tick(&self, backend: &Backend) -> TestKitResult {
+        let Request::FakeTimeTick { increment_ms } = self else {
+            panic!("expected Request::FakeTimeTick");
+        };
+        let increment_ms = u64::try_from(*increment_ms)
+            .map_err(|_| TestKitError::backend_err("increment_ms cannot be negative"))?;
+        crate::time::tick(Duration::from_millis(increment_ms))
+            .map_err(TestKitError::backend_err)?;
+        let response = Response::FakeTimeAck;
+        backend.send(&response)
+    }
+
+    fn fake_time_uninstall(&self, backend: &Backend) -> TestKitResult {
+        crate::time::unfreeze_time().map_err(TestKitError::backend_err)?;
+        let response = Response::FakeTimeAck;
+        backend.send(&response)
+    }
 }
 
 fn handle_retry_outcome(
@@ -1535,10 +1559,11 @@ fn read_transaction_timeout(
 ) -> Result<Option<TransactionTimeout>, TestKitError> {
     match timeout {
         None => Ok(None),
+        Some(0) => Ok(Some(TransactionTimeout::none())),
         Some(timeout) => TransactionTimeout::from_millis(timeout)
             .ok_or_else(|| TestKitError::DriverError {
                 error_type: String::from("ConfigureTimeoutError"),
-                msg: String::from("Invalid transaction timeout value"),
+                msg: String::from("invalid transaction timeout value"),
                 code: None,
                 id: None,
                 retryable: false,

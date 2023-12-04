@@ -18,9 +18,10 @@ use std::error::Error as StdError;
 use std::fmt::{Debug, Formatter};
 use std::result::Result as StdResult;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::Instant as StdInstant;
 
 use crate::error::{ServerError, UserCallbackError};
+use crate::time::Instant;
 use crate::value::value_send::ValueSend;
 use crate::value_map;
 use crate::{Neo4jError, Result};
@@ -29,7 +30,7 @@ type BoxError = Box<dyn StdError + Send + Sync>;
 pub type ManagerGetAuthReturn = StdResult<Arc<AuthToken>, BoxError>;
 pub type ManagerHandleErrReturn = StdResult<bool, BoxError>;
 pub type BasicProviderReturn = StdResult<AuthToken, BoxError>;
-pub type BearerProviderReturn = StdResult<(AuthToken, Option<Instant>), BoxError>;
+pub type BearerProviderReturn = StdResult<(AuthToken, Option<StdInstant>), BoxError>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthToken {
@@ -321,7 +322,7 @@ pub mod auth_managers {
             let auth = Arc::new(auth);
             *cache_guard = Some(Neo4jAuthCache {
                 auth: Arc::clone(&auth),
-                expiry,
+                expiry: expiry.map(Instant::new),
             });
             Ok(auth)
         }

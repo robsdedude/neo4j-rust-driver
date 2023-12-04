@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use atomic_refcell::AtomicRefCell;
 
@@ -21,6 +21,7 @@ use crate::driver::auth::{
     auth_managers, AuthManager, AuthToken, ManagerGetAuthReturn, ManagerHandleErrReturn,
 };
 use crate::error::ServerError;
+use crate::time::Instant;
 
 use super::backend_id::{BackendId, Generator};
 use super::errors::TestKitError;
@@ -101,7 +102,7 @@ impl TestKitAuthManagers {
                     } = auth;
                     let expires = expires_in_ms
                         .map(|ms| {
-                            let now = Instant::now();
+                            let now = Instant::now().raw();
                             if ms >= 0 {
                                 now.checked_add(Duration::from_millis(ms as u64))
                                     .ok_or_else(|| {

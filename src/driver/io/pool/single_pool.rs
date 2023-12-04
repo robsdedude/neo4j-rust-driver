@@ -16,7 +16,7 @@ use log::{info, log_enabled, Level};
 use std::collections::{HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use parking_lot::lock_api::MutexGuard;
 use parking_lot::{Condvar, Mutex, RawMutex};
@@ -27,6 +27,7 @@ use super::PoolConfig;
 use crate::driver::config::auth::{auth_managers, AuthToken};
 use crate::driver::config::AuthConfig;
 use crate::driver::io::bolt::AuthResetHandle;
+use crate::time::Instant;
 use crate::util::RefContainer;
 use crate::{Address, Neo4jError, Result};
 
@@ -186,7 +187,7 @@ impl SimplePool {
             Some(deadline) => {
                 if self
                     .made_room_condition
-                    .wait_until(synced, deadline)
+                    .wait_until(synced, deadline.raw())
                     .timed_out()
                 {
                     return Err(Neo4jError::connection_acquisition_timeout(

@@ -660,7 +660,7 @@ impl Response {
                 "ConfHint:connection.recv_timeout_seconds",
                 //
                 // === BACKEND FEATURES FOR TESTING ===
-                // "Backend:MockTime",
+                "Backend:MockTime",
                 // "Backend:RTFetch",
                 // "Backend:RTForceUpdate",
             ]
