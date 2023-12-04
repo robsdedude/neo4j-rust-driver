@@ -99,7 +99,7 @@ impl Driver {
         let config = InternalSessionConfig {
             config,
             idle_time_before_connection_test: self.config.idle_time_before_connection_test,
-            eager_begin: false,
+            eager_begin: true,
         };
         Session::new(config, &self.pool, &self.config)
     }
@@ -125,7 +125,7 @@ impl Driver {
         let config = InternalSessionConfig {
             config: session_config,
             idle_time_before_connection_test: self.config.idle_time_before_connection_test,
-            eager_begin: true,
+            eager_begin: false,
         };
         Session::new(config, &self.pool, &self.config)
     }
@@ -166,7 +166,7 @@ impl Driver {
         let config = InternalSessionConfig {
             config: SessionConfig::default(),
             idle_time_before_connection_test: Some(Duration::ZERO),
-            eager_begin: false,
+            eager_begin: true,
         };
         Session::new(config, &self.pool, &self.config)
             .acquire_connection(RoutingControl::Read)
