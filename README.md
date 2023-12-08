@@ -1,12 +1,12 @@
 Neo4j Driver for Rust
 =====================
 
-This is a work in progress.
-
 Disclaimer:
  * While I'm currently affiliated with Neo4j, this is my private hobby project.
    It's not an officially supported piece of software by Neo4j.
+ * This is a work in progress, and it's mostly developed in my spare time.
  * This project is primarily meant for private studies.
+   Yet, I decided to publish it as it might be useful for others as well.
 
 
 Feature Progress:
