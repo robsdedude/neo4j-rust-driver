@@ -68,6 +68,9 @@ Feature Progress:
    * [x] `.single`
    * [ ] `.into::<EagerResult>()`
    * [ ] `.closed` (not sure if needed?)
+   * [ ] Record
+     * [x] most basic functionality
+     * [ ] ergonomic way to access by key
  * [x] Bookmark Management
  * [ ] Protocol Versions
    * [x] 4.4
