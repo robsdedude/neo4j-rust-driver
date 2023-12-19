@@ -23,8 +23,10 @@ const HOST: &str = "localhost";
 const PORT: u16 = 7687;
 const USER: &str = "neo4j";
 const PASSWORD: &str = "pass";
+const DATABASE: &str = "neo4j";
 
 fn main() {
+    let database = Arc::new(String::from(DATABASE));
     let address = Address::from((HOST, PORT));
     let auth_token = AuthToken::new_basic_auth(USER, PASSWORD);
     let driver = Driver::new(
@@ -34,6 +36,7 @@ fn main() {
 
     let result = driver
         .execute_query("RETURN $x AS x")
+        .with_database(database)
         .with_routing_control(RoutingControl::Read)
         .with_parameters(value_map!(
             {"x": 123}
