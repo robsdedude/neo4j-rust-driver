@@ -24,12 +24,13 @@ use parking_lot::{Condvar, Mutex, RawMutex};
 use super::super::bolt::message_parameters::{HelloParameters, ReauthParameters};
 use super::super::bolt::{self, OnServerErrorCb, TcpBolt, TcpRW};
 use super::PoolConfig;
+use crate::address::Address;
 use crate::driver::config::auth::{auth_managers, AuthToken};
 use crate::driver::config::AuthConfig;
 use crate::driver::io::bolt::AuthResetHandle;
 use crate::time::Instant;
 use crate::util::RefContainer;
-use crate::{Address, Neo4jError, Result};
+use crate::{Neo4jError, Result};
 
 type PoolElement = TcpBolt;
 

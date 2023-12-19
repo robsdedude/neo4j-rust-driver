@@ -19,9 +19,10 @@ use std::time::Duration;
 
 use log::{debug, warn};
 
+use crate::address::Address;
 use crate::driver::RoutingControl;
 use crate::time::Instant;
-use crate::{Address, ValueReceive};
+use crate::ValueReceive;
 
 use thiserror::Error;
 

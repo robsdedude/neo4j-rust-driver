@@ -25,13 +25,13 @@ mod time;
 mod util;
 pub mod value;
 
-pub use address_::Address;
 pub use error::{Neo4jError, Result};
 pub use value::ValueReceive;
 pub use value::ValueSend;
 
 pub mod address {
     pub use super::address_::resolution::*;
+    pub use super::address_::*;
 }
 pub mod bookmarks {
     pub use super::driver::session::bookmarks::*;

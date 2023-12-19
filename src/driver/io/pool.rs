@@ -31,7 +31,7 @@ use parking_lot::{Condvar, Mutex, RwLockReadGuard};
 
 use super::bolt::message_parameters::RouteParameters;
 use super::bolt::{BoltData, ResponseCallbacks};
-use crate::address::AddressResolver;
+use crate::address::{Address, AddressResolver};
 use crate::bookmarks::Bookmarks;
 use crate::driver::config::auth::{auth_managers, AuthToken};
 use crate::driver::config::AuthConfig;
@@ -39,7 +39,7 @@ use crate::driver::RoutingControl;
 use crate::error::ServerError;
 use crate::sync::MostlyRLock;
 use crate::time::Instant;
-use crate::{Address, Neo4jError, Result, ValueSend};
+use crate::{Neo4jError, Result, ValueSend};
 use routing::RoutingTable;
 pub(crate) use single_pool::SessionAuth;
 use single_pool::{SimplePool, SinglePooledBolt, UnpreparedSinglePooledBolt};

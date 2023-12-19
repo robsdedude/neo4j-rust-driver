@@ -26,9 +26,9 @@ use rustls::ClientConfig;
 use thiserror::Error;
 use uriparse::{Query, URIError, URI};
 
-use crate::address::AddressResolver;
+use crate::address::{Address, AddressResolver};
 use crate::address_::DEFAULT_PORT;
-use crate::{Address, ValueSend};
+use crate::ValueSend;
 use auth::{AuthManager, AuthToken};
 
 const DEFAULT_USER_AGENT: &str = env!("NEO4J_DEFAULT_USER_AGENT");

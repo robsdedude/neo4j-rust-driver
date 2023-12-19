@@ -18,7 +18,8 @@ use std::time::Duration;
 
 use super::io::bolt::BoltMeta;
 use super::io::PooledBolt;
-use crate::{Address, Neo4jError, Result, ValueReceive};
+use crate::address::Address;
+use crate::{Neo4jError, Result, ValueReceive};
 
 /// Root struct containing query meta data.
 #[derive(Debug, Clone)]
