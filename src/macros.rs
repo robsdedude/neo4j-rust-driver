@@ -156,7 +156,7 @@ macro_rules! value {
 #[macro_export(local_inner_macros)]
 macro_rules! value_map {
     ($(,)?) => {
-        std::collections::HashMap::new()
+        std::collections::HashMap::<String, $crate::ValueSend>::new()
     };
 
     ({ $($tt:tt)+ }) => {
