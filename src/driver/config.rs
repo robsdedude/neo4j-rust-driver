@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::Path;
 use std::result::Result as StdResult;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -61,7 +62,7 @@ pub(crate) enum AuthConfig {
 ///
 /// ### From a URI
 /// Most official drivers only accept a URI string to configure this aspect of the driver.
-/// This crate supports the same mechanism by implementing `TryFrom<&str>` for `ConnectionConfig`.
+/// This crate supports the same mechanism by implementing `FromStr` for `ConnectionConfig`.
 /// The string is expected to follow the form:
 /// ```text
 /// scheme://host[:port[?routing_context]]
@@ -446,6 +447,14 @@ impl TryFrom<&str> for ConnectionConfig {
 
     fn try_from(value: &str) -> StdResult<Self, Self::Error> {
         Self::parse_uri(value)
+    }
+}
+
+impl FromStr for ConnectionConfig {
+    type Err = ConnectionConfigParseError;
+
+    fn from_str(s: &str) -> StdResult<Self, Self::Err> {
+        Self::parse_uri(s)
     }
 }
 
