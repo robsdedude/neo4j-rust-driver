@@ -53,6 +53,11 @@ pub mod auth {
     pub use super::config::auth::*;
 }
 
+/// The driver hold the configuration and connection pool to your Neo4j DBMS.
+///
+/// Main ways to run work against the DBMS through the driver are:
+///  * [`Driver::execute_query`] for running a single query inside a transaction.
+///  * [`Driver::session`] for several mechanisms offering more advance patterns.
 #[derive(Debug)]
 pub struct Driver {
     pub(crate) config: ReducedDriverConfig,
@@ -62,6 +67,12 @@ pub struct Driver {
 }
 
 impl Driver {
+    /// Create a new driver.
+    ///
+    /// **Note:**  
+    /// Driver creation is *lazy*.
+    /// No connections are established until work is performed.
+    /// If you want to verify connectivity, use [`Driver::verify_connectivity`].
     pub fn new(mut connection_config: ConnectionConfig, config: DriverConfig) -> Self {
         if let Some(routing_context) = &mut connection_config.routing_context {
             let before = routing_context.insert(

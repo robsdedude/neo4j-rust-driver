@@ -57,6 +57,56 @@ pub(crate) enum AuthConfig {
     Manager(Arc<dyn AuthManager>),
 }
 
+/// Tell the driver where the DBMS it be found and how to connect to it.
+///
+/// ### From a URI
+/// Most official drivers only accept a URI string to configure this aspect of the driver.
+/// This crate supports the same mechanism by implementing `TryFrom<&str>` for `ConnectionConfig`.
+/// The string is expected to follow the form:
+/// ```text
+/// scheme://host[:port[?routing_context]]
+/// ```
+/// Where scheme must be one of:
+///
+/// | scheme      | encryption                                       | routing |
+/// | ----------- | ------------------------------------------------ | ------- |
+/// | `neo4j`     | none                                             | yes     |
+/// | `neo4j+s`   | yes                                              | yes     |
+/// | `neo4j+scc` | yes, *but every certificate is accepted*.        | yes     |
+/// | `bolt`      | none                                             | no      |
+/// | `bolt+s`    | yes                                              | no      |
+/// | `bolt+scc`  | yes, *but every certificate is accepted*.        | no      |
+///
+/// **WARNING**:  
+/// The `...+ssc` schemes are not secure and provided for testing purposes only.
+///
+/// The routing context may only be present for schemes that support routing.
+///
+/// ```
+/// use neo4j::driver::ConnectionConfig;
+///
+/// let conf: ConnectionConfig = "neo4j+s://localhost:7687?foo=bar".parse().unwrap();
+/// ```
+///
+/// ### Programmatically
+/// To get better type safety and avoid parsing errors at runtime, this crate also provides a
+/// builder API.
+///
+/// ```
+/// use std::collections::HashMap;
+///
+/// use neo4j::driver::ConnectionConfig;
+///
+/// let routing_context = {
+///     let mut map = HashMap::with_capacity(1);
+///     map.insert("foo".to_string(), "bar".to_string());
+///     map
+/// };
+/// let conf = ConnectionConfig::new(("localhost", 7687).into())
+///     .with_encryption_trust_default_cas()
+///     .unwrap()
+///     .with_routing_context(routing_context);
+/// ```
 #[derive(Debug)]
 pub struct ConnectionConfig {
     pub(crate) address: Address,
