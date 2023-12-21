@@ -15,6 +15,10 @@
 // heavily inspired by [serde_json]'s `json!` macro
 // [serde_json]: https://github.com/serde-rs/json
 
+// imports for docs
+#[allow(unused)]
+use std::collections::HashMap;
+
 #[cfg(doc)]
 use crate::ValueSend;
 
@@ -123,7 +127,7 @@ macro_rules! value {
     };
 }
 
-/// Short notation for creating a `[HashMap<String, neo4j::ValueSend>`].
+/// Short notation for creating a [`HashMap<String, neo4j::ValueSend>`].
 ///
 /// This macro can be useful, for example, for specifying query parameters.
 ///
@@ -142,11 +146,13 @@ macro_rules! value {
 /// use std::collections::HashMap;
 /// use neo4j::{value_map, ValueSend};
 ///
-/// let mut map = HashMap::new();
-/// map.insert(String::from("foo"), ValueSend::Integer(1));
-/// map.insert(String::from("bar"), ValueSend::Null);
-/// map.insert(String::from("baz"), ValueSend::List(vec![ValueSend::Integer(1)]));
-/// let map = map;
+/// let map =  {
+///     let mut map = HashMap::new();
+///     map.insert(String::from("foo"), ValueSend::Integer(1));
+///     map.insert(String::from("bar"), ValueSend::Null);
+///     map.insert(String::from("baz"), ValueSend::List(vec![ValueSend::Integer(1)]));
+///     map
+/// };
 ///
 /// assert_eq!(
 ///     map,
