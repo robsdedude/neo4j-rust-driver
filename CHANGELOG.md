@@ -1,6 +1,7 @@
 # Changelog
 
 ## NEXT
+ - Fix `Driver::execute_query()::run()` not committing the transaction.
  - Removed `AutoCommitBuilder::without_transaction_timeout` and `AutoCommitBuilder::with_default_transaction_timeout`
    in favor of `AutoCommitBuilder::with_transaction_timeout` in combination with `TransactionTimeout::none`,
    `TransactionTimeout::from_millis` and `TransactionTimeout::default`.
