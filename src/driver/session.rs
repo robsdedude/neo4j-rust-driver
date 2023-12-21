@@ -49,15 +49,15 @@ use retry::RetryPolicy;
 /// If you need to establish a causal chain between two sessions, you can pass bookmarks manually:
 ///
 /// ## Example Bookmark Chaining
-/// ```no_run
+/// ```
 /// use std::sync::Arc;
 ///
 /// use neo4j::driver::Driver;
 /// use neo4j::session::SessionConfig;
 ///
-/// # fn get_driver() -> Driver {
-/// #     unimplemented!()
-/// # }
+/// # use doc_test_utils::get_driver;
+///
+/// # doc_test_utils::db_exclusive(|| {
 /// let db = Arc::new(String::from("neo4j")); // always specify the database name, if possible
 /// let driver: Driver = get_driver();
 /// let mut session1 = driver.session(SessionConfig::new().with_database(Arc::clone(&db)));
@@ -71,6 +71,10 @@ use retry::RetryPolicy;
 ///         .with_database(Arc::clone(&db)),
 /// );
 /// // now session2 will see the results of the transaction in session1
+/// let mut result = session2.auto_commit("MATCH (n:Node) RETURN count(n)").run().unwrap();
+/// let mut record = result.records.pop().unwrap();
+/// assert_eq!(record.entries.pop().unwrap().1.try_into_int().unwrap(), 1);
+/// # });
 /// ```
 ///
 /// There are two ways to run a transaction inside a session:
@@ -437,19 +441,21 @@ impl<
     /// Configure query parameters.
     ///
     /// # Example
-    /// ```no_run
-    /// use neo4j::session::Session;
-    /// use neo4j::value_map;
+    /// ```
+    /// use neo4j::{value_map, ValueReceive};
     ///
-    /// # fn get_session() -> Session<'static> {
-    /// #    unimplemented!()
-    /// # }
-    /// let mut session: Session = get_session();
-    /// let result = session
+    /// # doc_test_utils::db_exclusive(|| {
+    /// # let driver = doc_test_utils::get_driver();
+    /// # let mut session = doc_test_utils::get_session(&driver);
+    /// let mut result = session
     ///     .auto_commit("CREATE (n:Node {id: $id}) RETURN n")
     ///     .with_parameters(value_map!({"id": 1}))
     ///     .run()
     ///     .unwrap();
+    /// let mut record = result.records.pop().unwrap();
+    /// let mut node = record.entries.pop().unwrap().1.try_into_node().unwrap();
+    /// assert_eq!(node.properties.remove("id").unwrap(), ValueReceive::Integer(1));
+    /// # });
     /// ```
     ///
     /// Always prefer this over query string manipulation to avoid injection vulnerabilities and to
@@ -519,14 +525,15 @@ impl<
     /// Metadata can also manually be set via the `dbms.setTXMetaData` procedure.
     ///
     /// # Example
-    /// ```no_run
+    /// ```
     /// use neo4j::session::Session;
     /// use neo4j::value_map;
     ///
     /// # fn get_session() -> Session<'static> {
     /// #    unimplemented!()
     /// # }
-    /// let mut session: Session = get_session();
+    /// # let driver = doc_test_utils::get_driver();
+    /// # let mut session = doc_test_utils::get_session(&driver);
     /// let result = session
     ///    .auto_commit("MATCH (n:Node) RETURN n")
     ///    .with_transaction_meta(value_map!({"key": "value"}))
@@ -621,15 +628,15 @@ impl<
     /// collected into memory and returned as [`EagerResult`].
     ///
     /// # Example
-    /// ```no_run
+    /// ```
     /// use neo4j::driver::Record;
-    /// use neo4j::driver::RecordStream;
+    /// use neo4j::driver::record_stream::RecordStream;
     /// use neo4j::session::Session;
     ///
-    /// # fn get_session() -> Session<'static> {
-    /// #     unimplemented!()
-    /// # }
-    /// let mut session: Session = get_session();
+    /// # use doc_test_utils::get_driver;
+    ///
+    /// let driver = get_driver();
+    /// let mut session = driver.session(Default::default());
     /// let sum = session
     ///     .auto_commit("UNWIND range(1, 3) AS x RETURN x")
     ///     .with_receiver(|stream: &mut RecordStream| {
@@ -642,6 +649,7 @@ impl<
     ///     })
     ///     .run()
     ///     .unwrap();
+    ///
     /// assert_eq!(sum, 6);
     /// ```
     #[inline]

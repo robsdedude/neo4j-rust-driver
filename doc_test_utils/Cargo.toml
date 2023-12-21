@@ -1,0 +1,63 @@
+[package]
+name = "doc_test_utils"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.65"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+#[features]
+## internal feature, do not use, not supported
+#_internal_testkit_backend = [
+#    "base64",
+#    "env_logger",
+#    "flume",
+#    "serde",
+#    "serde_json",
+#    "snowflaked",
+#    "lazy-regex",
+#    "rustls_dangerous_configuration",
+#]
+#rustls_dangerous_configuration = [
+#    "rustls/dangerous_configuration",
+#]
+#
+#[[bin]]
+#name = "testkit_backend"
+#path = "src/bin/testkit_backend.rs"
+#required-features=["_internal_testkit_backend"]
+#
+[dependencies]
+neo4j = { path = ".." }
+log = "0.4.20"
+env_logger = "0.10.0"
+fs2 = "0.4.3"
+#thiserror = "1.0.0"
+#uriparse = "0.6.4"
+#rustls = "0.21.7"
+#rustls-native-certs = "0.6.3"
+#rustls-pemfile = "1.0.3"
+#log = "0.4.17"
+#usize_cast = "1.1.0"
+#duplicate = "1.0.0"
+#itertools = "0.11.0"
+#atomic_refcell = "0.1.9"
+#parking_lot = "0.12.1"
+#enum_dispatch = "0.3.12"
+#rand = "0.8.5"
+#chrono = "0.4.31"
+#chrono-tz = "0.8.3"
+#mockall_double = "0.3.0"
+## TestKit Backend Dependencies
+#base64 = { version = "0.21.0", optional = true }
+#env_logger = { version = "0.10.0", optional = true }
+#flume = { version = "0.11.0", optional = true }
+#serde = { version = "1.0.192", optional = true, features = ["derive"] }
+#serde_json = { version = "1.0.95", optional = true }
+#snowflaked = { version = "1.0.1", optional = true }
+#lazy-regex = { version = "3.0.2", optional = true }
+#
+#[dev-dependencies]
+#rstest = "0.18.2"
+#mockall = "0.11.3"
+#lazy_static = "1.4.0"

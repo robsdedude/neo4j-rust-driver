@@ -35,16 +35,13 @@
 //! use neo4j::{value_map, ValueReceive};
 //!
 //! let host = "localhost";
-//! # let host = env::var("TEST_NEO4J_HOST").expect("env var TEST_NEO4J_HOST not set");
+//! # let host = doc_test_utils::get_host();
 //! let port = 7687;
-//! # let port = env::var("TEST_NEO4J_PORT")
-//! #     .expect("env var TEST_NEO4J_PORT not set")
-//! #     .parse()
-//! #     .expect("TEST_NEO4J_PORT is not a valid port");
+//! # let port = doc_test_utils::get_port();
 //! let user = "neo4j";
-//! # let user = env::var("TEST_NEO4J_USER").expect("env var TEST_NEO4J_USER not set");
+//! # let user = doc_test_utils::get_user();
 //! let password = "pass";
-//! # let password = env::var("TEST_NEO4J_PASS").expect("env var TEST_NEO4J_PASS not set");
+//! # let password = doc_test_utils::get_password();
 //! let database = "neo4j";
 //!
 //! let database = Arc::new(String::from(database));
@@ -89,7 +86,6 @@
 //!     );
 //! }
 //! ```
-//!
 //!
 //! ## Concepts
 //!
