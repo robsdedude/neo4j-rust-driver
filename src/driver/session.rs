@@ -526,12 +526,8 @@ impl<
     ///
     /// # Example
     /// ```
-    /// use neo4j::session::Session;
     /// use neo4j::value_map;
     ///
-    /// # fn get_session() -> Session<'static> {
-    /// #    unimplemented!()
-    /// # }
     /// # let driver = doc_test_utils::get_driver();
     /// # let mut session = doc_test_utils::get_session(&driver);
     /// let result = session
@@ -631,12 +627,9 @@ impl<
     /// ```
     /// use neo4j::driver::Record;
     /// use neo4j::driver::record_stream::RecordStream;
-    /// use neo4j::session::Session;
     ///
-    /// # use doc_test_utils::get_driver;
-    ///
-    /// let driver = get_driver();
-    /// let mut session = driver.session(Default::default());
+    /// # let driver = doc_test_utils::get_driver();
+    /// # let mut session = doc_test_utils::get_session(&driver);
     /// let sum = session
     ///     .auto_commit("UNWIND range(1, 3) AS x RETURN x")
     ///     .with_receiver(|stream: &mut RecordStream| {
