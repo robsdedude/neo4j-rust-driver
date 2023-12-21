@@ -598,7 +598,10 @@ impl<
             .with_routing_control(mode);
         tx_builder.run(move |tx| {
             let mut result_stream = tx.query(query).with_parameters(param).run()?;
-            receiver(result_stream.raw_stream_mut())
+            let res = receiver(result_stream.raw_stream_mut())?;
+            result_stream.consume()?;
+            tx.commit()?;
+            Ok(res)
         })
     }
 
