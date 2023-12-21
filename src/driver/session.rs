@@ -41,6 +41,47 @@ use config::InternalSessionConfig;
 pub use config::SessionConfig;
 use retry::RetryPolicy;
 
+/// A session is a container for a series of transactions.
+///
+/// Sessions, besides being a configuration container, automatically provide causal chaining,
+/// which means that each transaction can read the results of any previous transaction in the same
+/// session.
+/// If you need to establish a causal chain between two sessions, you can pass bookmarks manually:
+///
+/// ## Example Bookmark Chaining
+/// ```no_run
+/// use std::sync::Arc;
+///
+/// use neo4j::driver::Driver;
+/// use neo4j::session::SessionConfig;
+///
+/// # fn get_driver() -> Driver {
+/// #     unimplemented!()
+/// # }
+/// let db = Arc::new(String::from("neo4j")); // always specify the database name, if possible
+/// let driver: Driver = get_driver();
+/// let mut session1 = driver.session(SessionConfig::new().with_database(Arc::clone(&db)));
+/// // do work with session1, e.g.,
+/// session1.auto_commit("CREATE (n:Node)").run().unwrap();
+///
+/// let bookmarks = session1.last_bookmarks();
+/// let mut session2 = driver.session(
+///     SessionConfig::new()
+///         .with_bookmarks(bookmarks)
+///         .with_database(Arc::clone(&db)),
+/// );
+/// // now session2 will see the results of the transaction in session1
+/// ```
+///
+/// There are two ways to run a transaction inside a session:
+///  * [`Session::transaction()`] runs a normal transaction managed by the client.
+///  * [`Session::auto_commit()`] will leave transaction management up to the server.
+///    This mode is necessary for certain types of queries that manage their own transactions.
+///    Such as `CALL {...} IN TRANSACTION`.
+///    This has the big drawback, that the client can easily end up in situations where it's unclear
+///    whether a transaction has been committed or not.
+///    The only guarantee given is that the transaction has been successfully committed once all
+///    results have been consumed.
 #[derive(Debug)]
 pub struct Session<'driver> {
     config: InternalSessionConfig,
@@ -72,6 +113,16 @@ impl<'driver> Session<'driver> {
         }
     }
 
+    /// Prepare a transaction that will leave transaction management up to the server.
+    ///
+    /// This mode is necessary for certain types of queries that manage their own transactions.
+    /// Such as `CALL {...} IN TRANSACTION`.
+    /// This has the big drawback, that the client can easily end up in situations where it's unclear
+    /// whether a transaction has been committed or not.
+    /// The only guarantee given is that the transaction has been successfully committed once all
+    /// results have been consumed.
+    ///
+    /// Use the returned [`AutoCommitBuilder`] to configure the transaction and run it.
     pub fn auto_commit<'session, Q: AsRef<str>>(
         &'session mut self,
         query: Q,
@@ -310,6 +361,9 @@ impl<'driver> Session<'driver> {
     }
 }
 
+/// Builder type to prepare an auto-commit transaction.
+///
+/// See [`Session::auto_commit`] for details.
 pub struct AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes> {
     session: Option<&'session mut Session<'driver>>,
     query: Q,
@@ -380,6 +434,26 @@ impl<
         FRes: FnOnce(&mut RecordStream) -> Result<R>,
     > AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>
 {
+    /// Configure query parameters.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use neo4j::session::Session;
+    /// use neo4j::value_map;
+    ///
+    /// # fn get_session() -> Session<'static> {
+    /// #    unimplemented!()
+    /// # }
+    /// let mut session: Session = get_session();
+    /// let result = session
+    ///     .auto_commit("CREATE (n:Node {id: $id}) RETURN n")
+    ///     .with_parameters(value_map!({"id": 1}))
+    ///     .run()
+    ///     .unwrap();
+    /// ```
+    ///
+    /// Always prefer this over query string manipulation to avoid injection vulnerabilities and to
+    /// allow the server to cache the query plan.
     #[inline]
     pub fn with_parameters<KP_: Borrow<str> + Debug, P_: Borrow<HashMap<KP_, ValueSend>>>(
         self,
@@ -409,6 +483,7 @@ impl<
         }
     }
 
+    /// Configure the query to not use any parameters (this is default).
     #[inline]
     pub fn without_parameters(
         self,
@@ -437,6 +512,27 @@ impl<
         }
     }
 
+    /// Attach transaction meta data to the query.
+    ///
+    /// Transaction metadata will be logged in the server's `query.log` and is accessible through
+    /// querying `SHOW TRANSACTIONS YIELD *`.
+    /// Metadata can also manually be set via the `dbms.setTXMetaData` procedure.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use neo4j::session::Session;
+    /// use neo4j::value_map;
+    ///
+    /// # fn get_session() -> Session<'static> {
+    /// #    unimplemented!()
+    /// # }
+    /// let mut session: Session = get_session();
+    /// let result = session
+    ///    .auto_commit("MATCH (n:Node) RETURN n")
+    ///    .with_transaction_meta(value_map!({"key": "value"}))
+    ///    .run()
+    ///    .unwrap();
+    /// ```
     #[inline]
     pub fn with_transaction_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
         self,
@@ -466,6 +562,7 @@ impl<
         }
     }
 
+    /// Configure the query to not use any transaction meta data (this is default).
     #[inline]
     pub fn without_transaction_meta(
         self,
@@ -494,30 +591,59 @@ impl<
         }
     }
 
+    /// Instruct the server to abort the transaction after the given timeout.
+    ///
+    /// See [`TransactionTimeout`] for options.
     #[inline]
     pub fn with_transaction_timeout(mut self, timeout: TransactionTimeout) -> Self {
         self.timeout = timeout;
         self
     }
 
-    #[inline]
-    pub fn without_transaction_timeout(mut self) -> Self {
-        self.timeout = TransactionTimeout::none();
-        self
-    }
-
-    #[inline]
-    pub fn with_default_transaction_timeout(mut self) -> Self {
-        self.timeout = TransactionTimeout::default();
-        self
-    }
-
+    /// Specify whether the query should be send to a reader or writer in the cluster.
+    ///
+    /// Writers (*default*), can handle reads and writes.
+    /// However, when running read-only queries, it's more efficient to send them to a reader to
+    /// avoid overloading the writer.
+    ///
+    /// **Writers** are also known as **leaders** or **primaries**.  
+    /// **Readers** are also known as **followers** or **secondaries** as well as
+    /// **read replicas** or **tertiaries**.
     #[inline]
     pub fn with_routing_control(mut self, mode: RoutingControl) -> Self {
         self.mode = mode;
         self
     }
 
+    /// Specify a custom receiver to handle the result stream.
+    ///
+    /// By default (see [`AutoCommitBuilder::with_default_receiver`]), the result stream will be
+    /// collected into memory and returned as [`EagerResult`].
+    ///
+    /// # Example
+    /// ```no_run
+    /// use neo4j::driver::Record;
+    /// use neo4j::driver::RecordStream;
+    /// use neo4j::session::Session;
+    ///
+    /// # fn get_session() -> Session<'static> {
+    /// #     unimplemented!()
+    /// # }
+    /// let mut session: Session = get_session();
+    /// let sum = session
+    ///     .auto_commit("UNWIND range(1, 3) AS x RETURN x")
+    ///     .with_receiver(|stream: &mut RecordStream| {
+    ///         let mut sum = 0;
+    ///         for result in stream {
+    ///             let mut record: Record = result?;
+    ///             sum += record.entries.pop().unwrap().1.try_into_int().unwrap();
+    ///         }
+    ///         Ok(sum)
+    ///     })
+    ///     .run()
+    ///     .unwrap();
+    /// assert_eq!(sum, 6);
+    /// ```
     #[inline]
     pub fn with_receiver<R_, FRes_: FnOnce(&mut RecordStream) -> Result<R_>>(
         self,
@@ -547,6 +673,8 @@ impl<
         }
     }
 
+    /// Set the receiver back to the default, which will collect the result stream into memory and
+    /// return it as [`EagerResult`].
     #[inline]
     pub fn with_default_receiver(
         self,
@@ -575,6 +703,7 @@ impl<
         }
     }
 
+    /// Run the query and return the result.
     pub fn run(mut self) -> Result<R> {
         let session = self.session.take().unwrap();
         session.auto_commit_run(self)

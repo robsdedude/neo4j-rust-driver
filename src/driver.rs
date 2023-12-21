@@ -56,8 +56,8 @@ pub mod auth {
 /// The driver hold the configuration and connection pool to your Neo4j DBMS.
 ///
 /// Main ways to run work against the DBMS through the driver are:
-///  * [`Driver::execute_query`] for running a single query inside a transaction.
-///  * [`Driver::session`] for several mechanisms offering more advance patterns.
+///  * [`Driver::execute_query()`] for running a single query inside a transaction.
+///  * [`Driver::session()`] for several mechanisms offering more advance patterns.
 #[derive(Debug)]
 pub struct Driver {
     pub(crate) config: ReducedDriverConfig,

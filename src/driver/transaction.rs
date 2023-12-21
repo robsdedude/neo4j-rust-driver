@@ -342,12 +342,36 @@ impl<
     }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct TransactionTimeout {
     timeout: InternalTransactionTimeout,
 }
 
+/// Controls after how long a transaction should be killed by the server.
+///
+/// Choices:
+///  * [`TransactionTimeout::none`] never time out
+///  * [`TransactionTimeout::from_millis`] time out after specified duration
+///  * [`TransactionTimeout::default`] use the default timeout configured on the server.
 impl TransactionTimeout {
+    /// Construct a transaction timeout in milliseconds.
+    ///
+    /// The specified timeout overrides the default timeout configured on the server using the
+    /// `db.transaction.timeout` setting (`dbms.transaction.timeout` before Neo4j 5.0).
+    /// values higher than `db.transaction.timeout` will be ignored and will fall back to the
+    /// default for server versions between 4.2 and 5.2 (inclusive).
+    ///
+    /// This method returns `None` if the timeout is less than or equal to 0 as this is not
+    /// considered a valid timeout by the server.
+    ///
+    /// # Examples
+    /// ```
+    /// use neo4j::transaction::TransactionTimeout;
+    ///
+    /// assert!(TransactionTimeout::from_millis(-1).is_none());
+    /// assert!(TransactionTimeout::from_millis(0).is_none());
+    /// assert!(TransactionTimeout::from_millis(1).is_some());
+    /// ```
     #[inline]
     pub fn from_millis(timeout: i64) -> Option<Self> {
         if timeout <= 0 {
@@ -358,6 +382,13 @@ impl TransactionTimeout {
         })
     }
 
+    /// Construct an infinite transaction timeout.
+    ///
+    /// This will instruct the server to never timeout the transaction.
+    ///
+    /// For server versions between 4.2 and 5.2 (inclusive), this will fall back to the default
+    /// timeout configured on the server using the `db.transaction.timeout` setting
+    /// (`dbms.transaction.timeout` before Neo4j 5.0).
     #[inline]
     pub fn none() -> Self {
         Self {
@@ -368,6 +399,19 @@ impl TransactionTimeout {
     #[inline]
     pub(crate) fn raw(&self) -> Option<i64> {
         self.timeout.raw()
+    }
+}
+
+impl Default for TransactionTimeout {
+    /// Construct a transaction timeout that uses the default timeout configured on the server.
+    ///
+    /// This corresponds to the timeout configured on the server using the
+    /// `db.transaction.timeout` setting (`dbms.transaction.timeout` before Neo4j 5.0).
+    #[inline]
+    fn default() -> Self {
+        Self {
+            timeout: InternalTransactionTimeout::Default,
+        }
     }
 }
 

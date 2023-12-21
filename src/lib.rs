@@ -16,96 +16,104 @@
 // TODO: remove when prototyping phase is done
 #![allow(dead_code)]
 
-/*!
-# Neo4j Bolt Driver
-
-This crate provides a driver for the Neo4j graph database.
-It's designed to mirror many concepts of the official drivers while leveraging Rust's expressive type system and
-lifetime management to provide a safer API that prevents many common pitfalls already at compile time.
-
-## Basic Example
-```
-use std::sync::Arc;
-# use std::env;
-
-use neo4j::address::Address;
-use neo4j::driver::auth::AuthToken;
-use neo4j::driver::{ConnectionConfig, Driver, DriverConfig, RoutingControl};
-use neo4j::retry::ExponentialBackoff;
-use neo4j::{value_map, ValueReceive};
-
-let host = "localhost";
-# let host = env::var("TEST_NEO4J_HOST").expect("env var TEST_NEO4J_HOST not set");
-let port = 7687;
-# let port = env::var("TEST_NEO4J_PORT")
-#     .expect("env var TEST_NEO4J_PORT not set")
-#     .parse()
-#     .expect("TEST_NEO4J_PORT is not a valid port");
-let user = "neo4j";
-# let user = env::var("TEST_NEO4J_USER").expect("env var TEST_NEO4J_USER not set");
-let password = "pass";
-# let password = env::var("TEST_NEO4J_PASS").expect("env var TEST_NEO4J_PASS not set");
-let database = "neo4j";
-
-let database = Arc::new(String::from(database));
-let address = Address::from((host, port));
-let auth_token = AuthToken::new_basic_auth(user, password);
-let driver = Driver::new(
-    // tell the driver where to connect to
-    ConnectionConfig::new(address),
-    // configure how the driver works locally (e.g., authentication)
-    DriverConfig::new().with_auth(Arc::new(auth_token)),
-);
-
-// Driver::execute_query() is tne easiest way to run a query.
-// It will be sufficient for most use cases and allows the driver to apply some optimizations.
-// So it's recommended to use it whenever possible.
-// For more control, see sessions and transactions.
-let result = driver
-    // Run a CYPHER query against the DBMS.
-    .execute_query("RETURN $x AS x")
-    // Always specify the database when you can (also applies to using sessions).
-    // This will let the driver work more efficiently.
-    .with_database(database)
-    // Tell the driver to send the query to a read server.
-    // In a clustered environment, this will allow make sure that read queries don't overload the
-    // write single server.
-    .with_routing_control(RoutingControl::Read)
-    // Use query parameters (instead of string interpolation) to avoid injection attacks and
-    // improve performance.
-    .with_parameters(value_map!(
-        {"x": 123}
-    ))
-    // For more resilience, use retry policies.
-    .run_with_retry(ExponentialBackoff::default());
-println!("{:?}", result);
-
-let result = result.unwrap();
-assert_eq!(result.records.len(), 1);
-for record in result.records {
-    assert_eq!(
-        record.entries,
-        vec![(Arc::new(String::from("x")), ValueReceive::Integer(123))]
-    );
-}
-```
-
-
-## Concepts
-
-### The Driver
-The fundamental type of this crate is the [`driver::Driver`].
-Through it, all database interactions are performed.
-See [`driver::Driver::new()`].
-The driver manages a connection pool. So there is no need to pool driver objects.
-Usually, each application will use one global driver.
-
-### Sessions
-Sessions are spawned from the driver.
-See [`driver::Driver::session()`].
-Session creation is cheap, it's recommended to create a new session for each piece of work.
-Sessions will borrows connections from the driver's pool as needed.
-*/
+//! # Neo4j Bolt Driver
+//!
+//! This crate provides a driver for the Neo4j graph database.
+//! It's designed to mirror many concepts of the official drivers while leveraging Rust's expressive
+//! type system and lifetime management to provide a safer API that prevents many common pitfalls
+//! already at compile time.
+//!
+//! ## Basic Example
+//! ```
+//! use std::sync::Arc;
+//! # use std::env;
+//!
+//! use neo4j::address::Address;
+//! use neo4j::driver::auth::AuthToken;
+//! use neo4j::driver::{ConnectionConfig, Driver, DriverConfig, RoutingControl};
+//! use neo4j::retry::ExponentialBackoff;
+//! use neo4j::{value_map, ValueReceive};
+//!
+//! let host = "localhost";
+//! # let host = env::var("TEST_NEO4J_HOST").expect("env var TEST_NEO4J_HOST not set");
+//! let port = 7687;
+//! # let port = env::var("TEST_NEO4J_PORT")
+//! #     .expect("env var TEST_NEO4J_PORT not set")
+//! #     .parse()
+//! #     .expect("TEST_NEO4J_PORT is not a valid port");
+//! let user = "neo4j";
+//! # let user = env::var("TEST_NEO4J_USER").expect("env var TEST_NEO4J_USER not set");
+//! let password = "pass";
+//! # let password = env::var("TEST_NEO4J_PASS").expect("env var TEST_NEO4J_PASS not set");
+//! let database = "neo4j";
+//!
+//! let database = Arc::new(String::from(database));
+//! let address = Address::from((host, port));
+//! let auth_token = AuthToken::new_basic_auth(user, password);
+//! let driver = Driver::new(
+//!     // tell the driver where to connect to
+//!     ConnectionConfig::new(address),
+//!     // configure how the driver works locally (e.g., authentication)
+//!     DriverConfig::new().with_auth(Arc::new(auth_token)),
+//! );
+//!
+//! // Driver::execute_query() is tne easiest way to run a query.
+//! // It will be sufficient for most use cases and allows the driver to apply some optimizations.
+//! // So it's recommended to use it whenever possible.
+//! // For more control, see sessions and transactions.
+//! let result = driver
+//!     // Run a CYPHER query against the DBMS.
+//!     .execute_query("RETURN $x AS x")
+//!     // Always specify the database when you can (also applies to using sessions).
+//!     // This will let the driver work more efficiently.
+//!     .with_database(database)
+//!     // Tell the driver to send the query to a read server.
+//!     // In a clustered environment, this will allow make sure that read queries don't overload
+//!     // the write single server.
+//!     .with_routing_control(RoutingControl::Read)
+//!     // Use query parameters (instead of string interpolation) to avoid injection attacks and
+//!     // improve performance.
+//!     .with_parameters(value_map!(
+//!         {"x": 123}
+//!     ))
+//!     // For more resilience, use retry policies.
+//!     .run_with_retry(ExponentialBackoff::default());
+//! println!("{:?}", result);
+//!
+//! let result = result.unwrap();
+//! assert_eq!(result.records.len(), 1);
+//! for record in result.records {
+//!     assert_eq!(
+//!         record.entries,
+//!         vec![(Arc::new(String::from("x")), ValueReceive::Integer(123))]
+//!     );
+//! }
+//! ```
+//!
+//!
+//! ## Concepts
+//!
+//! ### The Driver
+//! The fundamental type of this crate is the [`driver::Driver`].
+//! Through it, all database interactions are performed.
+//! See [`driver::Driver::new()`].
+//! The driver manages a connection pool. So there is no need to pool driver objects.
+//! Usually, each application will use one global driver.
+//!
+//! ### Sessions
+//! Sessions are spawned from the driver.
+//! See [`driver::Driver::session()`].
+//! Session creation is cheap, it's recommended to create a new session for each piece of work
+//! (unless when using [`Driver::execute_query()`]).
+//! Sessions will borrows connections from the driver's pool as needed.
+//!
+//! ### Main Mechanisms for Query Execution
+//! There are three main ways to execute queries:
+//! - [`Driver::execute_query()`] is the easiest way to run a query.
+//!   Prefer it whenever possible.
+//! - [`Session::transaction()`] gives you full control over the transaction.
+//! - [`Session::auto_commit()`] is a special method for running queries that manage their own
+//!   transactions, such as `CALL {...} IN TRANSACTION`.
 
 mod address_;
 pub mod driver;
@@ -115,6 +123,12 @@ mod sync;
 mod time;
 mod util;
 pub mod value;
+
+// imports for docs
+#[allow(unused)]
+use driver::Driver;
+#[allow(unused)]
+use session::Session;
 
 pub use error::{Neo4jError, Result};
 pub use value::ValueReceive;
