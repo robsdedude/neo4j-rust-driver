@@ -60,7 +60,7 @@
 //!     DriverConfig::new().with_auth(Arc::new(auth_token)),
 //! );
 //!
-//! // Driver::execute_query() is tne easiest way to run a query.
+//! // Driver::execute_query() is the easiest way to run a query.
 //! // It will be sufficient for most use cases and allows the driver to apply some optimizations.
 //! // So it's recommended to use it whenever possible.
 //! // For more control, see sessions and transactions.

@@ -31,15 +31,30 @@ fn main() {
     let address = Address::from((HOST, PORT));
     let auth_token = AuthToken::new_basic_auth(USER, PASSWORD);
     let driver = Driver::new(
+        // tell the driver where to connect to
         ConnectionConfig::new(address),
+        // configure how the driver works locally (e.g., authentication)
         DriverConfig::new().with_auth(Arc::new(auth_token)),
     );
 
+    // Driver::execute_query() is the easiest way to run a query.
+    // It will be sufficient for most use cases and allows the driver to apply some optimizations.
+    // So it's recommended to use it whenever possible.
+    // For more control, see sessions and transactions.
     let result = driver
+        // Run a CYPHER query against the DBMS.
         .execute_query("RETURN $x AS x")
+        // Always specify the database when you can (also applies to using sessions).
+        // This will let the driver work more efficiently.
         .with_database(database)
+        // Tell the driver to send the query to a read server.
+        // In a clustered environment, this will allow make sure that read queries don't overload
+        // the write single server.
         .with_routing_control(RoutingControl::Read)
+        // Use query parameters (instead of string interpolation) to avoid injection attacks and
+        // improve performance.
         .with_parameters(value_map!({"x": 123}))
+        // For more resilience, use retry policies.
         .run_with_retry(ExponentialBackoff::default());
     println!("{:?}", result);
 
