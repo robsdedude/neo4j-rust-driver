@@ -518,7 +518,6 @@ impl ConnectionConfig {
     ///
     /// **⚠️ WARNING**:  
     /// This is not secure and should only be used for testing purposes.
-    #[cfg(feature = "rustls_dangerous_configuration")]
     pub fn with_encryption_trust_any_certificate(mut self) -> StdResult<Self, TlsConfigError> {
         self.tls_config = Some(tls_helper::self_signed_tls_config());
         Ok(self)
@@ -528,6 +527,32 @@ impl ConnectionConfig {
     ///
     /// **⚠️ WARNING**:  
     /// Depending on the passed TLS configuration, this might not be secure.
+    ///
+    /// # Example
+    /// ```
+    /// use neo4j::driver::ConnectionConfig;
+    /// use rustls::client::ClientConfig;
+    /// # use rustls::RootCertStore;
+    /// # use rustls_pki_types::{TrustAnchor, Der};
+    ///
+    /// # fn get_client_config() -> ClientConfig {
+    /// #     ClientConfig::builder().with_root_certificates(
+    /// #         RootCertStore {
+    /// #             roots: vec![
+    /// #                 TrustAnchor {
+    /// #                     subject: Der::from_slice(b"1\x0b0\t\x06\x03U\x04\x06\x13\x02US1\"0 \x06\x03U\x04\n\x13\x19Google Trust Services LLC1\x140\x12\x06\x03U\x04\x03\x13\x0bGTS Root R4"),
+    /// #                     subject_public_key_info: Der::from_slice(b"0\x10\x06\x07*\x86H\xce=\x02\x01\x06\x05+\x81\x04\x00\"\x03b\x00\x04\xf3ts\xa7h\x8b`\xaeC\xb85\xc5\x810{KI\x9d\xfb\xc1a\xce\xe6\xdeF\xbdk\xd5a\x185\xae@\xdds\xf7\x89\x910Z\xeb<\xee\x85|\xa2@v;\xa9\xc6\xb8G\xd8*\xe7\x92\x91js\xe9\xb1r9\x9f)\x9f\xa2\x98\xd3_^X\x86e\x0f\xa1\x84e\x06\xd1\xdc\x8b\xc9\xc7s\xc8\x8cj/\xe5\xc4\xab\xd1\x1d\x8a"),
+    /// #                     name_constraints: None,
+    /// #                 },
+    /// #             ],
+    /// #         },
+    /// #     ).with_no_client_auth()
+    /// # }
+    /// #
+    /// let client_config: ClientConfig = get_client_config();
+    /// let config = ConnectionConfig::new(("localhost", 7687).into())
+    ///     .with_encryption_custom_tls_config(client_config);
+    /// ```
     pub fn with_encryption_custom_tls_config(mut self, tls_config: ClientConfig) -> Self {
         self.tls_config = Some(tls_config);
         self
@@ -545,10 +570,10 @@ impl ConnectionConfig {
         let (routing, tls_config) = match uri.scheme().as_str() {
             "neo4j" => (true, None),
             "neo4j+s" => (true, Some(tls_helper::secure_tls_config()?)),
-            "neo4j+ssc" => (true, Some(Self::try_self_signed_tls_config()?)),
+            "neo4j+ssc" => (true, Some(tls_helper::self_signed_tls_config())),
             "bolt" => (false, None),
             "bolt+s" => (false, Some(tls_helper::secure_tls_config()?)),
-            "bolt+ssc" => (false, Some(Self::try_self_signed_tls_config()?)),
+            "bolt+ssc" => (false, Some(tls_helper::self_signed_tls_config())),
             scheme => {
                 return Err(ConnectionConfigParseError(format!(
                     "unknown scheme in URI {} expected `neo4j`, `neo4j`, `neo4j+s`, `neo4j+ssc`, \
@@ -648,16 +673,6 @@ impl ConnectionConfig {
         }
         Ok(result)
     }
-
-    fn try_self_signed_tls_config() -> StdResult<ClientConfig, ConnectionConfigParseError> {
-        #[cfg(feature = "rustls_dangerous_configuration")]
-        return Ok(tls_helper::self_signed_tls_config());
-        #[cfg(not(feature = "rustls_dangerous_configuration"))]
-        return Err(ConnectionConfigParseError(String::from(
-            "`neo4j+ssc` and `bolt+ssc` schemes require crate feature \
-                `rustls_dangerous_configuration",
-        )));
-    }
 }
 
 impl TryFrom<&str> for ConnectionConfig {
@@ -742,16 +757,16 @@ mod mockable {
 
     #[cfg_attr(test, automock)]
     pub(super) mod tls_helper {
-        use rustls::ClientConfig;
-        use rustls::{Certificate, RootCertStore};
         use std::fs::File;
-        use std::io::{BufReader, Result as IoResult};
+        use std::io::BufReader;
         use std::path::Path;
         use std::result::Result as StdResult;
         use std::sync::Arc;
         use std::sync::OnceLock;
 
-        #[cfg(feature = "rustls_dangerous_configuration")]
+        use rustls::ClientConfig;
+        use rustls::RootCertStore;
+
         use super::NonVerifyingVerifier;
 
         static SYSTEM_CERTIFICATES: OnceLock<StdResult<Arc<RootCertStore>, String>> =
@@ -769,12 +784,11 @@ mod mockable {
                 // }));
                 let native_certs = rustls_native_certs::load_native_certs()
                     .map_err(|e| format!("failed to load system certificates: {e}"))?;
-                let (_, _) = root_store.add_parsable_certificates(&native_certs);
+                let (_, _) = root_store.add_parsable_certificates(native_certs);
                 Ok(Arc::new(root_store))
             });
             let root_store = Arc::clone(root_store.as_ref().map_err(Clone::clone)?);
             Ok(ClientConfig::builder()
-                .with_safe_defaults()
                 .with_root_certificates(root_store)
                 .with_no_client_auth())
         }
@@ -783,77 +797,115 @@ mod mockable {
         pub fn custom_ca_tls_config<'a, 'b>(
             paths: &'a [&'b Path],
         ) -> StdResult<ClientConfig, String> {
-            fn load_certificates_from_pem(path: &Path) -> IoResult<Vec<Certificate>> {
-                let file = File::open(path)?;
-                let mut reader = BufReader::new(file);
-                let certs = rustls_pemfile::certs(&mut reader)?;
-
-                Ok(certs.into_iter().map(Certificate).collect())
-            }
-
             let mut root_store = RootCertStore::empty();
             for path in paths {
-                let certs = load_certificates_from_pem(path)
-                    .map_err(|e| format!("failed to load certificates from PEM file: {e}"))?;
-                for cert in certs.into_iter() {
-                    root_store.add(&cert).map_err(|e| {
+                let file = File::open(path)
+                    .map_err(|e| format!("failed to open certificate(s) path {path:?}: {e}"))?;
+                let mut reader = BufReader::new(file);
+                for cert_res in rustls_pemfile::certs(&mut reader) {
+                    let cert = cert_res
+                        .map_err(|e| format!("failed to load certificate(s) from {path:?}: {e}"))?;
+                    root_store.add(cert).map_err(|e| {
                         format!("failed to add certificate(s) from {path:?} to root store: {e}")
                     })?;
                 }
             }
             Ok(ClientConfig::builder()
-                .with_safe_defaults()
                 .with_root_certificates(root_store)
                 .with_no_client_auth())
         }
 
-        #[cfg(feature = "rustls_dangerous_configuration")]
         pub fn self_signed_tls_config() -> ClientConfig {
             let root_store = RootCertStore::empty();
             let mut config = ClientConfig::builder()
-                .with_safe_defaults()
                 .with_root_certificates(root_store)
                 .with_no_client_auth();
             config
                 .dangerous()
-                .set_certificate_verifier(Arc::new(NonVerifyingVerifier {}));
+                .set_certificate_verifier(Arc::new(NonVerifyingVerifier::new()));
             config
         }
     }
 
-    #[cfg(feature = "rustls_dangerous_configuration")]
     mod dangerous {
         use std::result::Result as StdResult;
-        use std::time::SystemTime;
+        use std::sync::Arc;
 
-        use rustls::client::{ServerCertVerified, ServerCertVerifier, ServerName};
-        use rustls::Certificate;
+        use rustls::client::danger::{
+            HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+        };
+        use rustls::client::WebPkiServerVerifier;
         use rustls::Error as RustlsError;
+        use rustls::{DigitallySignedStruct, RootCertStore, SignatureScheme};
+        use rustls_pki_types::{CertificateDer, Der, ServerName, TrustAnchor, UnixTime};
 
         /// As the name suggests, this verifier happily accepts any certificate.
         /// This is not secure and should only be used for testing.
-        pub(super) struct NonVerifyingVerifier {}
+        #[derive(Debug)]
+        pub(super) struct NonVerifyingVerifier {
+            default_verifier: WebPkiServerVerifier,
+        }
+
+        impl NonVerifyingVerifier {
+            pub fn new() -> Self {
+                let default_verifier = WebPkiServerVerifier::builder(Arc::new(
+                    RootCertStore {
+                        roots: vec![
+                            // any certificate will do as we only forward methods to the default
+                            // verifier that do not care about the certificate
+                            TrustAnchor {
+                                subject: Der::from_slice(b"1\x0b0\t\x06\x03U\x04\x06\x13\x02US1\"0 \x06\x03U\x04\n\x13\x19Google Trust Services LLC1\x140\x12\x06\x03U\x04\x03\x13\x0bGTS Root R4"),
+                                subject_public_key_info: Der::from_slice(b"0\x10\x06\x07*\x86H\xce=\x02\x01\x06\x05+\x81\x04\x00\"\x03b\x00\x04\xf3ts\xa7h\x8b`\xaeC\xb85\xc5\x810{KI\x9d\xfb\xc1a\xce\xe6\xdeF\xbdk\xd5a\x185\xae@\xdds\xf7\x89\x910Z\xeb<\xee\x85|\xa2@v;\xa9\xc6\xb8G\xd8*\xe7\x92\x91js\xe9\xb1r9\x9f)\x9f\xa2\x98\xd3_^X\x86e\x0f\xa1\x84e\x06\xd1\xdc\x8b\xc9\xc7s\xc8\x8cj/\xe5\xc4\xab\xd1\x1d\x8a"),
+                                name_constraints: None
+                            },
+                        ],
+                    },
+                ))
+                    .build()
+                    .unwrap();
+                let default_verifier = Arc::into_inner(default_verifier).unwrap();
+                Self { default_verifier }
+            }
+        }
 
         impl ServerCertVerifier for NonVerifyingVerifier {
-            /// Will verify the certificate is valid in the following ways:
-            /// - Signed by a  trusted `RootCertStore` CA
-            /// - Not Expired
-            /// - Valid for DNS entry
             fn verify_server_cert(
                 &self,
-                _end_entity: &Certificate,
-                _intermediates: &[Certificate],
-                _server_name: &ServerName,
-                _scts: &mut dyn Iterator<Item = &[u8]>,
+                _end_entity: &CertificateDer<'_>,
+                _intermediates: &[CertificateDer<'_>],
+                _server_name: &ServerName<'_>,
                 _ocsp_response: &[u8],
-                _now: SystemTime,
+                _now: UnixTime,
             ) -> StdResult<ServerCertVerified, RustlsError> {
                 Ok(ServerCertVerified::assertion())
+            }
+
+            fn verify_tls12_signature(
+                &self,
+                message: &[u8],
+                cert: &CertificateDer<'_>,
+                dss: &DigitallySignedStruct,
+            ) -> StdResult<HandshakeSignatureValid, RustlsError> {
+                self.default_verifier
+                    .verify_tls12_signature(message, cert, dss)
+            }
+
+            fn verify_tls13_signature(
+                &self,
+                message: &[u8],
+                cert: &CertificateDer<'_>,
+                dss: &DigitallySignedStruct,
+            ) -> StdResult<HandshakeSignatureValid, RustlsError> {
+                self.default_verifier
+                    .verify_tls13_signature(message, cert, dss)
+            }
+
+            fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+                self.default_verifier.supported_verify_schemes()
             }
         }
     }
 
-    #[cfg(feature = "rustls_dangerous_configuration")]
     use dangerous::NonVerifyingVerifier;
 }
 
@@ -887,7 +939,6 @@ mod tests {
     fn get_test_client_config() -> ClientConfig {
         let root_store = RootCertStore::empty();
         ClientConfig::builder()
-            .with_safe_defaults()
             .with_root_certificates(root_store)
             .with_no_client_auth()
     }
@@ -938,34 +989,22 @@ mod tests {
     }
 
     #[rstest]
-    #[cfg_attr(feature = "rustls_dangerous_configuration", case(None))]
     #[case(Some("bolt+ssc://localhost:7687"))]
     #[case(Some("neo4j+ssc://localhost:7687"))]
     fn test_self_signed_tls(#[case] uri: Option<&str>) {
-        #[cfg(feature = "rustls_dangerous_configuration")]
-        {
-            let _m = get_tls_helper_lock();
-            let ctx = tls_helper::self_signed_tls_config_context();
-            ctx.expect().returning(get_test_client_config);
+        let _m = get_tls_helper_lock();
+        let ctx = tls_helper::self_signed_tls_config_context();
+        ctx.expect().returning(get_test_client_config);
 
-            let address = ("localhost", 7687).into();
-            let connection_config = match uri {
-                None => ConnectionConfig::new(address)
-                    .with_encryption_trust_any_certificate()
-                    .unwrap(),
-                Some(uri) => ConnectionConfig::try_from(uri).unwrap(),
-            };
+        let address = ("localhost", 7687).into();
+        let connection_config = match uri {
+            None => ConnectionConfig::new(address)
+                .with_encryption_trust_any_certificate()
+                .unwrap(),
+            Some(uri) => ConnectionConfig::try_from(uri).unwrap(),
+        };
 
-            connection_config.tls_config.unwrap();
-        }
-        #[cfg(not(feature = "rustls_dangerous_configuration"))]
-        {
-            let uri = uri.unwrap();
-            let tls_error = ConnectionConfig::try_from(uri).unwrap_err();
-            assert!(tls_error
-                .to_string()
-                .contains("rustls_dangerous_configuration"))
-        }
+        connection_config.tls_config.unwrap();
     }
 
     #[rstest]

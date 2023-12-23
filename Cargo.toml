@@ -25,10 +25,6 @@ _internal_testkit_backend = [
     "serde_json",
     "snowflaked",
     "lazy-regex",
-    "rustls_dangerous_configuration",
-]
-rustls_dangerous_configuration = [
-    "rustls/dangerous_configuration",
 ]
 
 [[bin]]
@@ -37,34 +33,35 @@ path = "src/bin/testkit_backend.rs"
 required-features=["_internal_testkit_backend"]
 
 [dependencies]
-thiserror = "1.0.0"
+thiserror = "1.0.51"
 uriparse = "0.6.4"
-rustls = "0.21.7"
-rustls-native-certs = "0.6.3"
-rustls-pemfile = "1.0.3"
-log = "0.4.17"
+rustls = "0.22.1"
+rustls-native-certs = "0.7.0"
+rustls-pemfile = "2.0.0"
+rustls-pki-types = "1.0.0"
+log = "0.4.20"
 usize_cast = "1.1.0"
 duplicate = "1.0.0"
 itertools = "0.11.0"
-atomic_refcell = "0.1.9"
+atomic_refcell = "0.1.13"
 parking_lot = "0.12.1"
 enum_dispatch = "0.3.12"
 rand = "0.8.5"
 chrono = "0.4.31"
-chrono-tz = "0.8.3"
-mockall_double = "0.3.0"
+chrono-tz = "0.8.4"
+mockall_double = "0.3.1"
 # TestKit Backend Dependencies
-base64 = { version = "0.21.0", optional = true }
-env_logger = { version = "0.10.0", optional = true }
+base64 = { version = "0.21.5", optional = true }
+env_logger = { version = "0.10.1", optional = true }
 flume = { version = "0.11.0", optional = true }
-serde = { version = "1.0.192", optional = true, features = ["derive"] }
-serde_json = { version = "1.0.95", optional = true }
-snowflaked = { version = "1.0.1", optional = true }
-lazy-regex = { version = "3.0.2", optional = true }
+serde = { version = "1.0.193", optional = true, features = ["derive"] }
+serde_json = { version = "1.0.108", optional = true }
+snowflaked = { version = "1.0.2", optional = true }
+lazy-regex = { version = "3.1.0", optional = true }
 
 [dev-dependencies]
 rstest = "0.18.2"
-mockall = "0.11.3"
+mockall = "0.12.1"
 lazy_static = "1.4.0"
 doc_test_utils = { path = "doc_test_utils" }
-env_logger = "0.10.0"
+env_logger = "0.10.1"

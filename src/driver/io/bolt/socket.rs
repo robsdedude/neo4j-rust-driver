@@ -17,6 +17,7 @@ use std::net::TcpStream;
 use std::sync::Arc;
 
 use rustls::{ClientConfig, ClientConnection, StreamOwned};
+use rustls_pki_types::ServerName;
 
 use crate::{Neo4jError, Result};
 
@@ -136,11 +137,11 @@ impl<T: Read + Write> Socket<T> {
         Ok(match tls_config {
             None => Self::Plain(io),
             Some(tls_config) => {
-                let host_name = host_name
-                    .try_into()
+                let host_name = ServerName::try_from(host_name)
                     .map_err(|e| Neo4jError::InvalidConfig {
                         message: format!("tls refused hostname {host_name}: {e}"),
-                    })?;
+                    })?
+                    .to_owned();
                 let connection = ClientConnection::new(tls_config, host_name).map_err(|e| {
                     Neo4jError::InvalidConfig {
                         message: format!("failed to initialize tls stream: {e}"),

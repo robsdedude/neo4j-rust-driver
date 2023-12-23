@@ -1,6 +1,10 @@
 # Changelog
 
 ## NEXT
+ - Update dependencies.  
+   Among others `rustls`.
+   To accommodate this change, the `rustls_dangerous_configuration` feature was removed.
+   This update also affects `ConnectionConfig::with_encryption_custom_tls_config()`, which accepts a custom `rustls::ClientConfig`.
  - Make `Record{entries}` private and offer many helper methods instead.
  - Add `EagerResult::into_scalar()`.
  - Renamed `RetryableError` to `RetryError`
