@@ -46,7 +46,7 @@ use usize_cast::FromUsize;
 
 use super::deadline::DeadlineIO;
 use crate::address::Address;
-use crate::error::ServerError;
+use crate::error_::ServerError;
 use crate::time::Instant;
 use crate::{Neo4jError, Result, ValueReceive, ValueSend};
 use bolt4x4::{Bolt4x4, Bolt4x4StructTranslator};

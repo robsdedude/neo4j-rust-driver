@@ -23,13 +23,27 @@ use log::info;
 use crate::driver::io::bolt::BoltMeta;
 use crate::ValueReceive;
 
+// imports for docs
+#[allow(unused)]
+use crate::address_::resolution::AddressResolver;
+#[allow(unused)]
+use crate::driver::auth::AuthManager;
+#[allow(unused)]
+use crate::driver::session::bookmarks::BookmarkManager;
+#[allow(unused)]
+use crate::driver::{DriverConfig, ExecuteQueryBuilder};
+#[allow(unused)]
+use crate::session::SessionConfig;
+#[allow(unused)]
+use crate::value::ValueSend;
+
 type BoxError = Box<dyn StdError + Send + Sync>;
 
 #[derive(Error, Debug)]
 // #[non_exhaustive]
 pub enum Neo4jError {
     /// used when
-    ///  * Experiencing a connectivity error.  
+    ///  * experiencing a connectivity error.  
     ///    E.g., not able to connect, a broken socket,
     ///    not able to fetch routing information
     #[error("connection failed: {message} (during commit: {during_commit}){}",
@@ -47,40 +61,55 @@ pub enum Neo4jError {
         /// whether the transaction should or shouldn't be retried.
         during_commit: bool,
     },
+
     /// Used when the driver encounters an error caused by user input.
     /// For example:
-    ///  * Trying to send an unsupported [`crate::value::ValueSend`].
-    ///    * A too large Vec (max. [`i64::MAX`] elements).
+    ///  * Trying to send a [`ValueSend`] not supported by the DBMS.
+    ///    * A too large collection ([`ValueSend::List`], [`ValueSend::Map`])
+    ///      (max. [`i64::MAX`] elements).
     ///    * A temporal type representing a leap-second.
     ///    * A temporal value that is out of range.
     ///      The exact conditions for this depend on the protocol version negotiated with the
     ///      server.
-    ///    * ...
     ///  * Connecting with an incompatible server/using a feature that's not
     ///    supported over the negotiated protocol version.
     ///  * Can be generated using [`Neo4jError::from::<GetSingleRecordError>`]
     ///    (the driver itself won't perform this conversion)
-    ///  * Trying to use a `DriverConfig::resolver` that returns no addresses.
+    ///  * Trying to use a address resolver ([`DriverConfig::with_resolver()`]) that returns no
+    ///    addresses.
     #[error("invalid configuration: {message}")]
     #[non_exhaustive]
     InvalidConfig {
         message: String,
         // backtrace: Backtrace,
     },
-    /// used when
-    ///  * the server returns an error
+
+    /// Used when:
+    ///  * the server returns an error.
     #[error("{error}")]
     #[non_exhaustive]
     ServerError { error: ServerError },
-    /// used when
-    ///  * `DriverConfig::connection_acquisition_timeout` is exceeded
+
+    /// Used when
+    ///  * connection acquisition timed out
+    ///    ([`DriverConfig::with_connection_acquisition_timeout()`]).
     #[error("{message}")]
     #[non_exhaustive]
     Timeout { message: String },
-    /// used when user-provided callback fails
+
+    /// Used when a user-provided callback failed.
+    ///
+    /// See [`UserCallbackError`] for more information.
     #[error("{error}")]
     #[non_exhaustive]
     UserCallback { error: UserCallbackError },
+
+    /// If you encounter this error, there's either a bug in the driver or the server.
+    /// An unexpected message or message content was received from the server.
+    ///
+    /// Please consider opening an issue at
+    /// <https://github.com/robsdedude/neo4j-rust-driver/issues>.  
+    /// Please also **include driver debug logs** (see [Logging](crate#logging)).
     #[error(
         "the driver encountered a protocol violation, \
         this is likely a bug in the driver or the server: {message}"
@@ -227,7 +256,7 @@ impl ServerError {
         }
     }
 
-    pub fn from_meta(mut meta: BoltMeta) -> Self {
+    pub(crate) fn from_meta(mut meta: BoltMeta) -> Self {
         let code = match meta.remove("code") {
             Some(ValueReceive::String(code)) => code,
             _ => "Neo.DatabaseError.General.UnknownError".into(),
@@ -318,19 +347,24 @@ impl Display for ServerError {
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum UserCallbackError {
-    /// `DriverConfig::resolver` returned an error
+    /// The configured [`AddressResolver`] ([`DriverConfig::with_resolver()`]) returned an error.
     #[error("resolver callback failed: {0}")]
     Resolver(BoxError),
-    /// [`AuthManager`] `DriverConfig::auth` returned an error
+    /// The configured [`AuthManager`] ([`DriverConfig::with_auth_manager()`]) returned an error.
     #[error("AuthManager failed: {0}")]
     AuthManager(BoxError),
-    /// [`BookmarkManager`] `SessionConfig::bookmark_manager::get_bookmarks` returned an error.
+    /// The configured [`BookmarkManager`]'s [`get_bookmarks()`]([`BookmarkManager::get_bookmarks`])
+    /// ([`SessionConfig::with_bookmark_manager()`], [`ExecuteQueryBuilder::with_bookmark_manager`])
+    /// returned an error.
     /// In this case, the transaction will not have taken place.
-    #[error("BookmarkManager get failed: {0}")]
+    #[error("BookmarkManager get_bookmarks failed: {0}")]
     BookmarkManagerGet(BoxError),
-    /// [`BookmarkManager`] `SessionConfig::bookmark_manager::update_bookmarks` returned an error.
+    /// The configured [`BookmarkManager`]'s
+    /// [`update_bookmarks()`]([`BookmarkManager::update_bookmarks`])
+    /// ([`SessionConfig::with_bookmark_manager()`], [`ExecuteQueryBuilder::with_bookmark_manager`])
+    /// returned an error.
     /// In this case, the transaction will have taken place already.
-    #[error("BookmarkManager update failed: {0}")]
+    #[error("BookmarkManager update_bookmarks failed: {0}")]
     BookmarkManagerUpdate(BoxError),
 }
 

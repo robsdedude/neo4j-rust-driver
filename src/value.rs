@@ -25,6 +25,12 @@ use thiserror::Error;
 pub use value_receive::ValueReceive;
 pub use value_send::ValueSend;
 
+/// Error returned when trying to convert a [`ValueReceive`] into a [`ValueSend`] that's not
+/// convertable.
+///
+/// See
+/// [`<ValueSend as TryFrom<ValueReceive>>`](`ValueSend#impl-TryFrom<ValueReceive>-for-ValueSend`)
+/// for more information.
 #[derive(Debug, Error)]
 #[error("{reason}")]
 pub struct ValueConversionError {

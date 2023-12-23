@@ -32,11 +32,16 @@ use crate::address_::DEFAULT_PORT;
 use crate::ValueSend;
 use auth::{AuthManager, AuthToken};
 
+// imports for docs
+#[allow(unused)]
+use super::session::SessionConfig;
+
 const DEFAULT_USER_AGENT: &str = env!("NEO4J_DEFAULT_USER_AGENT");
 pub(crate) const DEFAULT_FETCH_SIZE: i64 = 1000;
 pub(crate) const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const DEFAULT_CONNECTION_ACQUISITION_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Configure how the driver should behave.
 #[derive(Debug)]
 pub struct DriverConfig {
     pub(crate) user_agent: String,
@@ -60,7 +65,7 @@ pub(crate) enum AuthConfig {
 
 /// Tell the driver where the DBMS it be found and how to connect to it.
 ///
-/// ### From a URI
+/// ## From a URI
 /// Most official drivers only accept a URI string to configure this aspect of the driver.
 /// This crate supports the same mechanism by implementing `FromStr` for `ConnectionConfig`.
 /// The string is expected to follow the form:
@@ -78,7 +83,7 @@ pub(crate) enum AuthConfig {
 /// | `bolt+s`    | yes                                              | no      |
 /// | `bolt+scc`  | yes, *but every certificate is accepted*.        | no      |
 ///
-/// **WARNING**:  
+/// **⚠️ WARNING**:  
 /// The `...+ssc` schemes are not secure and provided for testing purposes only.
 ///
 /// The routing context may only be present for schemes that support routing.
@@ -89,7 +94,7 @@ pub(crate) enum AuthConfig {
 /// let conf: ConnectionConfig = "neo4j+s://localhost:7687?foo=bar".parse().unwrap();
 /// ```
 ///
-/// ### Programmatically
+/// ## Programmatically
 /// To get better type safety and avoid parsing errors at runtime, this crate also provides a
 /// builder API.
 ///
@@ -131,42 +136,152 @@ impl Default for DriverConfig {
 }
 
 impl DriverConfig {
+    /// Create a new driver configuration with default values.
+    ///
+    /// This is the same as calling [`DriverConfig::default()`].
+    #[inline]
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Configure a custom user agent the driver should send to the DBMS.
+    ///
+    /// The user agent should follow the form `<app-name>/<version>[ <further information>]`.
+    /// For example, `"my-app/1.0.0"` or `"my-app/1.0.0 linux emea-prod-1"`.
+    ///
+    /// If omitted, the driver chooses a *default* user agent.
+    ///
+    /// # Example
+    /// ```
+    /// use neo4j::driver::DriverConfig;
+    ///
+    /// let config = DriverConfig::new().with_user_agent(String::from("my-app/1.0.0"));
+    /// ```
+    #[inline]
     pub fn with_user_agent(mut self, user_agent: String) -> Self {
         self.user_agent = user_agent;
         self
     }
 
+    /// Configure a static auth token the driver should use to authenticate with the DBMS.
+    ///
+    /// This will overwrite any auth manager previously configured with
+    /// [`DriverConfig::with_auth_manager()`].
+    ///
+    /// # Example
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use neo4j::driver::auth::AuthToken;
+    /// use neo4j::driver::DriverConfig;
+    ///
+    /// let auth = Arc::new(AuthToken::new_basic_auth("neo4j", "pass"));
+    /// let config = DriverConfig::new().with_auth(auth);
+    /// ```
+    #[inline]
     pub fn with_auth(mut self, auth: Arc<AuthToken>) -> Self {
         self.auth = AuthConfig::Static(auth);
         self
     }
 
+    /// Configure an auth manager the driver should use to authenticate with the DBMS.
+    ///
+    /// This will overwrite any auth token previously configured with
+    /// [`DriverConfig::with_auth()`].
+    ///
+    /// # Example
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use neo4j::driver::auth::{auth_managers, AuthToken};
+    /// use neo4j::driver::DriverConfig;
+    ///
+    /// let manager = Arc::new(auth_managers::new_static(AuthToken::new_basic_auth(
+    ///     "neo4j", "pass",
+    /// )));
+    /// let config = DriverConfig::new().with_auth_manager(manager);
+    /// ```
+    #[inline]
     pub fn with_auth_manager(mut self, manager: Arc<dyn AuthManager>) -> Self {
         self.auth = AuthConfig::Manager(manager);
         self
     }
 
+    /// Configure connections that have been idle for longer than this duration whenever they are
+    /// pulled from the connection pool to be tested before being used.
+    ///
+    /// The test will cause an extra round-trip.
+    /// However, it will help to avoid using broken connections that, when used with a retry policy,
+    /// would cause a retry which usually takes much longer than the test.
+    /// Therefore, this configuration is a trade-off.
+    /// For especially unstable network configurations, it might be useful to set this to a low
+    /// value.
+    ///
+    /// Set the timeout to [`Duration::ZERO`] to make the driver always perform the liveness check
+    /// when picking up a connection from the pool.
+    ///
+    /// Usually, this parameter does not need tweaking.
+    ///
+    /// # Example
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use neo4j::driver::DriverConfig;
+    ///
+    /// let config = DriverConfig::new().with_idle_time_before_connection_test(Duration::from_secs(15));
+    /// ```
+    #[inline]
     pub fn with_idle_time_before_connection_test(mut self, idle_time: Duration) -> Self {
         self.idle_time_before_connection_test = Some(idle_time);
         self
     }
 
+    /// Disable the liveness check for idle connections.
+    ///
+    /// This is the *default*.
+    ///
+    /// See [`DriverConfig::with_idle_time_before_connection_test()`].
+    #[inline]
     pub fn without_idle_time_before_connection_test(mut self) -> Self {
         self.idle_time_before_connection_test = None;
         self
     }
 
+    /// Configure the maximum number of connections the driver should keep per connection pool.
+    ///
+    /// The driver maintains multiple connection pools, one for each remote address in the cluster.
+    /// For single instance databases, there is only one connection pool.
+    ///
+    /// Currently, this is `100`.
+    /// This is an implementation detail and may change in the future.
+    #[inline]
     pub fn with_max_connection_pool_size(mut self, max_connection_pool_size: usize) -> Self {
         self.max_connection_pool_size = max_connection_pool_size;
         self
     }
 
-    /// fetch_size must be <= i64::MAX
+    /// Change the fetch size to fetch `fetch_size` records at once.
+    ///
+    /// See also [`SessionConfig::with_fetch_size()`] which is the same setting but per session.
+    ///
+    /// # Errors
+    /// A [`ConfigureFetchSizeError`] is returned if `fetch_size` is greater than [`i64::MAX`].
+    ///
+    /// # Example
+    /// ```
+    /// use neo4j::session::SessionConfig;
+    ///
+    /// let mut config = SessionConfig::new().with_fetch_size(100).unwrap();
+    ///
+    /// config = config
+    ///     .with_fetch_size(i64::MAX as u64 + 1)
+    ///     .unwrap_err()
+    ///     .builder;
+    ///
+    /// config = config.with_fetch_size(i64::MAX as u64).unwrap();
+    /// ```
     #[allow(clippy::result_large_err)]
+    #[inline]
     pub fn with_fetch_size(
         mut self,
         fetch_size: u64,
@@ -180,51 +295,115 @@ impl DriverConfig {
         }
     }
 
+    /// Fetch all records at once.
+    ///
+    /// See also [`SessionConfig::with_fetch_size()`] which is the same setting but per session.
+    #[inline]
     pub fn with_fetch_all(mut self) -> Self {
         self.fetch_size = -1;
         self
     }
 
+    /// Use the default fetch size.
+    ///
+    /// Currently, this is `1000`.
+    /// This is an implementation detail and may change in the future.
+    ///
+    /// See also [`SessionConfig::with_fetch_size()`] which is the same setting but per session.
+    #[inline]
     pub fn with_default_fetch_size(mut self) -> Self {
         self.fetch_size = DEFAULT_FETCH_SIZE;
         self
     }
 
+    /// Configure the timeout for establishing a connection.
+    ///
+    /// The timeout only applies to the initial TCP connection establishment.
+    #[inline]
     pub fn with_connection_timeout(mut self, timeout: Duration) -> Self {
         self.connection_timeout = Some(timeout);
         self
     }
 
+    /// Disable the connection timeout.
+    ///
+    /// This setting could lead to the driver waiting for an inappropriately long time.
+    ///
+    /// See also [`DriverConfig::with_default_connection_timeout()`].
+    #[inline]
     pub fn without_connection_timeout(mut self) -> Self {
         self.connection_timeout = None;
         self
     }
 
+    /// Use the default connection timeout.
+    ///
+    /// Currently, this is `30` seconds.
+    /// This is an implementation detail and may change in the future.
+    ///
+    /// See also [`DriverConfig::with_connection_timeout()`].
+    #[inline]
     pub fn with_default_connection_timeout(mut self) -> Self {
         self.connection_timeout = Some(DEFAULT_CONNECTION_TIMEOUT);
         self
     }
 
+    /// Configure the timeout for acquiring a connection from the pool.
+    ///
+    /// This timeout spans everything needed to acquire a connection from the pool, including
+    ///  * waiting for mutexes,
+    ///  * fetching routing information if necessary,
+    ///  * potential liveness probes
+    ///    (see [`DriverConfig::with_idle_time_before_connection_test()`]),
+    ///  * establishing a new connection if necessary,
+    ///  * etc.
+    #[inline]
     pub fn with_connection_acquisition_timeout(mut self, timeout: Duration) -> Self {
         self.connection_acquisition_timeout = Some(timeout);
         self
     }
 
+    /// Disable the connection acquisition timeout.
+    ///
+    /// This setting could lead to the driver waiting for an inappropriately long time.
+    ///
+    /// See also [`DriverConfig::with_default_connection_acquisition_timeout()`].
+    #[inline]
     pub fn without_connection_acquisition_timeout(mut self) -> Self {
         self.connection_acquisition_timeout = None;
         self
     }
 
+    /// Use the default connection acquisition timeout.
+    ///
+    /// Currently, this is `60` seconds.
+    /// This is an implementation detail and may change in the future.
+    ///
+    /// See also [`DriverConfig::with_connection_acquisition_timeout()`].
+    #[inline]
     pub fn with_default_connection_acquisition_timeout(mut self) -> Self {
         self.connection_acquisition_timeout = Some(DEFAULT_CONNECTION_ACQUISITION_TIMEOUT);
         self
     }
 
+    /// Register an address resolver.
+    ///
+    /// The resolver will be called for every address coming into the driver.
+    /// Either through the initial [`ConnectionConfig`] or as part of a routing table the driver
+    /// fetches from the DBMS.
+    /// All addresses will still be DNS resolved after the resolver has been called.
+    #[inline]
     pub fn with_resolver(mut self, resolver: Box<dyn AddressResolver>) -> Self {
         self.resolver = Some(resolver);
         self
     }
 
+    /// Don't use an address resolver.
+    ///
+    /// This is the *default*.
+    ///
+    /// See also [`DriverConfig::with_resolver()`].
+    #[inline]
     pub fn without_resolver(mut self) -> Self {
         self.resolver = None;
         self
@@ -232,6 +411,10 @@ impl DriverConfig {
 }
 
 impl ConnectionConfig {
+    /// Create a new connection configuration with default values.
+    ///
+    /// Besides the required address, no TLS encryption will be used and routing with an empty
+    /// routing context is the default.
     pub fn new(address: Address) -> Self {
         Self {
             address,
@@ -240,11 +423,25 @@ impl ConnectionConfig {
         }
     }
 
+    /// Change the address the driver should connect to.
     pub fn with_address(mut self, address: Address) -> Self {
         self.address = address;
         self
     }
 
+    /// Choose whether the driver should perform routing [`true`] or not [`false`].
+    ///
+    /// Routing is enabled by *default*.
+    ///
+    /// Routing should be used and also works with single instance DBMS setups.
+    /// Only when specifically needing to connect to a single cluster node (e.g., for maintenance),
+    /// should routing be disabled.
+    ///
+    /// When disabling routing (`with_routing(false)`), after a routing context has been configured
+    /// ([`ConnectionConfig::with_routing_context()`]), the routing context will be dropped.
+    /// When enabling it (`with_routing(true)`), an empty routing context will be configured.
+    /// If you want to enable routing with a routing context, calling
+    /// [`ConnectionConfig::with_routing_context()`] is sufficient.
     pub fn with_routing(mut self, routing: bool) -> Self {
         if !routing {
             self.routing_context = None
@@ -254,6 +451,14 @@ impl ConnectionConfig {
         self
     }
 
+    /// Enable routing with a specific routing context.
+    ///
+    /// The routing context is a set of key-value pairs that will be sent to the DBMS and used can
+    /// be used for routing policies (e.g., choosing a region).
+    ///
+    /// # Errors
+    /// An [`InvalidRoutingContextError`] is returned if the routing context contains the *reserved*
+    /// key `"address"`.
     #[allow(clippy::result_large_err)]
     pub fn with_routing_context(
         mut self,
@@ -274,6 +479,8 @@ impl ConnectionConfig {
         Ok(self)
     }
 
+    /// Enforce TLS encryption, verifying the server's certificate against the system's root CA
+    /// certificate store.
     pub fn with_encryption_trust_default_cas(mut self) -> StdResult<Self, TlsConfigError> {
         self.tls_config = Some(match tls_helper::secure_tls_config() {
             Ok(config) => config,
@@ -287,6 +494,8 @@ impl ConnectionConfig {
         Ok(self)
     }
 
+    /// Enforce TLS encryption, verifying the server's certificate against root CA certificates
+    /// loaded from the given file(s).
     pub fn with_encryption_trust_custom_cas<P: AsRef<Path>>(
         self,
         paths: &[P],
@@ -305,17 +514,26 @@ impl ConnectionConfig {
         inner(self, &paths)
     }
 
+    /// Enforce TLS encryption, without verifying the server's certificate.
+    ///
+    /// **⚠️ WARNING**:  
+    /// This is not secure and should only be used for testing purposes.
     #[cfg(feature = "rustls_dangerous_configuration")]
     pub fn with_encryption_trust_any_certificate(mut self) -> StdResult<Self, TlsConfigError> {
         self.tls_config = Some(tls_helper::self_signed_tls_config());
         Ok(self)
     }
 
+    /// Enforce TLS encryption, using a custom TLS configuration.
+    ///
+    /// **⚠️ WARNING**:  
+    /// Depending on the passed TLS configuration, this might not be secure.
     pub fn with_encryption_custom_tls_config(mut self, tls_config: ClientConfig) -> Self {
         self.tls_config = Some(tls_config);
         self
     }
 
+    /// Disable TLS encryption.
     pub fn with_encryption_disabled(mut self) -> Self {
         self.tls_config = None;
         self
@@ -458,6 +676,11 @@ impl FromStr for ConnectionConfig {
     }
 }
 
+/// Used when an attempt to configure TLS failed.
+///
+/// See also [`ConnectionConfig::with_encryption_trust_default_cas()`],
+/// [`ConnectionConfig::with_encryption_trust_custom_cas()`],
+/// [`ConnectionConfig::with_encryption_trust_any_certificate()`].
 #[derive(Debug, Error)]
 #[non_exhaustive]
 #[error("{message}")]
@@ -466,6 +689,7 @@ pub struct TlsConfigError {
     pub config: ConnectionConfig,
 }
 
+/// Used when an attempt to parse a URL into a [`ConnectionConfig`] failed.
 #[derive(Debug, Error)]
 #[error("{0}")]
 pub struct ConnectionConfigParseError(String);
@@ -490,12 +714,18 @@ impl From<String> for ConnectionConfigParseError {
     }
 }
 
+/// Used when configuring a fetch size out of bounds.
+///
+/// See also [`DriverConfig::with_fetch_size()`], [`SessionConfig::with_fetch_size()`].
 #[derive(Debug, Error)]
 #[error("fetch size must be <= i64::MAX")]
 pub struct ConfigureFetchSizeError<Builder> {
     pub builder: Builder,
 }
 
+/// Used when configuring a routing context that is invalid.
+///
+/// See also [`ConnectionConfig::with_routing_context()`].
 #[derive(Debug, Error)]
 #[error("routing context invalid because it {it}")]
 pub struct InvalidRoutingContextError<Builder> {

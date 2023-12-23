@@ -20,11 +20,17 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::time::Instant as StdInstant;
 
-use crate::error::{ServerError, UserCallbackError};
+use crate::error_::{ServerError, UserCallbackError};
 use crate::time::Instant;
 use crate::value::value_send::ValueSend;
 use crate::value_map;
 use crate::{Neo4jError, Result};
+
+// imports for docs
+#[allow(unused)]
+use crate::driver::session::SessionConfig;
+#[allow(unused)]
+use crate::driver::{DriverConfig, ExecuteQueryBuilder};
 
 type BoxError = Box<dyn StdError + Send + Sync>;
 pub type ManagerGetAuthReturn = StdResult<Arc<AuthToken>, BoxError>;
@@ -32,12 +38,17 @@ pub type ManagerHandleErrReturn = StdResult<bool, BoxError>;
 pub type BasicProviderReturn = StdResult<AuthToken, BoxError>;
 pub type BearerProviderReturn = StdResult<(AuthToken, Option<StdInstant>), BoxError>;
 
+/// Contains authentication information for a Neo4j server.
+///
+/// Can be used with [`DriverConfig::with_auth()`], [`ExecuteQueryBuilder::with_session_auth()`],
+/// [`SessionConfig::with_session_auth()`], as well as [`AuthManager`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthToken {
     pub(crate) data: HashMap<String, ValueSend>,
 }
 
 impl AuthToken {
+    /// Create a new [`AuthToken`] to be used against servers with disabled authentication.
     pub fn new_none_auth() -> Self {
         Self {
             data: value_map!({
@@ -46,6 +57,7 @@ impl AuthToken {
         }
     }
 
+    /// Create a new [`AuthToken`] to be used against servers with basic authentication.
     pub fn new_basic_auth(username: impl Into<String>, password: impl Into<String>) -> Self {
         Self {
             data: value_map!({
@@ -56,6 +68,8 @@ impl AuthToken {
         }
     }
 
+    /// Create a new [`AuthToken`] to be used against servers with basic authentication.
+    /// This variant allows to specify a realm.
     pub fn new_basic_auth_with_realm(
         username: impl Into<String>,
         password: impl Into<String>,
@@ -66,6 +80,7 @@ impl AuthToken {
         token
     }
 
+    /// Create a new [`AuthToken`] to be used against servers with kerberos authentication.
     pub fn new_kerberos_auth(base64_encoded_ticket: impl Into<String>) -> Self {
         Self {
             data: value_map!({
@@ -76,6 +91,8 @@ impl AuthToken {
         }
     }
 
+    /// Create a new [`AuthToken`] to be used against servers with bearer authentication, e.g., JWT
+    /// tokens as often used with SSO providers.
     pub fn new_bearer_auth(base64_encoded_token: impl Into<String>) -> Self {
         Self {
             data: value_map!({
@@ -85,6 +102,7 @@ impl AuthToken {
         }
     }
 
+    /// Create a new [`AuthToken`] to be used against servers with custom authentication plugins.
     pub fn new_custom_auth(
         principal: Option<String>,
         credentials: Option<String>,
@@ -129,6 +147,53 @@ impl AuthToken {
         Self { data }
     }
 
+    /// Compare the data contained in this [`AuthToken`] with the data contained in another one.
+    ///
+    /// Data equality is defined like the regular equality ([`PartialEq`]), except for floats
+    /// ([`f64`]), which are compared by their bit representation.
+    /// Therefore (among other differences), `NaN` == `NaN` and `-0.0` != `0.0`.
+    ///
+    /// # Example
+    /// ```
+    /// use neo4j::{ValueSend, value_map};
+    /// use neo4j::driver::auth::AuthToken;
+    ///
+    /// fn eq(a: &ValueSend, b: &ValueSend) -> bool {
+    ///     a == b
+    /// }
+    /// fn data_eq(a: &ValueSend, b: &ValueSend) -> bool {
+    ///     fn wrap_in_token(value: &ValueSend) -> AuthToken {
+    ///         AuthToken::new_custom_auth(
+    ///             None,
+    ///             None,
+    ///             None,
+    ///             None,
+    ///             Some(value_map!({"key": value.clone()}))
+    ///         )
+    ///     }
+    ///
+    ///     let token1 = wrap_in_token(a);
+    ///     let token2 = wrap_in_token(b);
+    ///     token1.eq_data(&token2)
+    /// }
+    ///
+    /// let one = ValueSend::Float(1. );
+    /// let zero = ValueSend::Float(0.);
+    /// let neg_zero = ValueSend::Float(-0.);
+    /// let nan = ValueSend::Float(f64::NAN);
+    ///
+    /// assert!(eq(&one, &one));
+    /// assert!(data_eq(&one, &one));
+    ///
+    /// assert!(eq(&zero, &zero));
+    /// assert!(data_eq(&zero, &zero));
+    ///
+    /// assert!(eq(&zero, &neg_zero));
+    /// assert!(!data_eq(&zero, &neg_zero));
+    ///
+    /// assert!(!eq(&nan, &nan));
+    /// assert!(data_eq(&nan, &nan));
+    /// ```
     pub fn eq_data(&self, other: &Self) -> bool {
         if std::ptr::eq(self, other) {
             return true;
@@ -141,6 +206,7 @@ impl AuthToken {
             .all(|(k1, v2)| other.data.get(k1).map_or(false, |v1| v1.eq_data(v2)))
     }
 
+    /// Get the raw data contained in this [`AuthToken`].
     #[inline]
     pub fn data(&self) -> &HashMap<String, ValueSend> {
         &self.data
@@ -153,8 +219,41 @@ impl Default for AuthToken {
     }
 }
 
+/// The `AuthManager` trait allows to implement custom authentication strategies that go beyond
+/// configuring a static [`AuthToken`].
+///
+/// **⚠️ WARNING**:  
+///  * Any auth manager implementation must not interact with the driver it is used with to avoid
+///    deadlocks.
+///  * The [`AuthToken`]s returned by [`AuthManager::get_auth`] must always belong to the same
+///    identity.
+///    Trying to switch users using an auth manager will result in undefined behavior.
+///    Use [`ExecuteQueryBuilder::with_session_auth`] or [`SessionConfig::with_session_auth`] for
+///    such use-cases.
+///
+/// Pre-defined auth manager implementations are available in [`auth_managers#functions`].
 pub trait AuthManager: Send + Sync + Debug {
+    /// Get the [`AuthToken`] to be used for authentication.
+    ///
+    /// The driver will call this method whenever it picks up a connection from the pool.
+    /// This is expected to happen frequently, so this method should be fast.
+    /// A caching strategy should be implemented in the auth manager.
+    ///
+    /// If the method fails, the driver will return [`Neo4jError::UserCallback`] with
+    /// [`UserCallbackError::AuthManager`].
     fn get_auth(&self) -> ManagerGetAuthReturn;
+
+    /// Handle a security error.
+    ///
+    /// The driver will call this method whenever it receives a security error from the server.
+    /// The method returns a boolean indicating whether the error got handled or not.
+    /// Handled errors will be marked retryable (see [`Neo4jError::is_retryable()`]).
+    /// Therefore, `true` should only be returned if there's hope that the auth manager will resolve
+    /// the issue by providing an updated [`AuthToken`] via [`AuthManager::get_auth`] on the next
+    /// call.
+    ///
+    /// If the method fails, the driver will return [`Neo4jError::UserCallback`] with
+    /// [`UserCallbackError::AuthManager`].
     fn handle_security_error(
         &self,
         _auth: &Arc<AuthToken>,
@@ -164,15 +263,39 @@ pub trait AuthManager: Send + Sync + Debug {
     }
 }
 
+/// Contains pre-defined [`AuthManager`] implementations.
 pub mod auth_managers {
     use super::*;
 
+    /// Create a new [`AuthManager`] that always returns the same [`AuthToken`].
     pub fn new_static(auth: AuthToken) -> impl AuthManager {
         StaticAuthManager {
             auth: Arc::new(auth),
         }
     }
 
+    /// Create a new [`AuthManager`] designed for password rotation.
+    ///
+    /// The provider function is called whenever the server indicates the current auth token is
+    /// invalid (`"Neo.ClientError.Security.Unauthorized"` code).
+    /// It's supposed to return a new [`AuthToken`] to be used for authentication.  
+    /// N.B., this will make the driver retry (when using a retry policy), when configured with
+    /// wrong credentials.
+    /// Thus, this has the potential to debug authentication issues harder.
+    ///
+    /// **⚠️ WARNING**:  
+    ///  * The `provider` must not interact with the driver it is used with to avoid deadlocks.
+    ///  * The [`AuthToken`]s returned by [`AuthManager::get_auth`] must always belong to the same
+    ///    identity.
+    ///    Trying to switch users using an auth manager will result in undefined behavior.
+    ///    Use [`ExecuteQueryBuilder::with_session_auth`] or [`SessionConfig::with_session_auth`]
+    ///    for such use-cases.
+    ///
+    /// If the provider function fails, the driver will return [`Neo4jError::UserCallback`] with
+    /// [`UserCallbackError::AuthManager`].
+    ///
+    /// # Example
+    /// TODO
     pub fn new_basic<P: Fn() -> BasicProviderReturn + Sync + Send>(
         provider: P,
     ) -> impl AuthManager {
@@ -183,6 +306,32 @@ pub mod auth_managers {
         })
     }
 
+    /// Create a new [`AuthManager`] designed for expiring bearer tokens (SSO).
+    ///
+    /// The provider function is called whenever the server indicates the current auth token is
+    /// invalid (`"Neo.ClientError.Security.Unauthorized"` code) or the has expired
+    /// (`"Neo.ClientError.Security.TokenExpired"` code).
+    /// It's supposed to return a new [`AuthToken`] to be used for authentication as well as,
+    /// optionally, a Duration for how long the token should be considered valid.
+    /// If the duration is over, the provider function will be called again on the next occasion
+    /// (i.e., when the driver picks up a connection from the pool).  
+    /// N.B., this will make the driver retry (when using a retry policy), when configured with
+    /// wrong credentials.
+    /// Thus, this has the potential to debug authentication issues harder.
+    ///
+    /// **⚠️ WARNING**:  
+    ///  * The `provider` must not interact with the driver it is used with to avoid deadlocks.
+    ///  * The [`AuthToken`]s returned by [`AuthManager::get_auth`] must always belong to the same
+    ///    identity.
+    ///    Trying to switch users using an auth manager will result in undefined behavior.
+    ///    Use [`ExecuteQueryBuilder::with_session_auth`] or [`SessionConfig::with_session_auth`]
+    ///    for such use-cases.
+    ///
+    /// If the provider function fails, the driver will return [`Neo4jError::UserCallback`] with
+    /// [`UserCallbackError::AuthManager`].
+    ///
+    /// # Example
+    /// TODO
     pub fn new_bearer<P: Fn() -> BearerProviderReturn + Send + Sync>(
         provider: P,
     ) -> impl AuthManager {

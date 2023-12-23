@@ -24,13 +24,14 @@ use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
 
+use super::eager_result::EagerResult;
 use super::io::bolt::message_parameters::{BeginParameters, RunParameters};
 use super::io::bolt::ResponseCallbacks;
 use super::io::PooledBolt;
 use super::record_stream::{GetSingleRecordError, RecordStream, SharedErrorPropagator};
 use super::Record;
 use crate::bookmarks::Bookmarks;
-use crate::error::ServerError;
+use crate::error_::ServerError;
 use crate::summary::Summary;
 use crate::{Neo4jError, Result, ValueReceive, ValueSend};
 
@@ -40,9 +41,11 @@ pub struct Transaction<'driver: 'inner_tx, 'inner_tx> {
     drop_result: RefCell<Result<()>>,
 }
 
-/// > NOTE:
-/// > Once any associated function of the transaction or any `TransactionRecordStream`
-/// > spawned from it returns an error, the transaction is closed.
+/// A transaction that can be used to execute queries.
+///
+/// **NOTE:**  
+/// Once any associated function of the transaction or any [`TransactionRecordStream`]
+/// spawned from it returns an error, the transaction is closed.
 impl<'driver: 'inner_tx, 'inner_tx> Transaction<'driver, 'inner_tx> {
     pub(crate) fn new(inner: &'inner_tx mut InnerTransaction<'driver>) -> Self {
         Self {
@@ -51,6 +54,9 @@ impl<'driver: 'inner_tx, 'inner_tx> Transaction<'driver, 'inner_tx> {
         }
     }
 
+    /// Prepare a query to be executed.
+    ///
+    /// Use the returned [`TransactionQueryBuilder`] to add parameters and run the query.
     pub fn query<'tx, Q: AsRef<str>>(
         &'tx self,
         query: Q,
@@ -70,17 +76,25 @@ impl<'driver: 'inner_tx, 'inner_tx> Transaction<'driver, 'inner_tx> {
         ))
     }
 
+    /// Commit the transaction.
     pub fn commit(self) -> Result<()> {
         self.drop_result.into_inner()?;
         self.inner_tx.commit()
     }
 
+    /// Rollback the transaction.
+    ///
+    /// This is the default behavior when the transaction is dropped.
+    /// However, when dropping the transaction, potential errors will be swallowed.
     pub fn rollback(self) -> Result<()> {
         self.drop_result.into_inner()?;
         self.inner_tx.rollback()
     }
 }
 
+/// A result cursor as returned by [`TransactionQueryBuilder::run()`].
+///
+/// It implements [`Iterator`] and can be used to iterate over the [`Record`]s.
 #[derive(Debug)]
 pub struct TransactionRecordStream<'driver, 'tx, 'inner_tx>(
     RecordStream<'driver>,
@@ -98,17 +112,21 @@ impl<'driver, 'tx, 'inner_tx> Drop for TransactionRecordStream<'driver, 'tx, 'in
 }
 
 impl<'driver, 'tx, 'inner_tx> TransactionRecordStream<'driver, 'tx, 'inner_tx> {
-    /// see `RecordStream::consume` (except that this consumes `self`)
+    /// see [`RecordStream::consume()`] (except that this consumes `self`)
     pub fn consume(mut self) -> Result<Option<Summary>> {
         self.0.consume()
     }
-    /// see `RecordStream::keys`
+    /// see [`RecordStream::keys`]
     pub fn keys(&self) -> Vec<Arc<String>> {
         self.0.keys()
     }
-    /// see `RecordStream::single`
+    /// see [`RecordStream::single`]
     pub fn single(&mut self) -> result::Result<Result<Record>, GetSingleRecordError> {
         self.0.single()
+    }
+    /// see [`RecordStream::try_as_eager_result`]
+    pub fn try_as_eager_result(&mut self) -> Result<Option<EagerResult>> {
+        self.0.try_as_eager_result()
     }
 
     pub(crate) fn raw_stream_mut(&mut self) -> &mut RecordStream<'driver> {
@@ -245,6 +263,9 @@ impl<'driver> InnerTransaction<'driver> {
     }
 }
 
+/// A builder for queries to be executed in a transaction.
+///
+/// See [`Transaction::query()`].
 pub struct TransactionQueryBuilder<
     'driver,
     'tx,
@@ -284,6 +305,26 @@ impl<
         M: Borrow<HashMap<K, ValueSend>>,
     > TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, K, M>
 {
+    /// Configure query parameters.
+    ///
+    /// # Example
+    /// ```
+    /// use neo4j::{value_map, ValueReceive};
+    ///
+    /// # doc_test_utils::with_transaction(|transaction| {
+    /// let mut stream = transaction
+    ///     .query("CREATE (n:Node {id: $id}) RETURN n")
+    ///     .with_parameters(value_map!({"id": 1}))
+    ///     .run()?;
+    /// let mut record = stream.single().unwrap()?;
+    /// let mut node = record.take_value("n").unwrap().try_into_node().unwrap();
+    /// assert_eq!(node.properties.remove("id").unwrap(), ValueReceive::Integer(1));
+    /// # Ok(())
+    /// # });
+    /// ```
+    ///
+    /// Always prefer this over query string manipulation to avoid injection vulnerabilities and to
+    /// allow the server to cache the query plan.
     pub fn with_parameters<K_: Borrow<str> + Debug, M_: Borrow<HashMap<K_, ValueSend>>>(
         self,
         parameters: M_,
@@ -302,6 +343,9 @@ impl<
         }
     }
 
+    /// Configure the query to not use any parameters.
+    ///
+    /// This is the *default*.
     pub fn without_parameters(
         self,
     ) -> TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, DefaultKey, DefaultParameters> {
@@ -319,6 +363,7 @@ impl<
         }
     }
 
+    /// Run the query as configured.
     pub fn run(self) -> Result<TransactionRecordStream<'driver, 'tx, 'tx>> {
         self.tx.run(self)
     }
@@ -342,17 +387,17 @@ impl<
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct TransactionTimeout {
-    timeout: InternalTransactionTimeout,
-}
-
 /// Controls after how long a transaction should be killed by the server.
 ///
 /// Choices:
 ///  * [`TransactionTimeout::none`] never time out
 ///  * [`TransactionTimeout::from_millis`] time out after specified duration
 ///  * [`TransactionTimeout::default`] use the default timeout configured on the server.
+#[derive(Debug, Clone, Copy)]
+pub struct TransactionTimeout {
+    timeout: InternalTransactionTimeout,
+}
+
 impl TransactionTimeout {
     /// Construct a transaction timeout in milliseconds.
     ///

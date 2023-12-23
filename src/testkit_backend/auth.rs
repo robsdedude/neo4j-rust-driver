@@ -20,7 +20,7 @@ use atomic_refcell::AtomicRefCell;
 use crate::driver::auth::{
     auth_managers, AuthManager, AuthToken, ManagerGetAuthReturn, ManagerHandleErrReturn,
 };
-use crate::error::ServerError;
+use crate::error_::ServerError;
 use crate::time::Instant;
 
 use super::backend_id::{BackendId, Generator};

@@ -10,7 +10,7 @@ Disclaimer:
 
 
 Feature Progress:
- * [ ] Well-Written Docs and Examples (**IMPORTANT**)
+ * [x] (Well-Written) Docs and Examples
  * [ ] Driver
    * [x] Config
      * [x] `user_agent`

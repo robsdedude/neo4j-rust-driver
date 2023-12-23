@@ -36,7 +36,7 @@ use crate::bookmarks::Bookmarks;
 use crate::driver::config::auth::{auth_managers, AuthToken};
 use crate::driver::config::AuthConfig;
 use crate::driver::RoutingControl;
-use crate::error::ServerError;
+use crate::error_::ServerError;
 use crate::sync::MostlyRLock;
 use crate::time::Instant;
 use crate::{Neo4jError, Result, ValueSend};

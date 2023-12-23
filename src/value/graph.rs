@@ -58,6 +58,12 @@ impl Display for Relationship {
     }
 }
 
+/// Represents a path in the graph.
+///
+/// It's not recommended to access the fields directly, but rather use [`Path::traverse()`] because
+/// the fields' semantics are rather complicated and mutating them in a way that violates the
+/// invariants (below) will cause many methods to panic.
+///
 /// # Invariants
 ///  * `indices`
 ///    * is not empty
@@ -70,15 +76,17 @@ impl Display for Relationship {
 pub struct Path {
     pub nodes: Vec<Node>,
     pub relationships: Vec<UnboundRelationship>,
-    /// complicated stuff, explain properly!
-    /// <https://neo4j.com/docs/bolt/current/bolt/structure-semantics/#structure-path>
+    /// See <https://neo4j.com/docs/bolt/current/bolt/structure-semantics/#structure-path> for
+    /// details.
     pub indices: Vec<isize>,
 }
 
 impl Path {
+    /// Returns the nodes and relationships in the order they appear in the path.
+    ///
     /// # Panics
     /// Panics if `self.nodes`, `self.relationships` or `self.indices` has been tempered with, in
-    /// a way that violates the invariants of a path.
+    /// a way that violates the [invariants of a `Path`](`Path`#invariants).
     /// Such an invalid path cannot be obtained from the database, as the database's return values
     /// are checked for validity before being converted to `Path`.
     pub fn traverse(&self) -> Vec<(&Node, &UnboundRelationship, &Node)> {
@@ -125,7 +133,7 @@ impl Path {
 }
 
 /// # Panics
-/// Panics if `Path`'s invariants are violated.
+/// Panics if [`Path`'s invariants](`Path`#invariants) are violated.
 impl Display for Path {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut last_node = &self.nodes[0];
@@ -152,6 +160,10 @@ impl Display for Path {
     }
 }
 
+/// Represents a relationship without its start and end nodes.
+///
+/// This type makes little sense on its own.
+/// It's used in [`Path`] instead.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnboundRelationship {
     pub id: i64,

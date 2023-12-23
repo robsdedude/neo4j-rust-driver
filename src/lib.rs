@@ -23,6 +23,12 @@
 //! type system and lifetime management to provide a safer API that prevents many common pitfalls
 //! already at compile time.
 //!
+//! ## Compatibility
+//! This driver supports bolt protocol version 4.4, and 5.0 - 5.1.
+//! This corresponds to Neo4j versions 4.4, and 5.0 - 5.6.
+//! Newer 5.x versions are able to negotiate a lower, common protocol version.
+//! Therefore, they also can connect, but some features may be available though this driver.
+//!
 //! ## Basic Example
 //! ```
 //! use std::sync::Arc;
@@ -70,20 +76,16 @@
 //!     .with_routing_control(RoutingControl::Read)
 //!     // Use query parameters (instead of string interpolation) to avoid injection attacks and
 //!     // improve performance.
-//!     .with_parameters(value_map!(
-//!         {"x": 123}
-//!     ))
+//!     .with_parameters(value_map!({"x": 123}))
 //!     // For more resilience, use retry policies.
 //!     .run_with_retry(ExponentialBackoff::default());
 //! println!("{:?}", result);
 //!
 //! let result = result.unwrap();
 //! assert_eq!(result.records.len(), 1);
-//! for record in result.records {
-//!     assert_eq!(
-//!         record.entries,
-//!         vec![(Arc::new(String::from("x")), ValueReceive::Integer(123))]
-//!     );
+//! for mut record in result.records {
+//!     assert_eq!(record.values().count(), 1);
+//!     assert_eq!(record.take_value("x"), Some(ValueReceive::Integer(123)));
 //! }
 //! ```
 //!
@@ -106,14 +108,75 @@
 //! ### Main Mechanisms for Query Execution
 //! There are three main ways to execute queries:
 //! - [`Driver::execute_query()`] is the easiest way to run a query.
-//!   Prefer it whenever possible.
+//!   Prefer it whenever possible as it most efficient.
 //! - [`Session::transaction()`] gives you full control over the transaction.
 //! - [`Session::auto_commit()`] is a special method for running queries that manage their own
 //!   transactions, such as `CALL {...} IN TRANSACTION`.
+//!
+//! ### Causal Consistency
+//! By default, Noe4j clusters are eventually consistent:
+//! a write transaction executed on the leader (write node) will sooner or later be visible to read
+//! transactions on all followers (read nodes).
+//! To provide stronger guarantees, the server sends a bookmark to the client after every
+//! successful transaction that applies a write.
+//! These bookmarks are abstract tokens represent some state of the database.
+//! By passing them back to the server along with a transaction, the client requests the server to
+//! wait until the state(s) represented by the bookmark(s) have been established before executing
+//! the transaction.
+//!
+//! To point out the obvious: relying on bookmarks can be slow because of the wait described above.
+//! Not using them, however, can lead to stale reads which will be unacceptable in some cases.
+//!
+//! See also [`Bookmarks`].
+//!
+//! #### Methods for Managing Bookmarks
+//!  * The easiest way is to rely on the fact that [`Session`]s will automatically manage
+//!    bookmarks for you.
+//!    All work run in the same session will be part of the same causal chain.
+//!  * Manually passing [`Bookmarks`] between sessions.
+//!    See [`Session::last_bookmarks()`] for an example.
+//!  * Using a [`BookmarkManager`], which [`Driver::execute_query`] does by default.
+//!    See [`SessionConfig::with_bookmark_manager()`], [`Driver::execute_query_bookmark_manager()`].
+//!
+//! ## Logging
+//! The driver uses the [`log`] crate for logging.
+//!
+//! **Important Notes on Usage:**
+//!  * Log messages are *not* considered part of the driver's API.
+//!    They may change at any time and don't follow semantic versioning.
+//!  * The driver's logs are meant for debugging the driver itself.
+//!    Log levels `ERROR` and `WARN` are used liberally to indicate (potential) problems within
+//!    abstraction layers of the driver.
+//!    If there are problems the user-code needs to be aware of, they will be reported via
+//!    [`Result`]s, not log messages.
+//!
+//! ### Logging Example
+//! ```
+//! use std::sync::Arc;
+//!
+//! use env_logger; // example using the env_logger crate
+//! use log;
+//! use neo4j::driver::{Driver, RoutingControl};
+//! use neo4j::retry::ExponentialBackoff;
+//!
+//! # use doc_test_utils::get_driver;
+//!
+//! env_logger::builder()
+//!     .filter_level(log::LevelFilter::Debug)
+//!     .init();
+//!
+//! let driver: Driver = get_driver();
+//! driver
+//!     .execute_query("RETURN 1")
+//!     .with_database(Arc::new(String::from("neo4j")))
+//!     .with_routing_control(RoutingControl::Read)
+//!     .run_with_retry(ExponentialBackoff::new())
+//!     .unwrap();
+//! ```
 
 mod address_;
 pub mod driver;
-mod error;
+mod error_;
 mod macros;
 mod sync;
 mod time;
@@ -122,34 +185,46 @@ pub mod value;
 
 // imports for docs
 #[allow(unused)]
+use bookmarks::{BookmarkManager, Bookmarks};
+#[allow(unused)]
+use driver::record_stream::RecordStream;
+#[allow(unused)]
 use driver::Driver;
 #[allow(unused)]
-use session::Session;
+use session::{Session, SessionConfig};
 
-pub use error::{Neo4jError, Result};
+pub use error_::{Neo4jError, Result};
 pub use value::ValueReceive;
 pub use value::ValueSend;
 
+/// Address and address resolution.
 pub mod address {
     pub use super::address_::resolution::*;
     pub use super::address_::*;
 }
+/// Bookmarks for [causal consistency](crate#causal-consistency).
 pub mod bookmarks {
     pub use super::driver::session::bookmarks::*;
 }
-pub mod session {
-    pub use super::driver::session::*;
+/// Error and result types.
+pub mod error {
+    pub use super::error_::{ServerError, UserCallbackError};
 }
+/// Retry policies.
 pub mod retry {
     pub use super::driver::session::retry::*;
 }
-pub mod transaction {
-    pub use super::driver::transaction::*;
+/// Session and session configuration.
+pub mod session {
+    pub use super::driver::session::*;
 }
-/// Query summary structs (metadata) received via
-/// [`driver::record_stream::RecordStream::consume()`].
+/// Query summary structs (metadata) received via [`RecordStream::consume()`].
 pub mod summary {
     pub use super::driver::summary::*;
+}
+/// Transactions and associated types.
+pub mod transaction {
+    pub use super::driver::transaction::*;
 }
 
 // TODO: decide if this concept should remain

@@ -21,6 +21,7 @@ use super::spatial;
 use super::time;
 use super::value_send::ValueSend;
 
+/// A value received from the database.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum ValueReceive {
@@ -46,6 +47,11 @@ pub enum ValueReceive {
     LocalDateTime(time::LocalDateTime),
     DateTime(time::DateTime),
     DateTimeFixed(time::DateTimeFixed),
+    /// A value that could not be received.
+    /// This can have multiple reasons, for example:
+    ///  * Unexpected struct data (likely a driver or server bug)
+    ///  * Temporal types that cannot be represented on the client side like values out of range
+    ///    and time zones not supported by the client.
     BrokenValue(BrokenValue),
 }
 

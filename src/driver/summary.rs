@@ -21,7 +21,18 @@ use super::io::PooledBolt;
 use crate::address::Address;
 use crate::{Neo4jError, Result, ValueReceive};
 
-/// Root struct containing query meta data.
+// Imports for docs
+#[allow(unused)]
+use super::eager_result::EagerResult;
+#[allow(unused)]
+use super::record_stream::RecordStream;
+#[allow(unused)]
+use super::transaction::TransactionRecordStream;
+
+/// Root struct containing query metadata.
+///
+/// Can be obtained from [`EagerResult::summary`], [`RecordStream::consume()`], or
+/// [`TransactionRecordStream::consume()`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Summary {

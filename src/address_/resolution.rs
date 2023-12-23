@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::vec::IntoIter;
 
 use super::Address;
-use crate::error::UserCallbackError;
+use crate::error_::UserCallbackError;
 use crate::{Neo4jError, Result};
 
 type BoxError = Box<dyn StdError + Send + Sync>;

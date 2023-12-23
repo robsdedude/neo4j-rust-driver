@@ -30,8 +30,9 @@ use super::io::bolt::message_parameters::{DiscardParameters, PullParameters, Run
 use super::io::bolt::{BoltMeta, BoltRecordFields, ResponseCallbacks};
 use super::summary::Summary;
 use super::Record;
+use crate::driver::eager_result::EagerResult;
 use crate::driver::io::PooledBolt;
-use crate::error::ServerError;
+use crate::error_::ServerError;
 use crate::{Neo4jError, Result, ValueReceive};
 
 #[derive(Debug)]
@@ -206,6 +207,49 @@ impl<'driver> RecordStream<'driver> {
             Some(Err(e)) => Ok(Err(e)),
             None => Err(GetSingleRecordError::NoRecords),
         }
+    }
+
+    /// Collects the result into an [`EagerResult`].
+    ///
+    /// Returns [`None`] if the stream has already been consumed (i.e., [`RecordStream::consume()`]
+    /// has been called before).
+    ///
+    /// ```
+    /// use neo4j::driver::record_stream::RecordStream;
+    /// # use neo4j::retry::ExponentialBackoff;
+    ///
+    /// # let driver = doc_test_utils::get_driver();
+    /// # for example in [already_consumed, not_yet_consumed] {
+    /// #     let _ = driver
+    /// #         .execute_query("RETURN 1 AS n")
+    /// #         .with_receiver(|stream| {
+    /// #             example(stream);
+    /// #             Ok(())
+    /// #         })
+    /// #         .run_with_retry(ExponentialBackoff::new());
+    /// # }
+    /// #
+    /// fn already_consumed(stream: &mut RecordStream) {
+    ///     stream.consume().unwrap();
+    ///     assert!(stream.try_as_eager_result().unwrap().is_none());
+    /// }
+    ///
+    /// fn not_yet_consumed(stream: &mut RecordStream) {
+    ///     assert!(stream.try_as_eager_result().unwrap().is_some());
+    /// }
+    /// ```
+    pub fn try_as_eager_result(&mut self) -> Result<Option<EagerResult>> {
+        let keys = self.keys();
+        let records = self.collect::<Result<_>>()?;
+        let summary = self.consume()?;
+        let Some(summary) = summary else {
+            return Ok(None);
+        };
+        Ok(Some(EagerResult {
+            keys,
+            records,
+            summary,
+        }))
     }
 
     pub(crate) fn into_bookmark(self) -> Option<String> {

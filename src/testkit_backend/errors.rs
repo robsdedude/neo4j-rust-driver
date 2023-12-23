@@ -16,8 +16,8 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
 use crate::driver::{ConfigureFetchSizeError, ConnectionConfigParseError, TlsConfigError};
-use crate::error::{ServerError, UserCallbackError};
-use crate::retry::RetryableError;
+use crate::error_::{ServerError, UserCallbackError};
+use crate::retry::RetryError;
 use crate::Neo4jError;
 
 use super::cypher_value::{BrokenValueError, NotADriverValueError};
@@ -233,11 +233,11 @@ impl From<TlsConfigError> for TestKitError {
     }
 }
 
-impl From<RetryableError> for TestKitError {
-    fn from(v: RetryableError) -> Self {
+impl From<RetryError> for TestKitError {
+    fn from(v: RetryError) -> Self {
         match v {
-            RetryableError::Neo4jError(e) => e.into(),
-            RetryableError::Timeout(e) => TestKitError::DriverError {
+            RetryError::Neo4jError(e) => e.into(),
+            RetryError::Timeout(e) => TestKitError::DriverError {
                 error_type: String::from("RetryableError"),
                 msg: format!("{e}"),
                 code: None,

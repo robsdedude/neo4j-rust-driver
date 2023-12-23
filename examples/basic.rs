@@ -39,18 +39,14 @@ fn main() {
         .execute_query("RETURN $x AS x")
         .with_database(database)
         .with_routing_control(RoutingControl::Read)
-        .with_parameters(value_map!(
-            {"x": 123}
-        ))
+        .with_parameters(value_map!({"x": 123}))
         .run_with_retry(ExponentialBackoff::default());
     println!("{:?}", result);
 
     let result = result.unwrap();
     assert_eq!(result.records.len(), 1);
-    for record in result.records {
-        assert_eq!(
-            record.entries,
-            vec![(Arc::new(String::from("x")), ValueReceive::Integer(123))]
-        );
+    for mut record in result.records {
+        assert_eq!(record.values().count(), 1);
+        assert_eq!(record.take_value("x"), Some(ValueReceive::Integer(123)));
     }
 }

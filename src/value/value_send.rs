@@ -19,10 +19,13 @@ use super::time;
 use super::value_receive::ValueReceive;
 use super::ValueConversionError;
 #[cfg(doc)]
-use crate::error::Neo4jError;
+use crate::error_::Neo4jError;
 
-/// For all temporal types: note that leap seconds are not supported and will result in a
-/// [`Neo4jError::InvalidConfig`] when trying to be sent.
+/// A value that can be sent to the server. For example as query parameters or transaction metadata.
+///
+/// **NOTE**:  
+/// See [`Neo4jError::InvalidConfig`] for information on what constraints apply to the values that
+/// can be sent to the server.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum ValueSend {
@@ -163,6 +166,68 @@ impl<T: Into<ValueSend>> From<Option<T>> for ValueSend {
 impl TryFrom<ValueReceive> for ValueSend {
     type Error = ValueConversionError;
 
+    /// Attempt to convert a [`ValueReceive`] into a [`ValueSend`].
+    ///
+    /// This will fail if the [`ValueReceive`] is (or contains) one of the following:
+    ///  * [`ValueReceive::BrokenValue`]
+    ///  * [`ValueReceive::Node`]
+    ///  * [`ValueReceive::Relationship`]
+    ///  * [`ValueReceive::Path`]
+    ///
+    /// These types are not convertable into [`ValueSend`]s because the server does not support
+    /// receiving them.
+    ///
+    /// # Example
+    /// ```
+    /// use std::convert::TryInto;
+    /// # use std::sync::Arc;
+    ///
+    /// # use neo4j::retry::ExponentialBackoff;
+    /// # use neo4j::driver::EagerResult;
+    /// use neo4j::{ValueReceive, ValueSend};
+    ///
+    /// let value = ValueSend::try_from(ValueReceive::Null).unwrap();
+    /// assert_eq!(value, ValueSend::Null);
+    ///
+    /// let value = ValueReceive::List(vec![ValueReceive::Integer(1), ValueReceive::Boolean(false)]);
+    /// let value = ValueSend::try_from(value).unwrap();
+    /// assert_eq!(
+    ///     value,
+    ///     ValueSend::List(vec![ValueSend::Integer(1), ValueSend::Boolean(false)])
+    /// );
+    ///
+    /// # fn get_broken_value() -> ValueReceive {
+    /// #     doc_test_utils::get_driver()
+    /// #         .execute_query("RETURN localdatetime('-999999999-01-01')")
+    /// #         .with_database(Arc::new(String::from("neo4j")))
+    /// #         .run_with_retry(ExponentialBackoff::new())
+    /// #         .unwrap()
+    /// #         .into_scalar()
+    /// #         .unwrap()
+    /// # }
+    /// #
+    /// let broken_value: ValueReceive = get_broken_value();
+    /// let value = ValueSend::try_from(broken_value);
+    /// assert!(value.is_err());
+    ///
+    /// # fn get_node_value() -> ValueReceive {
+    /// #     use std::sync::Arc;
+    /// #     let driver = doc_test_utils::get_driver();
+    /// #     let mut session = doc_test_utils::get_session(&driver);
+    /// #     let result = session
+    /// #         .transaction()
+    /// #         .run_with_retry(ExponentialBackoff::new(), |tx| {
+    /// #             tx.query("CREATE (n:Node {name: 'test'}) RETURN n")
+    /// #                 .run()?
+    /// #                 .try_as_eager_result()
+    /// #         });
+    /// #     result.unwrap().unwrap().into_scalar().unwrap()
+    /// # }
+    /// #
+    /// let node_value: ValueReceive = get_node_value();
+    /// let value = ValueSend::try_from(node_value);
+    /// assert!(value.is_err());
+    /// ```
     fn try_from(v: ValueReceive) -> Result<Self, Self::Error> {
         Ok(match v {
             ValueReceive::Null => Self::Null,

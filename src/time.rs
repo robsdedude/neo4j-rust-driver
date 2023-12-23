@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Internal module to enable mocking of time.
+
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign};
 use std::time::{Duration, Instant as StdInstant};

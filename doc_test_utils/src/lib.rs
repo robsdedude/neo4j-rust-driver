@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::env;
-use std::fs::{remove_file, File};
+use std::fs::File;
 use std::panic::{catch_unwind, resume_unwind, UnwindSafe};
 use std::sync::Arc;
 
@@ -24,6 +24,8 @@ use neo4j::driver::auth::AuthToken;
 use neo4j::driver::{ConnectionConfig, Driver, DriverConfig};
 use neo4j::retry::ExponentialBackoff;
 use neo4j::session::{Session, SessionConfig};
+use neo4j::transaction::Transaction;
+use neo4j::Result as Neo4jResult;
 
 pub fn get_host() -> String {
     env::var("TEST_NEO4J_HOST").expect("env var TEST_NEO4J_HOST not set")
@@ -57,9 +59,10 @@ pub fn get_auth_token() -> AuthToken {
 }
 
 pub fn get_driver() -> Driver {
-    env_logger::builder()
+    let _ = env_logger::builder()
         .filter_level(log::LevelFilter::Debug)
-        .init();
+        .is_test(true)
+        .try_init();
 
     let driver = neo4j::driver::Driver::new(
         ConnectionConfig::new(get_address()),
@@ -78,11 +81,20 @@ pub fn get_session(driver: &Driver) -> Session {
     driver.session(SessionConfig::new().with_database(Arc::new(String::from("neo4j"))))
 }
 
+pub fn with_transaction<R>(example: impl FnMut(Transaction) -> Neo4jResult<R>) {
+    let driver = get_driver();
+    let mut session = get_session(&driver);
+    session
+        .transaction()
+        .run_with_retry(ExponentialBackoff::default(), example)
+        .unwrap();
+}
+
 pub fn db_exclusive(work: impl FnOnce() + UnwindSafe) {
     let file = File::options()
         .write(true)
         .create(true)
-        .open("db.lock")
+        .open(".db.lock")
         .unwrap();
     file.lock_exclusive().unwrap();
 

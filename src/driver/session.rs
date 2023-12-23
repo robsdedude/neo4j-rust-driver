@@ -41,41 +41,18 @@ use config::InternalSessionConfig;
 pub use config::SessionConfig;
 use retry::RetryPolicy;
 
+// imports for docs
+#[allow(unused)]
+use super::Driver;
+
 /// A session is a container for a series of transactions.
 ///
-/// Sessions, besides being a configuration container, automatically provide causal chaining,
-/// which means that each transaction can read the results of any previous transaction in the same
-/// session.
-/// If you need to establish a causal chain between two sessions, you can pass bookmarks manually:
-///
-/// ## Example Bookmark Chaining
-/// ```
-/// use std::sync::Arc;
-///
-/// use neo4j::driver::Driver;
-/// use neo4j::session::SessionConfig;
-///
-/// # use doc_test_utils::get_driver;
-///
-/// # doc_test_utils::db_exclusive(|| {
-/// let db = Arc::new(String::from("neo4j")); // always specify the database name, if possible
-/// let driver: Driver = get_driver();
-/// let mut session1 = driver.session(SessionConfig::new().with_database(Arc::clone(&db)));
-/// // do work with session1, e.g.,
-/// session1.auto_commit("CREATE (n:Node)").run().unwrap();
-///
-/// let bookmarks = session1.last_bookmarks();
-/// let mut session2 = driver.session(
-///     SessionConfig::new()
-///         .with_bookmarks(bookmarks)
-///         .with_database(Arc::clone(&db)),
-/// );
-/// // now session2 will see the results of the transaction in session1
-/// let mut result = session2.auto_commit("MATCH (n:Node) RETURN count(n)").run().unwrap();
-/// let mut record = result.records.pop().unwrap();
-/// assert_eq!(record.entries.pop().unwrap().1.try_into_int().unwrap(), 1);
-/// # });
-/// ```
+/// Sessions, besides being a configuration container, automatically provide
+/// [causal chaining](crate#causal-consistency), which means that each transaction can read the
+/// results of any previous transaction in the same session.
+/// If you need to establish a causal chain between two sessions, you can pass bookmarks manually
+/// either by using [`Session::last_bookmarks()`] or by sharing [`BookmarkManager`] instance between
+/// sessions (see [`SessionConfig::with_bookmark_manager()`]).
 ///
 /// There are two ways to run a transaction inside a session:
 ///  * [`Session::transaction()`] runs a normal transaction managed by the client.
@@ -86,6 +63,8 @@ use retry::RetryPolicy;
 ///    whether a transaction has been committed or not.
 ///    The only guarantee given is that the transaction has been successfully committed once all
 ///    results have been consumed.
+///
+/// See also [`Driver::session()`].
 #[derive(Debug)]
 pub struct Session<'driver> {
     config: InternalSessionConfig,
@@ -193,6 +172,9 @@ impl<'driver> Session<'driver> {
         res
     }
 
+    /// Prepare a transaction.
+    ///
+    /// Use the returned [`TransactionBuilder`] to configure the transaction and run it.
     pub fn transaction<'session>(
         &'session mut self,
     ) -> TransactionBuilder<'driver, 'session, DefaultMetaKey, DefaultMeta> {
@@ -342,6 +324,41 @@ impl<'driver> Session<'driver> {
         connection.read_all(None)
     }
 
+    /// Get the bookmarks last received by the session or the ones it was initialized with.
+    ///
+    /// This can be used to [causally chain](crate#causal-consistency) together sessions.
+    ///
+    /// # Example
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use neo4j::driver::{Driver, RoutingControl};
+    /// use neo4j::session::SessionConfig;
+    ///
+    /// # use doc_test_utils::get_driver;
+    ///
+    /// # doc_test_utils::db_exclusive(|| {
+    /// let db = Arc::new(String::from("neo4j")); // always specify the database name, if possible
+    /// let driver: Driver = get_driver();
+    /// let mut session1 = driver.session(SessionConfig::new().with_database(Arc::clone(&db)));
+    /// // do work with session1, e.g.,
+    /// session1.auto_commit("CREATE (n:Node)").run().unwrap();
+    ///
+    /// let bookmarks = session1.last_bookmarks();
+    /// let mut session2 = driver.session(
+    ///     SessionConfig::new()
+    ///         .with_bookmarks(bookmarks)
+    ///         .with_database(Arc::clone(&db)),
+    /// );
+    /// // now session2 will see the results of the transaction in session1
+    /// let mut result = session2
+    ///     .auto_commit("MATCH (n:Node) RETURN count(n)")
+    ///     .with_routing_control(RoutingControl::Read)
+    ///     .run()
+    ///     .unwrap();
+    /// assert_eq!(result.into_scalar().unwrap().try_into_int().unwrap(), 1);
+    /// # });
+    /// ```
     #[inline]
     pub fn last_bookmarks(&self) -> Arc<Bookmarks> {
         self.session_bookmarks.get_current_bookmarks()
@@ -367,7 +384,8 @@ impl<'driver> Session<'driver> {
 
 /// Builder type to prepare an auto-commit transaction.
 ///
-/// See [`Session::auto_commit`] for details.
+/// Use [`Session::auto_commit()`] for creating one and call [`AutoCommitBuilder::run()`]
+/// to execute the auto-commit transaction when you're done configuring it.
 pub struct AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes> {
     session: Option<&'session mut Session<'driver>>,
     query: Q,
@@ -381,15 +399,8 @@ pub struct AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes> {
 }
 
 pub(crate) fn default_receiver(res: &mut RecordStream) -> Result<EagerResult> {
-    let keys = res.keys();
-    let records = res.collect::<Result<_>>()?;
-    let summary = res.consume().map(|summary| {
-        summary.expect("first call and only applied on successful consume => summary must be Some")
-    })?;
-    Ok(EagerResult {
-        keys,
-        records,
-        summary,
+    res.try_as_eager_result().map(|r| {
+        r.expect("default receiver does not consume stream before turning it into an eager result")
     })
 }
 
@@ -452,8 +463,7 @@ impl<
     ///     .with_parameters(value_map!({"id": 1}))
     ///     .run()
     ///     .unwrap();
-    /// let mut record = result.records.pop().unwrap();
-    /// let mut node = record.entries.pop().unwrap().1.try_into_node().unwrap();
+    /// let mut node = result.into_scalar().unwrap().try_into_node().unwrap();
     /// assert_eq!(node.properties.remove("id").unwrap(), ValueReceive::Integer(1));
     /// # });
     /// ```
@@ -489,7 +499,9 @@ impl<
         }
     }
 
-    /// Configure the query to not use any parameters (this is default).
+    /// Configure the query to not use any parameters.
+    ///
+    /// This is the *default*.
     #[inline]
     pub fn without_parameters(
         self,
@@ -518,11 +530,9 @@ impl<
         }
     }
 
-    /// Attach transaction meta data to the query.
+    /// Attach transaction metadata to the query.
     ///
-    /// Transaction metadata will be logged in the server's `query.log` and is accessible through
-    /// querying `SHOW TRANSACTIONS YIELD *`.
-    /// Metadata can also manually be set via the `dbms.setTXMetaData` procedure.
+    /// See [`TransactionBuilder::with_transaction_meta()`] for more information.
     ///
     /// # Example
     /// ```
@@ -565,7 +575,9 @@ impl<
         }
     }
 
-    /// Configure the query to not use any transaction meta data (this is default).
+    /// Configure the query to not use any transaction metadata.
+    ///
+    /// This is the *default*.
     #[inline]
     pub fn without_transaction_meta(
         self,
@@ -605,13 +617,7 @@ impl<
 
     /// Specify whether the query should be send to a reader or writer in the cluster.
     ///
-    /// Writers (*default*), can handle reads and writes.
-    /// However, when running read-only queries, it's more efficient to send them to a reader to
-    /// avoid overloading the writer.
-    ///
-    /// **Writers** are also known as **leaders** or **primaries**.  
-    /// **Readers** are also known as **followers** or **secondaries** as well as
-    /// **read replicas** or **tertiaries**.
+    /// See [`TransactionBuilder::with_routing_control()`] for more information.
     #[inline]
     pub fn with_routing_control(mut self, mode: RoutingControl) -> Self {
         self.mode = mode;
@@ -620,13 +626,13 @@ impl<
 
     /// Specify a custom receiver to handle the result stream.
     ///
-    /// By default (see [`AutoCommitBuilder::with_default_receiver`]), the result stream will be
+    /// By default ([`AutoCommitBuilder::with_default_receiver()`]), the result stream will be
     /// collected into memory and returned as [`EagerResult`].
     ///
     /// # Example
     /// ```
-    /// use neo4j::driver::Record;
     /// use neo4j::driver::record_stream::RecordStream;
+    /// use neo4j::driver::Record;
     ///
     /// # let driver = doc_test_utils::get_driver();
     /// # let mut session = doc_test_utils::get_session(&driver);
@@ -636,7 +642,7 @@ impl<
     ///         let mut sum = 0;
     ///         for result in stream {
     ///             let mut record: Record = result?;
-    ///             sum += record.entries.pop().unwrap().1.try_into_int().unwrap();
+    ///             sum += record.into_values().next().unwrap().try_into_int().unwrap();
     ///         }
     ///         Ok(sum)
     ///     })
@@ -741,6 +747,10 @@ impl<
     }
 }
 
+/// Builder type to prepare a transaction.
+///
+/// Use [`Session::transaction()`] for creating one and call [`TransactionBuilder::run()`]
+/// to execute the transaction when you're done configuring it.
 pub struct TransactionBuilder<'driver, 'session, KM, M> {
     session: Option<&'session mut Session<'driver>>,
     _km: PhantomData<KM>,
@@ -764,6 +774,32 @@ impl<'driver, 'session> TransactionBuilder<'driver, 'session, DefaultMetaKey, De
 impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend>>>
     TransactionBuilder<'driver, 'session, KM, M>
 {
+    /// Attach transaction metadata to the transaction.
+    ///
+    /// Transaction metadata will be logged in the server's `query.log` and is accessible through
+    /// querying `SHOW TRANSACTIONS YIELD *`.
+    /// Metadata can also manually be set via the `dbms.setTXMetaData` procedure.
+    ///
+    /// # Example
+    /// ```
+    /// # use neo4j::driver::EagerResult;
+    /// use neo4j::transaction::Transaction;
+    /// # use neo4j::Result;
+    /// use neo4j::value_map;
+    ///
+    /// # let driver = doc_test_utils::get_driver();
+    /// # let mut session = doc_test_utils::get_session(&driver);
+    ///
+    /// let result = session
+    ///     .transaction()
+    ///     .with_transaction_meta(value_map!({"key": "value"}))
+    ///     .run(|tx: Transaction| {
+    ///         // ...
+    ///         # tx.query("MATCH (n:Node) RETURN n").run()?.try_as_eager_result()?;
+    ///         # tx.commit()
+    ///     })
+    ///     .unwrap();
+    /// ```
     #[inline]
     pub fn with_transaction_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
         self,
@@ -785,6 +821,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
         }
     }
 
+    /// Configure the transaction to not use any transaction metadata (this is default).
     #[inline]
     pub fn without_transaction_meta(
         self,
@@ -805,35 +842,104 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
         }
     }
 
+    /// Instruct the server to abort the transaction after the given timeout.
+    ///
+    /// See [`TransactionTimeout`] for options.
     #[inline]
     pub fn with_transaction_timeout(mut self, timeout: TransactionTimeout) -> Self {
         self.timeout = timeout;
         self
     }
 
-    #[inline]
-    pub fn without_transaction_timeout(mut self) -> Self {
-        self.timeout = TransactionTimeout::none();
-        self
-    }
-
-    #[inline]
-    pub fn with_default_transaction_timeout(mut self) -> Self {
-        self.timeout = TransactionTimeout::default();
-        self
-    }
-
+    /// Specify whether the query should be send to a reader or writer in the cluster.
+    ///
+    /// Writers (*default*), can handle reads and writes.
+    /// However, when running read-only queries, it's more efficient to send them to a reader to
+    /// avoid overloading the writer.
+    ///
+    /// **Writers** are also known as **leaders** or **primaries**.  
+    /// **Readers** are also known as **followers** or **secondaries** as well as
+    /// **read replicas** or **tertiaries**.
     #[inline]
     pub fn with_routing_control(mut self, mode: RoutingControl) -> Self {
         self.mode = mode;
         self
     }
 
+    /// Run the transaction. The work to be done is specified by the given `receiver`.
+    ///
+    /// The `receiver` will be called with a [`Transaction`] that can be used to execute queries,
+    /// and control the transaction (commit, rollback, ...).
+    ///
+    /// Especially when running against a clustered or cloud-hosted DBMS, it's recommended to use
+    /// [`TransactionBuilder::run_with_retry()`] over this method because many intermittent errors
+    /// can occur in such cases (e.g., leader switches, connections killed by load balancers, ...).
+    ///
+    /// # Example
+    /// ```
+    /// use neo4j::driver::EagerResult;
+    /// use neo4j::transaction::Transaction;
+    /// use neo4j::Result;
+    /// use neo4j::{value_map, ValueReceive};
+    /// #
+    /// # doc_test_utils::db_exclusive(|| {
+    /// # let driver = doc_test_utils::get_driver();
+    /// # let mut session = doc_test_utils::get_session(&driver);
+    ///
+    /// // populate database
+    /// driver
+    ///     .execute_query("UNWIND range(1, 3) AS x CREATE (n:Actor {fame: x})")
+    ///     .run()
+    ///     .unwrap();
+    ///
+    /// let total_fame = session
+    ///     .transaction()
+    ///     .run(|tx: Transaction| {
+    ///         let actors = tx.query("MATCH (n:Actor) RETURN n").run()?;
+    ///         let mut total_fame = 0;
+    ///         for result in actors {
+    ///             let mut record = result?;
+    ///             let mut actor = record.into_values().next().unwrap().try_into_node().unwrap();
+    ///             let fame: ValueReceive = actor.properties.remove("fame").unwrap();
+    ///             let fame: i64 = fame.try_into_int().unwrap();
+    ///             total_fame += fame * 2;
+    ///             // increase everyone's fame!
+    ///             tx.query("MATCH (n:Actor) WHERE id(n) = $id SET n.fame = $fame")
+    ///                 .with_parameters(value_map!({"id": actor.id, "fame": fame * 2}))
+    ///                 .run()?;
+    ///             // ...
+    ///             // NOTE: this is just for demonstration purposes, in reality you would
+    ///             //       do this in a single query and save many round trips to the server.:
+    ///             //       MATCH (n:Actor) SET n.fame = n.fame * 2
+    ///         }
+    ///         // now attempt commit the whole transaction
+    ///         tx.commit()?;
+    ///         // to roll it back, you can either call `tx.rollback()` or `drop` the Transaction
+    ///         Ok(total_fame) // return any value you want from the transaction
+    ///     })
+    ///     .unwrap();
+    ///
+    /// assert_eq!(total_fame, 12);
+    /// let db_total_fame = driver
+    ///     .execute_query("MATCH (n:Actor) RETURN sum(n.fame) AS total_fame")
+    ///     .run()
+    ///     .unwrap()
+    ///     .into_scalar()
+    ///     .unwrap();
+    /// assert_eq!(db_total_fame, ValueReceive::Integer(total_fame));
+    /// });
+    /// ```
     pub fn run<R>(mut self, receiver: impl FnOnce(Transaction) -> Result<R>) -> Result<R> {
         let session = self.session.take().unwrap();
         session.transaction_run(&self, receiver)
     }
 
+    /// Run the transaction with a retry policy.
+    ///
+    /// This is pretty much the same as [`TransactionBuilder::run()`], except that the `receiver`
+    /// will be retried if it returns an error deemed retryable by the given `retry_policy`.
+    ///
+    /// See also [`RetryPolicy`].
     pub fn run_with_retry<R, P: RetryPolicy>(
         mut self,
         retry_policy: P,

@@ -134,16 +134,15 @@ macro_rules! value {
 /// The format is either `value_map!()` for an empty map:
 /// ```
 /// use std::collections::HashMap;
+///
 /// use neo4j::{value_map, ValueSend};
 ///
-/// assert_eq!(
-///     HashMap::new(),
-///     value_map!()
-/// );
+/// assert_eq!(HashMap::new(), value_map!());
 /// ```
 /// or `value_map!({"key": value, ...})` where value is anything accepted by [`value!`]:
 /// ```
 /// use std::collections::HashMap;
+///
 /// use neo4j::{value_map, ValueSend};
 ///
 /// let map =  {

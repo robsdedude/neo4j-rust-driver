@@ -29,6 +29,41 @@ use resolution::{AddressResolver, CustomResolution, DnsResolution};
 pub(crate) const DEFAULT_PORT: u16 = 7687;
 const COLON_BYTES: usize = ':'.len_utf8();
 
+/// A Neo4j server address.
+///
+/// # Example
+/// ```
+/// use neo4j::address::Address;
+///
+/// // can be constructed from (&str, u16)
+/// let address = Address::from(("localhost", 1234));
+/// assert_eq!(address.host(), "localhost");
+/// assert_eq!(address.port(), 1234);
+///
+/// // can be constructed from (String, u16)
+/// let address = Address::from((String::from("localhost"), 4321));
+/// assert_eq!(address.host(), "localhost");
+/// assert_eq!(address.port(), 4321);
+///
+/// // can be constructed from &str
+/// let address = Address::from("example.com:5678");
+/// assert_eq!(address.host(), "example.com");
+/// assert_eq!(address.port(), 5678);
+///
+/// // or using the default port
+/// let address = Address::from("localhost");
+/// assert_eq!(address.host(), "localhost");
+/// assert_eq!(address.port(), 7687);
+///
+/// // as well as IPv4 or IPv6 addresses
+/// let address = Address::from("127.0.0.1:1234");
+/// assert_eq!(address.host(), "127.0.0.1");
+/// assert_eq!(address.port(), 1234);
+///
+/// let address = Address::from("[::1]:4321");
+/// assert_eq!(address.host(), "[::1]");
+/// assert_eq!(address.port(), 4321);
+/// ```
 #[derive(Debug, Clone)]
 pub struct Address {
     host: String,
@@ -93,10 +128,12 @@ impl Address {
             .unwrap_or_else(|_| (false, host.to_string()))
     }
 
+    /// Return the host name or IP address.
     pub fn host(&self) -> &str {
         self.host.as_str()
     }
 
+    /// Return the port number.
     pub fn port(&self) -> u16 {
         self.port
     }
