@@ -479,9 +479,8 @@ impl TryFrom<Record> for Vec<CypherValue> {
 
     fn try_from(record: Record) -> Result<Self, Self::Error> {
         record
-            .entries
-            .into_iter()
-            .map(|(_, v)| v.try_into())
+            .into_values()
+            .map(|v| v.try_into())
             .collect::<Result<_, _>>()
             .map_err(Into::into)
     }

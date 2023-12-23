@@ -574,9 +574,8 @@ impl TryFrom<EagerResult> for Response {
             .map(|r| {
                 Ok(RecordListEntry {
                     values: r
-                        .entries
-                        .into_iter()
-                        .map(|e| Ok(e.1.try_into()?))
+                        .into_values()
+                        .map(|e| Ok(e.try_into()?))
                         .collect::<Result<_, TestKitError>>()?,
                 })
             })
