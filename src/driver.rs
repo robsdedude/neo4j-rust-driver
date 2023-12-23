@@ -51,6 +51,8 @@ use transaction::TransactionTimeout;
 
 // imports for docs
 #[allow(unused)]
+use crate::error_::Neo4jError;
+#[allow(unused)]
 use session::TransactionBuilder;
 
 pub mod auth {
@@ -682,7 +684,7 @@ impl<
     ///
     /// This is the *default*.
     ///
-    /// See also [`SessionConfig::with_default_session_auth()`].
+    /// See also [`SessionConfig::without_session_auth()`].
     #[inline]
     pub fn without_session_auth(mut self) -> Self {
         self.auth = None;
