@@ -92,15 +92,15 @@
 //! ## Concepts
 //!
 //! ### The Driver
-//! The fundamental type of this crate is the [`driver::Driver`].
+//! The fundamental type of this crate is the [`Driver`].
 //! Through it, all database interactions are performed.
-//! See [`driver::Driver::new()`].
+//! See [`Driver::new()`].
 //! The driver manages a connection pool. So there is no need to pool driver objects.
 //! Usually, each application will use one global driver.
 //!
 //! ### Sessions
 //! Sessions are spawned from the driver.
-//! See [`driver::Driver::session()`].
+//! See [`Driver::session()`].
 //! Session creation is cheap, it's recommended to create a new session for each piece of work
 //! (unless when using [`Driver::execute_query()`]).
 //! Sessions will borrows connections from the driver's pool as needed.
