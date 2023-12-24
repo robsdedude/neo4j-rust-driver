@@ -12,7 +12,7 @@ authors = ["Rouven Bauer <neo4j-rust@rouvenbauer.de>"]
 repository = "https://github.com/robsdedude/neo4j-rust-driver/"
 homepage = "https://github.com/robsdedude/neo4j-rust-driver/"
 documentation = "https://docs.rs/neo4j"
-
+exclude = ["/testkit"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
