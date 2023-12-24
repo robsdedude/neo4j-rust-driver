@@ -1,6 +1,8 @@
 # Changelog
 
 ## NEXT
+
+## 0.0.2
  - Update dependencies.  
    Among others `rustls`.
    To accommodate this change, the `rustls_dangerous_configuration` feature was removed.
