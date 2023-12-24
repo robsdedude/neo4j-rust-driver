@@ -18,6 +18,10 @@ use std::fmt::Debug;
 use std::ops::{Add, AddAssign};
 use std::time::{Duration, Instant as StdInstant};
 
+#[cfg(feature = "_internal_testkit_backend")]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Instant(StdInstant);
+#[cfg(not(feature = "_internal_testkit_backend"))]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Instant(StdInstant);
 
@@ -141,4 +145,4 @@ mod mockable_time {
 }
 
 #[cfg(feature = "_internal_testkit_backend")]
-pub(crate) use mockable_time::*;
+pub use mockable_time::*;

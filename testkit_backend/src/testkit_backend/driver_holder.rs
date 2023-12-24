@@ -17,18 +17,17 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use flume;
 use flume::{Receiver, Sender};
 use log::warn;
 
-use crate::bookmarks::BookmarkManager;
-use crate::driver::auth::AuthToken;
-use crate::driver::{ConnectionConfig, Driver, DriverConfig, EagerResult, RoutingControl};
-use crate::retry::ExponentialBackoff;
-use crate::session::SessionConfig;
-use crate::summary::ServerInfo;
-use crate::transaction::TransactionTimeout;
-use crate::ValueSend;
+use neo4j::bookmarks::BookmarkManager;
+use neo4j::driver::auth::AuthToken;
+use neo4j::driver::{ConnectionConfig, Driver, DriverConfig, EagerResult, RoutingControl};
+use neo4j::retry::ExponentialBackoff;
+use neo4j::session::SessionConfig;
+use neo4j::summary::ServerInfo;
+use neo4j::transaction::TransactionTimeout;
+use neo4j::ValueSend;
 
 use super::backend_id::{BackendId, Generator};
 use super::errors::TestKitError;

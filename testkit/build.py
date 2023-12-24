@@ -20,3 +20,7 @@ from _common import run
 
 if __name__ == "__main__":
     run(["cargo", "build", "--all-features"])
+    run(["cargo", "build", "--all-features",
+         "--manifest-path", "testkit_backend/Cargo.toml"])
+    run(["cargo", "build", "--all-features",
+         "--manifest-path", "doc_test_utils/Cargo.toml"])

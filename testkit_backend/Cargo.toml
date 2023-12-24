@@ -1,0 +1,20 @@
+[package]
+name = "testkit_backend"
+version = "0.0.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+neo4j = { path = "..", features = ["_internal_testkit_backend"] }
+atomic_refcell = "0.1.13"
+base64 = "0.21.5"
+chrono = "0.4.31"
+env_logger = "0.10.1"
+flume = "0.11.0"
+lazy-regex = "3.1.0"
+log = "0.4.20"
+serde = { version = "1.0.193", features = ["derive"] }
+serde_json = "1.0.108"
+snowflaked = "1.0.2"
+thiserror = "1.0.51"

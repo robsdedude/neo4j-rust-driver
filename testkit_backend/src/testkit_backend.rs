@@ -20,7 +20,7 @@ use std::panic;
 use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
-use log::debug;
+use log::{debug, error, info, log_enabled, warn};
 use serde::Serialize;
 
 mod auth;
@@ -34,8 +34,8 @@ mod resolver;
 mod responses;
 mod session_holder;
 
-use crate::bookmarks::BookmarkManager;
-use crate::driver::auth::AuthManager;
+use neo4j::bookmarks::BookmarkManager;
+use neo4j::driver::auth::AuthManager;
 
 use backend_id::BackendId;
 use backend_id::Generator;
@@ -50,11 +50,7 @@ const ADDRESS: &str = "0.0.0.0:9876";
 type DynError = Box<dyn Error>;
 type TestKitResult = Result<(), TestKitError>;
 
-pub fn main() {
-    start_server()
-}
-
-fn start_server() {
+pub(super) fn start_server() {
     let listener = TcpListener::bind(ADDRESS).unwrap();
     println!("Listening on {}", ADDRESS);
     for stream in listener.incoming() {
@@ -62,12 +58,18 @@ fn start_server() {
             Ok(stream) => {
                 let res = panic::catch_unwind(|| handle_stream(stream));
                 match res {
-                    Ok(res) => println!("TestKit disconnected {res:?}"),
-                    Err(err) => eprintln!("TestKit panicked {err:?}"),
+                    Ok(res) => info!("TestKit disconnected {res:?}"),
+                    Err(err) => {
+                        if log_enabled!(log::Level::Error) {
+                            error!("TestKit panicked {err:?}");
+                        } else {
+                            eprintln!("TestKit panicked {err:?}");
+                        }
+                    }
                 }
             }
             Err(err) => {
-                println!("Connection failed {:?}", err);
+                warn!("Connection failed {:?}", err);
             }
         }
     }
@@ -79,7 +81,7 @@ fn handle_stream(stream: TcpStream) -> DynError {
         Ok(ok) => ok,
         Err(err) => return err.into(),
     };
-    println!("TestKit connected {remote}");
+    info!("TestKit connected {remote}");
     let reader = BufReader::new(match stream.try_clone() {
         Ok(ok) => ok,
         Err(err) => return err.into(),
@@ -96,7 +98,7 @@ fn handle_stream(stream: TcpStream) -> DynError {
 
 fn cleanup() {
     // ignore failure: we don't care if the time wasn't frozen
-    let _ = crate::time::unfreeze_time();
+    let _ = neo4j::time::unfreeze_time();
 }
 
 #[derive(Debug, Clone)]

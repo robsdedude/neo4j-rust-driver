@@ -17,11 +17,11 @@ use std::time::Duration;
 
 use atomic_refcell::AtomicRefCell;
 
-use crate::driver::auth::{
+use neo4j::driver::auth::{
     auth_managers, AuthManager, AuthToken, ManagerGetAuthReturn, ManagerHandleErrReturn,
 };
-use crate::error_::ServerError;
-use crate::time::Instant;
+use neo4j::error::ServerError;
+use neo4j::time::Instant;
 
 use super::backend_id::{BackendId, Generator};
 use super::errors::TestKitError;

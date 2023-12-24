@@ -20,7 +20,7 @@ use std::sync::Arc;
 use atomic_refcell::AtomicRefCell;
 use log::error;
 
-use crate::address::{Address, AddressResolver, AddressResolverReturn};
+use neo4j::address::{Address, AddressResolver, AddressResolverReturn};
 
 use super::errors::TestKitError;
 use super::requests::Request;

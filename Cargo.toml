@@ -13,24 +13,12 @@ repository = "https://github.com/robsdedude/neo4j-rust-driver/"
 homepage = "https://github.com/robsdedude/neo4j-rust-driver/"
 documentation = "https://docs.rs/neo4j"
 exclude = ["/testkit"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
 # internal feature, do not use, not supported
-_internal_testkit_backend = [
-    "base64",
-    "env_logger",
-    "flume",
-    "serde",
-    "serde_json",
-    "snowflaked",
-    "lazy-regex",
-]
-
-[[bin]]
-name = "testkit_backend"
-path = "src/bin/testkit_backend.rs"
-required-features=["_internal_testkit_backend"]
+_internal_testkit_backend = []
 
 [dependencies]
 thiserror = "1.0.51"
@@ -50,14 +38,6 @@ rand = "0.8.5"
 chrono = "0.4.31"
 chrono-tz = "0.8.4"
 mockall_double = "0.3.1"
-# TestKit Backend Dependencies
-base64 = { version = "0.21.5", optional = true }
-env_logger = { version = "0.10.1", optional = true }
-flume = { version = "0.11.0", optional = true }
-serde = { version = "1.0.193", optional = true, features = ["derive"] }
-serde_json = { version = "1.0.108", optional = true }
-snowflaked = { version = "1.0.2", optional = true }
-lazy-regex = { version = "3.1.0", optional = true }
 
 [dev-dependencies]
 rstest = "0.18.2"
@@ -65,3 +45,4 @@ mockall = "0.12.1"
 lazy_static = "1.4.0"
 doc_test_utils = { path = "doc_test_utils" }
 env_logger = "0.10.1"
+testkit_backend = { path = "testkit_backend" }

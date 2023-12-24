@@ -19,16 +19,16 @@ use std::time::Duration;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use serde_json::Value as JsonValue;
 
-use crate::bookmarks::{BookmarkManager, Bookmarks};
-use crate::driver::auth::AuthToken;
-use crate::driver::{ConnectionConfig, DriverConfig, RoutingControl};
-use crate::session::SessionConfig;
-use crate::transaction::TransactionTimeout;
-use crate::ValueSend;
+use neo4j::bookmarks::{BookmarkManager, Bookmarks};
+use neo4j::driver::auth::AuthToken;
+use neo4j::driver::{ConnectionConfig, DriverConfig, RoutingControl};
+use neo4j::session::SessionConfig;
+use neo4j::transaction::TransactionTimeout;
+use neo4j::ValueSend;
 
 use super::auth::TestKitAuthManagers;
 use super::bookmarks::new_bookmark_manager;
-use super::cypher_value::CypherValue;
+use super::cypher_value::{ConvertableJsonValue, ConvertableValueSend, CypherValue, CypherValues};
 use super::driver_holder::{
     CloseSession, DriverHolder, EmulatedDriverConfig, ExecuteQuery, ExecuteQueryBookmarkManager,
     NewSession, VerifyAuthentication,
@@ -43,6 +43,7 @@ use super::session_holder::{
 };
 use super::{Backend, BackendData, BackendId, TestKitResult};
 
+#[allow(dead_code)] // reflects TestKit protocol
 #[derive(Deserialize, Debug)]
 #[serde(tag = "name", content = "data", deny_unknown_fields)]
 pub(super) enum Request {
@@ -61,7 +62,7 @@ pub(super) enum Request {
     NewDriver {
         uri: String,
         #[serde(rename = "authorizationToken")]
-        auth: Option<TestKitAuth>,
+        auth: MaybeTestKitAuth,
         auth_token_manager_id: Option<BackendId>,
         user_agent: Option<String>,
         resolver_registered: Option<bool>,
@@ -120,7 +121,7 @@ pub(super) enum Request {
     VerifyAuthentication {
         driver_id: BackendId,
         #[serde(rename = "authorizationToken")]
-        auth: Option<TestKitAuth>,
+        auth: MaybeTestKitAuth,
     },
     #[serde(rename_all = "camelCase")]
     CheckSessionAuthSupport {
@@ -175,7 +176,7 @@ pub(super) enum Request {
         notifications_disabled_categories: Option<Vec<String>>,
         bookmark_manager_id: Option<BackendId>,
         #[serde(rename = "authorizationToken")]
-        auth: Option<TestKitAuth>,
+        auth: MaybeTestKitAuth,
     },
     #[serde(rename_all = "camelCase")]
     SessionClose {
@@ -306,6 +307,11 @@ pub(super) enum Request {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
+#[repr(transparent)]
+#[serde(transparent)]
+pub(super) struct MaybeTestKitAuth(pub(super) Option<TestKitAuth>);
+
+#[derive(Deserialize, Serialize, Debug)]
 #[serde(tag = "name", content = "data")]
 pub(super) enum TestKitAuth {
     AuthorizationToken(AuthTokenData),
@@ -334,7 +340,7 @@ impl From<TestKitAuth> for AuthToken {
             } => {
                 let parameters = parameters.map(|p| {
                     p.into_iter()
-                        .map(|(k, v)| (k, v.into()))
+                        .map(|(k, v)| (k, ConvertableJsonValue(v).into()))
                         .collect::<HashMap<String, ValueSend>>()
                 });
                 AuthToken::new_custom_auth(principal, credentials, realm, Some(scheme), parameters)
@@ -343,9 +349,9 @@ impl From<TestKitAuth> for AuthToken {
     }
 }
 
-impl From<Option<TestKitAuth>> for AuthToken {
-    fn from(value: Option<TestKitAuth>) -> Self {
-        match value {
+impl From<MaybeTestKitAuth> for AuthToken {
+    fn from(value: MaybeTestKitAuth) -> Self {
+        match value.0 {
             None => AuthToken::new_none_auth(),
             Some(value) => value.into(),
         }
@@ -460,7 +466,7 @@ impl TestKitAuth {
                             .and_then(|parameters| {
                                 parameters
                                     .into_iter()
-                                    .map(|(k, v)| Ok((k, v.try_into()?)))
+                                    .map(|(k, v)| Ok((k, ConvertableValueSend(v).try_into()?)))
                                     .collect::<Result<HashMap<String, JsonValue>, String>>()
                                     .map_err(TestKitError::backend_err)
                             })
@@ -594,33 +600,6 @@ where
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rstest::rstest;
-
-    #[rstest]
-    fn foo() {
-        let r: Result<Request, _> = serde_json::from_str(
-            "{
-    \"name\": \"NewDriver\",
-    \"data\": {
-        \"uri\": \"foo\",
-        \"authorizationToken\": {
-            \"name\": \"AuthorizationToken\",
-            \"data\": {
-                \"scheme\": \"basic\"
-            }
-        }
-    }
-}
-        ",
-        );
-        let r = r.unwrap();
-        println!("{r:?}");
-    }
-}
-
 impl Request {
     pub(super) fn handle(self, backend: &Backend) -> TestKitResult {
         match self {
@@ -730,7 +709,7 @@ impl Request {
         let mut connection_config: ConnectionConfig = uri.as_str().try_into()?;
         let mut driver_config = DriverConfig::new();
         let mut emulated_config = EmulatedDriverConfig::default();
-        if let Some(auth) = auth {
+        if let Some(auth) = auth.0 {
             driver_config = driver_config.with_auth(Arc::new(auth.into()));
         } else if let Some(auth_token_manager_id) = auth_token_manager_id {
             let data = backend.data.borrow();
@@ -1043,7 +1022,7 @@ impl Request {
         if let Some(bookmark_manager) = bookmark_manager {
             config = config.with_bookmark_manager(bookmark_manager);
         }
-        if let Some(auth) = auth {
+        if let Some(auth) = auth.0 {
             config = config.with_session_auth(Arc::new(auth.into()));
         }
         let id = driver_holder
@@ -1418,7 +1397,7 @@ impl Request {
     }
 
     fn fake_time_install(&self, backend: &Backend) -> TestKitResult {
-        crate::time::freeze_time();
+        neo4j::time::freeze_time();
         let response = Response::FakeTimeAck;
         backend.send(&response)
     }
@@ -1429,14 +1408,14 @@ impl Request {
         };
         let increment_ms = u64::try_from(*increment_ms)
             .map_err(|_| TestKitError::backend_err("increment_ms cannot be negative"))?;
-        crate::time::tick(Duration::from_millis(increment_ms))
+        neo4j::time::tick(Duration::from_millis(increment_ms))
             .map_err(TestKitError::backend_err)?;
         let response = Response::FakeTimeAck;
         backend.send(&response)
     }
 
     fn fake_time_uninstall(&self, backend: &Backend) -> TestKitResult {
-        crate::time::unfreeze_time().map_err(TestKitError::backend_err)?;
+        neo4j::time::unfreeze_time().map_err(TestKitError::backend_err)?;
         let response = Response::FakeTimeAck;
         backend.send(&response)
     }
@@ -1546,7 +1525,7 @@ fn cypher_value_map_to_value_send_map(
         .collect::<Result<_, _>>()
 }
 
-fn write_record(values: Option<Vec<CypherValue>>) -> Result<Response, TestKitError> {
+fn write_record(values: Option<CypherValues>) -> Result<Response, TestKitError> {
     let response = match values {
         None => Response::NullRecord,
         Some(values) => Response::Record { values },

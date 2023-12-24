@@ -15,10 +15,10 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
-use crate::driver::{ConfigureFetchSizeError, ConnectionConfigParseError, TlsConfigError};
-use crate::error_::{ServerError, UserCallbackError};
-use crate::retry::RetryError;
-use crate::Neo4jError;
+use neo4j::driver::{ConfigureFetchSizeError, ConnectionConfigParseError, TlsConfigError};
+use neo4j::error::{ServerError, UserCallbackError};
+use neo4j::retry::RetryError;
+use neo4j::Neo4jError;
 
 use super::cypher_value::{BrokenValueError, NotADriverValueError};
 use super::{BackendId, Generator};
@@ -40,6 +40,7 @@ pub(super) enum TestKitError {
         msg: String,
     },
     FatalError {
+        #[allow(dead_code)] // used (and usefull) in Debug impl
         error: String,
     },
 }
@@ -68,14 +69,14 @@ impl From<Neo4jError> for TestKitError {
                     retryable,
                 }
             }
-            Neo4jError::InvalidConfig { message } => TestKitError::DriverError {
+            Neo4jError::InvalidConfig { message, .. } => TestKitError::DriverError {
                 error_type: String::from("ConfigError"),
                 msg: message,
                 code: None,
                 id: None,
                 retryable,
             },
-            Neo4jError::ServerError { error } => {
+            Neo4jError::ServerError { error, .. } => {
                 let ServerError { code, message, .. } = error;
                 TestKitError::DriverError {
                     error_type: String::from("ServerError"),
@@ -85,15 +86,15 @@ impl From<Neo4jError> for TestKitError {
                     retryable,
                 }
             }
-            Neo4jError::Timeout { message } => TestKitError::DriverError {
+            Neo4jError::Timeout { message, .. } => TestKitError::DriverError {
                 error_type: String::from("Timeout"),
                 msg: message,
                 code: None,
                 id: None,
                 retryable,
             },
-            Neo4jError::UserCallback { error } => error.into(),
-            Neo4jError::ProtocolError { message } => TestKitError::DriverError {
+            Neo4jError::UserCallback { error, .. } => error.into(),
+            Neo4jError::ProtocolError { message, .. } => TestKitError::DriverError {
                 error_type: String::from("ProtocolError"),
                 msg: message,
                 code: None,
@@ -131,6 +132,9 @@ impl From<UserCallbackError> for TestKitError {
                     msg: format!("unexpected bookmark manager update error: {}", err),
                 },
             },
+            _ => TestKitError::BackendError {
+                msg: format!("unhandled user callback error type: {}", value),
+            },
         }
     }
 }
@@ -161,6 +165,9 @@ impl From<&UserCallbackError> for TestKitError {
                 None => TestKitError::BackendError {
                     msg: format!("unexpected bookmark manager update error: {}", err),
                 },
+            },
+            _ => TestKitError::BackendError {
+                msg: format!("unhandled user callback error type: {}", value),
             },
         }
     }
@@ -314,29 +321,29 @@ impl TestKitError {
                     retryable,
                 }
             }
-            Neo4jError::InvalidConfig { message } => TestKitError::DriverError {
+            Neo4jError::InvalidConfig { message, .. } => TestKitError::DriverError {
                 error_type: String::from("ConfigError"),
                 msg: message.clone(),
                 code: None,
                 id: None,
                 retryable,
             },
-            Neo4jError::ServerError { error } => TestKitError::DriverError {
+            Neo4jError::ServerError { error, .. } => TestKitError::DriverError {
                 error_type: String::from("ServerError"),
                 msg: String::from(error.message()),
                 code: Some(String::from(error.code())),
                 id: None,
                 retryable,
             },
-            Neo4jError::Timeout { message } => TestKitError::DriverError {
+            Neo4jError::Timeout { message, .. } => TestKitError::DriverError {
                 error_type: String::from("Timeout"),
                 msg: message.clone(),
                 code: None,
                 id: None,
                 retryable,
             },
-            Neo4jError::UserCallback { error } => error.into(),
-            Neo4jError::ProtocolError { message } => TestKitError::DriverError {
+            Neo4jError::UserCallback { error, .. } => error.into(),
+            Neo4jError::ProtocolError { message, .. } => TestKitError::DriverError {
                 error_type: String::from("ProtocolError"),
                 msg: message.clone(),
                 code: None,

@@ -18,17 +18,18 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
-use crate::driver::EagerResult;
-use crate::summary::SummaryQueryType;
 use lazy_regex::{regex, Regex};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
-use crate::value::time::Tz;
-use crate::ValueSend;
+use crate::testkit_backend::cypher_value::ConvertableValueReceive;
+use neo4j::driver::EagerResult;
+use neo4j::summary::SummaryQueryType;
+use neo4j::value::time::Tz;
+use neo4j::ValueSend;
 
 use super::backend_id::Generator;
-use super::cypher_value::CypherValue;
+use super::cypher_value::{CypherValue, CypherValues};
 use super::errors::TestKitError;
 use super::requests::TestKitAuth;
 use super::session_holder::SummaryWithQuery;
@@ -59,6 +60,7 @@ fn get_regex_skipped_tests() -> &'static [(&'static Regex, &'static str)] {
     })
 }
 
+#[allow(dead_code)] // reflects TestKit protocol
 #[derive(Serialize, Debug)]
 #[serde(tag = "name", content = "data")]
 pub(super) enum Response {
@@ -153,7 +155,7 @@ pub(super) enum Response {
         keys: Vec<String>,
     },
     Record {
-        values: Vec<CypherValue>,
+        values: CypherValues,
     },
     Field {
         value: CypherValue,
@@ -209,7 +211,7 @@ pub(super) enum Response {
 
 #[derive(Serialize, Debug)]
 pub(super) struct RecordListEntry {
-    values: Vec<CypherValue>,
+    values: CypherValues,
 }
 
 #[derive(Serialize, Debug)]
@@ -242,16 +244,16 @@ impl TryFrom<SummaryWithQuery> for Summary {
             .clone()
             .unwrap_or_default()
             .into_iter()
-            .map(|(k, v)| (k, v.into()))
-            .collect();
+            .map(|(k, v)| v.try_into().map(|v| (k, v)))
+            .collect::<Result<_, _>>()?;
         Ok(summary)
     }
 }
 
-impl TryFrom<crate::summary::Summary> for Summary {
+impl TryFrom<neo4j::summary::Summary> for Summary {
     type Error = TestKitError;
 
-    fn try_from(summary: crate::summary::Summary) -> Result<Self, Self::Error> {
+    fn try_from(summary: neo4j::summary::Summary) -> Result<Self, Self::Error> {
         Ok(Self {
             counters: summary.counters.into(),
             database: summary.database,
@@ -303,8 +305,8 @@ pub(super) struct SummaryCounters {
     system_updates: i64,
 }
 
-impl From<crate::summary::Counters> for SummaryCounters {
-    fn from(counters: crate::summary::Counters) -> Self {
+impl From<neo4j::summary::Counters> for SummaryCounters {
+    fn from(counters: neo4j::summary::Counters) -> Self {
         Self {
             constraints_added: counters.constraints_added,
             constraints_removed: counters.constraints_removed,
@@ -340,8 +342,8 @@ pub(super) struct Notification {
     raw_category: String,
 }
 
-impl From<crate::summary::Notification> for Notification {
-    fn from(notification: crate::summary::Notification) -> Self {
+impl From<neo4j::summary::Notification> for Notification {
+    fn from(notification: neo4j::summary::Notification) -> Self {
         Self {
             description: notification.description,
             code: notification.code,
@@ -363,8 +365,8 @@ pub(super) struct Position {
     line: i64,
 }
 
-impl From<crate::summary::Position> for Position {
-    fn from(position: crate::summary::Position) -> Self {
+impl From<neo4j::summary::Position> for Position {
+    fn from(position: neo4j::summary::Position) -> Self {
         Self {
             column: position.column,
             offset: position.offset,
@@ -379,14 +381,16 @@ pub(super) enum Severity {
     Warning,
     Information,
     Unknown,
+    Unhandled,
 }
 
-impl From<crate::summary::Severity> for Severity {
-    fn from(severity: crate::summary::Severity) -> Self {
+impl From<neo4j::summary::Severity> for Severity {
+    fn from(severity: neo4j::summary::Severity) -> Self {
         match severity {
-            crate::summary::Severity::Warning => Self::Warning,
-            crate::summary::Severity::Information => Self::Information,
-            crate::summary::Severity::Unknown => Self::Unknown,
+            neo4j::summary::Severity::Warning => Self::Warning,
+            neo4j::summary::Severity::Information => Self::Information,
+            neo4j::summary::Severity::Unknown => Self::Unknown,
+            _ => Self::Unhandled,
         }
     }
 }
@@ -401,18 +405,20 @@ pub(super) enum Category {
     Deprecation,
     Generic,
     Unknown,
+    Unhandled,
 }
 
-impl From<crate::summary::Category> for Category {
-    fn from(severity: crate::summary::Category) -> Self {
+impl From<neo4j::summary::Category> for Category {
+    fn from(severity: neo4j::summary::Category) -> Self {
         match severity {
-            crate::summary::Category::Hint => Self::Hint,
-            crate::summary::Category::Unrecognized => Self::Unrecognized,
-            crate::summary::Category::Unsupported => Self::Unsupported,
-            crate::summary::Category::Performance => Self::Performance,
-            crate::summary::Category::Deprecation => Self::Deprecation,
-            crate::summary::Category::Generic => Self::Generic,
-            crate::summary::Category::Unknown => Self::Unknown,
+            neo4j::summary::Category::Hint => Self::Hint,
+            neo4j::summary::Category::Unrecognized => Self::Unrecognized,
+            neo4j::summary::Category::Unsupported => Self::Unsupported,
+            neo4j::summary::Category::Performance => Self::Performance,
+            neo4j::summary::Category::Deprecation => Self::Deprecation,
+            neo4j::summary::Category::Generic => Self::Generic,
+            neo4j::summary::Category::Unknown => Self::Unknown,
+            _ => Self::Unhandled,
         }
     }
 }
@@ -426,16 +432,21 @@ pub(super) struct Plan {
     children: Vec<Plan>,
 }
 
-impl TryFrom<crate::summary::Plan> for Plan {
+impl TryFrom<neo4j::summary::Plan> for Plan {
     type Error = TestKitError;
 
-    fn try_from(plan: crate::summary::Plan) -> Result<Self, Self::Error> {
+    fn try_from(plan: neo4j::summary::Plan) -> Result<Self, Self::Error> {
         Ok(Self {
             args: plan
                 .args
                 .into_iter()
                 .map(|(k, v)| {
-                    Ok::<_, Self::Error>((k, v.try_into().map_err(TestKitError::backend_err)?))
+                    Ok::<_, Self::Error>((
+                        k,
+                        ConvertableValueReceive(v)
+                            .try_into()
+                            .map_err(TestKitError::backend_err)?,
+                    ))
                 })
                 .collect::<Result<_, _>>()?,
             operator_type: plan.op_type,
@@ -468,16 +479,21 @@ pub(super) struct Profile {
     time: Option<i64>,
 }
 
-impl TryFrom<crate::summary::Profile> for Profile {
+impl TryFrom<neo4j::summary::Profile> for Profile {
     type Error = TestKitError;
 
-    fn try_from(profile: crate::summary::Profile) -> Result<Self, Self::Error> {
+    fn try_from(profile: neo4j::summary::Profile) -> Result<Self, Self::Error> {
         Ok(Self {
             args: profile
                 .args
                 .into_iter()
                 .map(|(k, v)| {
-                    Ok::<_, Self::Error>((k, v.try_into().map_err(TestKitError::backend_err)?))
+                    Ok::<_, Self::Error>((
+                        k,
+                        ConvertableValueReceive(v)
+                            .try_into()
+                            .map_err(TestKitError::backend_err)?,
+                    ))
                 })
                 .collect::<Result<_, _>>()?,
             operator_type: profile.op_type,
@@ -525,6 +541,8 @@ pub(super) enum QueryType {
     ReadWrite,
     #[serde(rename = "s")]
     Schema,
+    #[serde(rename = "???")]
+    Unhandled,
 }
 
 impl From<SummaryQueryType> for QueryType {
@@ -534,6 +552,7 @@ impl From<SummaryQueryType> for QueryType {
             SummaryQueryType::Write => Self::Write,
             SummaryQueryType::ReadWrite => Self::ReadWrite,
             SummaryQueryType::Schema => Self::Schema,
+            _ => Self::Unhandled,
         }
     }
 }
@@ -546,8 +565,8 @@ pub(super) struct ServerInfo {
     protocol_version: String,
 }
 
-impl From<crate::summary::ServerInfo> for ServerInfo {
-    fn from(server_info: crate::summary::ServerInfo) -> Self {
+impl From<neo4j::summary::ServerInfo> for ServerInfo {
+    fn from(server_info: neo4j::summary::ServerInfo) -> Self {
         Self {
             address: server_info.address.to_string(),
             agent: server_info.server_agent.deref().clone(),

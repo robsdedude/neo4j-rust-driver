@@ -24,15 +24,28 @@ use serde::{de::Error as DeError, de::Visitor, Deserialize, Deserializer, Serial
 use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue, Value};
 use thiserror::Error;
 
-use crate::driver::Record;
-use crate::testkit_backend::errors::TestKitError;
-use crate::value::graph::{
+use neo4j::driver::Record;
+use neo4j::value::graph::{
     Node as Neo4jNode, Relationship as Neo4jRelationship,
     UnboundRelationship as Neo4jUnboundRelationship,
 };
-use crate::value::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
-use crate::value::time;
-use crate::{ValueReceive, ValueSend};
+use neo4j::value::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
+use neo4j::value::time;
+use neo4j::{ValueReceive, ValueSend};
+
+use super::errors::TestKitError;
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub(super) struct ConvertableJsonValue(pub(super) JsonValue);
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub(super) struct ConvertableValueSend(pub(super) ValueSend);
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub(super) struct ConvertableValueReceive(pub(super) ValueReceive);
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "name", content = "data", deny_unknown_fields)]
@@ -474,21 +487,35 @@ fn try_from_value<R>(
     })
 }
 
-impl TryFrom<Record> for Vec<CypherValue> {
+#[derive(Debug, Deserialize, Serialize)]
+#[repr(transparent)]
+#[serde(transparent)]
+pub(super) struct CypherValues(pub(super) Vec<CypherValue>);
+
+impl TryFrom<Record> for CypherValues {
     type Error = TestKitError;
 
     fn try_from(record: Record) -> Result<Self, Self::Error> {
-        record
-            .into_values()
-            .map(|v| v.try_into())
-            .collect::<Result<_, _>>()
-            .map_err(Into::into)
+        Ok(CypherValues(
+            record
+                .into_values()
+                .map(|v| v.try_into())
+                .collect::<Result<_, _>>()?,
+        ))
     }
 }
 
-impl From<ValueSend> for CypherValue {
-    fn from(v: ValueSend) -> Self {
-        match v {
+impl FromIterator<CypherValue> for CypherValues {
+    fn from_iter<T: IntoIterator<Item = CypherValue>>(iter: T) -> Self {
+        CypherValues(iter.into_iter().collect())
+    }
+}
+
+impl TryFrom<ValueSend> for CypherValue {
+    type Error = TestKitError;
+
+    fn try_from(v: ValueSend) -> Result<Self, Self::Error> {
+        Ok(match v {
             ValueSend::Null => CypherValue::CypherNull { value: None },
             ValueSend::Boolean(value) => CypherValue::CypherBool { value },
             ValueSend::Integer(value) => CypherValue::CypherInt { value },
@@ -496,10 +523,10 @@ impl From<ValueSend> for CypherValue {
             ValueSend::Bytes(value) => CypherValue::CypherBytes { value },
             ValueSend::String(value) => CypherValue::CypherString { value },
             ValueSend::List(value) => CypherValue::CypherList {
-                value: value.into_iter().map(Into::into).collect(),
+                value: try_into_vec(value)?,
             },
             ValueSend::Map(value) => CypherValue::CypherMap {
-                value: value.into_iter().map(|(k, v)| (k, v.into())).collect(),
+                value: try_into_hash_map(value)?,
             },
             ValueSend::Cartesian2D(value) => CypherValue::CypherPoint {
                 system: PointSystem::Cartesian,
@@ -532,13 +559,19 @@ impl From<ValueSend> for CypherValue {
             ValueSend::LocalDateTime(value) => local_date_time_to_cypher_value(value),
             ValueSend::DateTime(value) => date_time_to_cypher_value(value),
             ValueSend::DateTimeFixed(value) => date_time_fixed_to_cypher_value(value),
-        }
+            _ => {
+                return Err(TestKitError::backend_err(format!(
+                    "Failed to serialize to json: {:?}",
+                    v,
+                )))
+            }
+        })
     }
 }
 
-impl From<JsonValue> for ValueSend {
-    fn from(value: JsonValue) -> Self {
-        match value {
+impl From<ConvertableJsonValue> for ValueSend {
+    fn from(value: ConvertableJsonValue) -> Self {
+        match value.0 {
             Value::Null => ValueSend::Null,
             Value::Bool(v) => v.into(),
             Value::Number(n) => match n.as_i64() {
@@ -546,21 +579,25 @@ impl From<JsonValue> for ValueSend {
                 None => ValueSend::Float(n.as_f64().unwrap()),
             },
             Value::String(s) => ValueSend::String(s),
-            Value::Array(a) => ValueSend::List(a.into_iter().map(Into::into).collect()),
+            Value::Array(a) => ValueSend::List(
+                a.into_iter()
+                    .map(|v| ConvertableJsonValue(v).into())
+                    .collect(),
+            ),
             Value::Object(o) => ValueSend::Map(
                 o.into_iter()
-                    .map(|(k, v)| (k, v.into()))
+                    .map(|(k, v)| (k, ConvertableJsonValue(v).into()))
                     .collect::<HashMap<_, _>>(),
             ),
         }
     }
 }
 
-impl TryFrom<ValueSend> for JsonValue {
+impl TryFrom<ConvertableValueSend> for JsonValue {
     type Error = String;
 
-    fn try_from(v: ValueSend) -> Result<Self, Self::Error> {
-        Ok(match v {
+    fn try_from(v: ConvertableValueSend) -> Result<Self, Self::Error> {
+        Ok(match v.0 {
             ValueSend::Null => JsonValue::Null,
             ValueSend::Boolean(v) => JsonValue::Bool(v),
             ValueSend::Integer(v) => JsonValue::Number(v.into()),
@@ -568,17 +605,23 @@ impl TryFrom<ValueSend> for JsonValue {
                 JsonNumber::from_f64(v).ok_or(format!("Failed to serialize float: {v}"))?,
             ),
             ValueSend::String(v) => JsonValue::String(v),
-            ValueSend::List(v) => JsonValue::Array(try_into_vec(v)?),
-            ValueSend::Map(v) => JsonValue::Object(try_into_json_map(v)?),
+            ValueSend::List(v) => {
+                JsonValue::Array(try_into_vec(v.into_iter().map(ConvertableValueSend))?)
+            }
+            ValueSend::Map(v) => JsonValue::Object(try_into_json_map(
+                v.into_iter().map(|(k, v)| (k, ConvertableValueSend(v))),
+            )?),
             _ => return Err(format!("Failed to serialize to json: {:?}", v)),
         })
     }
 }
 
 #[derive(Error, Debug)]
-#[error("Record contains a broken value: {reason}")]
-pub(super) struct BrokenValueError {
-    reason: String,
+pub(super) enum BrokenValueError {
+    #[error("record contains a broken value: {reason}")]
+    BrokenValue { reason: String },
+    #[error("record contains unhandled value: {0:?}")]
+    UnhandledType(ValueReceive),
 }
 
 impl TryFrom<ValueReceive> for CypherValue {
@@ -657,9 +700,12 @@ impl TryFrom<ValueReceive> for CypherValue {
             ValueReceive::DateTime(value) => date_time_to_cypher_value(value),
             ValueReceive::DateTimeFixed(value) => date_time_fixed_to_cypher_value(value),
             ValueReceive::BrokenValue(v) => {
-                return Err(Self::Error {
+                return Err(Self::Error::BrokenValue {
                     reason: v.reason().into(),
                 })
+            }
+            _ => {
+                return Err(Self::Error::UnhandledType(v));
             }
         })
     }
@@ -815,14 +861,16 @@ fn try_into_relationship_unbound(
     })
 }
 
-fn try_into_vec<T: TryFrom<V, Error = E>, E, V>(v: Vec<V>) -> Result<Vec<T>, E> {
+fn try_into_vec<T: TryFrom<V, Error = E>, E, V>(
+    v: impl IntoIterator<Item = V>,
+) -> Result<Vec<T>, E> {
     v.into_iter()
         .map(TryInto::try_into)
         .collect::<Result<_, _>>()
 }
 
 fn try_into_hash_map<T: TryFrom<V, Error = E>, E, K: Eq + Hash, V>(
-    v: HashMap<K, V>,
+    v: impl IntoIterator<Item = (K, V)>,
 ) -> Result<HashMap<K, T>, E> {
     v.into_iter()
         .map(|(k, v)| Ok((k, v.try_into()?)))
@@ -830,18 +878,18 @@ fn try_into_hash_map<T: TryFrom<V, Error = E>, E, K: Eq + Hash, V>(
 }
 
 fn try_into_json_map<E, V: TryInto<JsonValue, Error = E>>(
-    v: HashMap<String, V>,
+    v: impl IntoIterator<Item = (String, V)>,
 ) -> Result<JsonMap<String, JsonValue>, E> {
     v.into_iter()
         .map(|(k, v)| Ok((k, v.try_into()?)))
         .collect::<Result<_, _>>()
 }
 
-impl TryFrom<ValueReceive> for JsonValue {
+impl TryFrom<ConvertableValueReceive> for JsonValue {
     type Error = String;
 
-    fn try_from(v: ValueReceive) -> Result<Self, Self::Error> {
-        Ok(match v {
+    fn try_from(v: ConvertableValueReceive) -> Result<Self, Self::Error> {
+        Ok(match v.0 {
             ValueReceive::Null => JsonValue::Null,
             ValueReceive::Boolean(v) => JsonValue::Bool(v),
             ValueReceive::Integer(v) => JsonValue::Number(v.into()),
@@ -849,8 +897,12 @@ impl TryFrom<ValueReceive> for JsonValue {
                 JsonNumber::from_f64(v).ok_or(format!("Failed to serialize float: {v}"))?,
             ),
             ValueReceive::String(v) => JsonValue::String(v),
-            ValueReceive::List(v) => JsonValue::Array(try_into_vec(v)?),
-            ValueReceive::Map(v) => JsonValue::Object(try_into_json_map(v)?),
+            ValueReceive::List(v) => {
+                JsonValue::Array(try_into_vec(v.into_iter().map(ConvertableValueReceive))?)
+            }
+            ValueReceive::Map(v) => JsonValue::Object(try_into_json_map(
+                v.into_iter().map(|(k, v)| (k, ConvertableValueReceive(v))),
+            )?),
             _ => return Err(format!("Failed to serialize to json: {:?}", v)),
         })
     }

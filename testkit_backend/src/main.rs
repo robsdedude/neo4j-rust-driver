@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use neo4j::testkit_backend;
+mod testkit_backend;
+
+use env_logger;
+
+use testkit_backend::start_server;
 
 fn main() {
     env_logger::builder()
@@ -21,5 +25,5 @@ fn main() {
         .format_module_path(false)
         .format_target(false)
         .init();
-    testkit_backend::main();
+    start_server()
 }

@@ -179,6 +179,9 @@ pub mod driver;
 mod error_;
 mod macros;
 mod sync;
+#[cfg(feature = "_internal_testkit_backend")]
+pub mod time;
+#[cfg(not(feature = "_internal_testkit_backend"))]
 mod time;
 mod util;
 pub mod value;
@@ -239,6 +242,3 @@ mod private {
     // Trait to prevent traits from being implemented outside of this crate.
     pub trait Sealed {}
 }
-
-#[cfg(feature = "_internal_testkit_backend")]
-pub mod testkit_backend;

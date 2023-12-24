@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
 
-use crate::bookmarks::{bookmark_managers, BookmarkManager, Bookmarks};
+use neo4j::bookmarks::{bookmark_managers, BookmarkManager, Bookmarks};
 
 use super::backend_id::{BackendId, Generator};
 use super::errors::TestKitError;
@@ -135,7 +135,7 @@ fn make_consumer_fn(
 
 #[derive(Debug)]
 pub(super) struct TestKitBookmarkManager {
-    id: BackendId,
-    backend_io: Arc<AtomicRefCell<BackendIo>>,
-    id_generator: Generator,
+    // id: BackendId,
+    // backend_io: Arc<AtomicRefCell<BackendIo>>,
+    // id_generator: Generator,
 }

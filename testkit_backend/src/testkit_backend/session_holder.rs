@@ -17,21 +17,20 @@ use std::mem;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
-use flume;
 use flume::{Receiver, Sender};
 use log::warn;
 
-use crate::bookmarks::Bookmarks;
-use crate::driver::record_stream::{GetSingleRecordError, RecordStream};
-use crate::driver::transaction::TransactionRecordStream;
-use crate::driver::{Driver, Record, RoutingControl};
-use crate::session::{Session, SessionConfig};
-use crate::summary::Summary;
-use crate::transaction::TransactionTimeout;
-use crate::{Neo4jError, ValueSend};
+use neo4j::bookmarks::Bookmarks;
+use neo4j::driver::record_stream::{GetSingleRecordError, RecordStream};
+use neo4j::driver::transaction::TransactionRecordStream;
+use neo4j::driver::{Driver, Record, RoutingControl};
+use neo4j::session::{Session, SessionConfig};
+use neo4j::summary::Summary;
+use neo4j::transaction::TransactionTimeout;
+use neo4j::{Neo4jError, ValueSend};
 
 use super::backend_id::Generator;
-use super::cypher_value::CypherValue;
+use super::cypher_value::CypherValues;
 use super::driver_holder::EmulatedDriverConfig;
 use super::errors::TestKitError;
 use super::requests::BackendErrorId;
@@ -1280,16 +1279,6 @@ impl RecordBuffer {
         RecordBuffer::Transaction
     }
 
-    fn from_record_stream(
-        query: Arc<String>,
-        params: Arc<Option<HashMap<String, ValueSend>>>,
-        stream: &mut RecordStream,
-    ) -> Self {
-        let mut buffer = Self::new_auto_commit(query, params);
-        buffer.buffer_record_stream(stream);
-        buffer
-    }
-
     fn buffer_record_stream(&mut self, stream: &mut RecordStream) {
         match self {
             RecordBuffer::AutoCommit {
@@ -1329,7 +1318,7 @@ impl RecordBuffer {
         }
     }
 
-    fn next(&mut self) -> Result<Option<Vec<CypherValue>>, TestKitError> {
+    fn next(&mut self) -> Result<Option<CypherValues>, TestKitError> {
         match self {
             RecordBuffer::AutoCommit {
                 records, consumed, ..
@@ -1348,7 +1337,7 @@ impl RecordBuffer {
         }
     }
 
-    fn single(&mut self) -> Result<Vec<CypherValue>, TestKitError> {
+    fn single(&mut self) -> Result<CypherValues, TestKitError> {
         match self {
             RecordBuffer::AutoCommit {
                 records, consumed, ..
@@ -1878,7 +1867,7 @@ impl From<ResultNext> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct ResultNextResult {
-    pub(super) result: Result<Option<Vec<CypherValue>>, TestKitError>,
+    pub(super) result: Result<Option<CypherValues>, TestKitError>,
 }
 
 impl From<ResultNextResult> for CommandResult {
@@ -1901,7 +1890,7 @@ impl From<ResultSingle> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct ResultSingleResult {
-    pub(super) result: Result<Vec<CypherValue>, TestKitError>,
+    pub(super) result: Result<CypherValues, TestKitError>,
 }
 
 impl From<ResultSingleResult> for CommandResult {
