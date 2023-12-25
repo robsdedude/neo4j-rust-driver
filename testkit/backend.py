@@ -21,6 +21,5 @@ from _common import run
 
 
 if __name__ == "__main__":
-    run(["cargo", "run", "--all-features",
-         "--manifest-path", "testkit_backend/Cargo.toml"],
+    run(["cargo", "run", "-p", "testkit_backend"],
         env={**os.environ, "RUST_LOG": "debug", "RUST_BACKTRACE": "full"})

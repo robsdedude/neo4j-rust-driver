@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-neo4j = { path = "..", features = ["_internal_testkit_backend"] }
+neo4j = { path = "../neo4j", features = ["_internal_testkit_backend"] }
 atomic_refcell = "0.1.13"
 base64 = "0.21.5"
 chrono = "0.4.31"

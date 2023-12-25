@@ -1,47 +1,7 @@
-[package]
-name = "neo4j"
-version = "0.0.2"
-edition = "2021"
-rust-version = "1.65"
-readme = "README.md"
-description = "Bolt driver for Neo4j."
-license = "Apache-2.0"
-keywords = ["neo4j", "driver", "network", "bolt", "client"]
-categories = ["database"]
-authors = ["Rouven Bauer <neo4j-rust@rouvenbauer.de>"]
-repository = "https://github.com/robsdedude/neo4j-rust-driver/"
-homepage = "https://github.com/robsdedude/neo4j-rust-driver/"
-documentation = "https://docs.rs/neo4j"
-exclude = ["/testkit"]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[features]
-# internal feature, do not use, not supported
-_internal_testkit_backend = []
-
-[dependencies]
-thiserror = "1.0.51"
-uriparse = "0.6.4"
-rustls = "0.22.1"
-rustls-native-certs = "0.7.0"
-rustls-pemfile = "2.0.0"
-rustls-pki-types = "1.0.0"
-log = "0.4.20"
-usize_cast = "1.1.0"
-duplicate = "1.0.0"
-itertools = "0.11.0"
-atomic_refcell = "0.1.13"
-parking_lot = "0.12.1"
-enum_dispatch = "0.3.12"
-rand = "0.8.5"
-chrono = "0.4.31"
-chrono-tz = "0.8.4"
-mockall_double = "0.3.1"
-
-[dev-dependencies]
-rstest = "0.18.2"
-mockall = "0.12.1"
-lazy_static = "1.4.0"
-doc_test_utils = { path = "doc_test_utils" }
-env_logger = "0.10.1"
+[workspace]
+members = [
+    "neo4j",
+    "doc_test_utils",
+    "testkit_backend",
+]
+resolver = "2"
