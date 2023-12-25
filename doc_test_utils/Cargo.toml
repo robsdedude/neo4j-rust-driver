@@ -10,4 +10,4 @@ rust-version = "1.65"
 neo4j = { path = "../neo4j" }
 log = "0.4.20"
 env_logger = "0.10.0"
-fs2 = "0.4.3"
+named-lock = "0.3.0"

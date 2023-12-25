@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use std::env;
-use std::fs::File;
 use std::panic::{catch_unwind, resume_unwind, UnwindSafe};
 use std::sync::Arc;
 
-use fs2::FileExt;
+use named_lock::NamedLock;
 
 use neo4j::address::Address;
 use neo4j::driver::auth::AuthToken;
@@ -78,7 +77,11 @@ pub fn get_driver() -> Driver {
 }
 
 pub fn get_session(driver: &Driver) -> Session {
-    driver.session(SessionConfig::new().with_database(Arc::new(String::from("neo4j"))))
+    driver.session(
+        SessionConfig::new()
+            .with_bookmark_manager(driver.execute_query_bookmark_manager())
+            .with_database(Arc::new(String::from("neo4j"))),
+    )
 }
 
 pub fn with_transaction<R>(example: impl FnMut(Transaction) -> Neo4jResult<R>) {
@@ -91,16 +94,12 @@ pub fn with_transaction<R>(example: impl FnMut(Transaction) -> Neo4jResult<R>) {
 }
 
 pub fn db_exclusive(work: impl FnOnce() + UnwindSafe) {
-    let file = File::options()
-        .write(true)
-        .create(true)
-        .open(".db.lock")
-        .unwrap();
-    file.lock_exclusive().unwrap();
+    let lock = NamedLock::create("neo4j_rust_driver_docs_test_lock").unwrap();
+    let guard = lock.lock().unwrap();
 
     let res = catch_unwind(work);
 
-    file.unlock().unwrap();
+    drop(guard);
 
     if let Err(err) = res {
         resume_unwind(err)
