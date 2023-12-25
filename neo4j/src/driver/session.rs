@@ -881,11 +881,11 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     /// use neo4j::transaction::Transaction;
     /// use neo4j::Result;
     /// use neo4j::{value_map, ValueReceive};
-    /// #
+    ///
     /// # doc_test_utils::db_exclusive(|| {
     /// # let driver = doc_test_utils::get_driver();
     /// # let mut session = doc_test_utils::get_session(&driver);
-    ///
+    /// #
     /// // populate database
     /// driver
     ///     .execute_query("UNWIND range(1, 3) AS x CREATE (n:Actor {fame: x})")
@@ -927,7 +927,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     ///     .into_scalar()
     ///     .unwrap();
     /// assert_eq!(db_total_fame, ValueReceive::Integer(total_fame));
-    /// });
+    /// # });
     /// ```
     pub fn run<R>(mut self, receiver: impl FnOnce(Transaction) -> Result<R>) -> Result<R> {
         let session = self.session.take().unwrap();
