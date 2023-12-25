@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{Error as IoError, Read, Write};
 use std::mem;
@@ -511,7 +510,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         let extra_size = [
             bookmarks.is_some() && !bookmarks.unwrap().is_empty(),
             tx_timeout.is_some(),
-            tx_metadata.map(HashMap::is_empty).unwrap_or_default(),
+            tx_metadata.map(|m| !m.is_empty()).unwrap_or_default(),
             mode.is_some() && mode.unwrap() != "w",
             db.is_some(),
             imp_user.is_some(),
