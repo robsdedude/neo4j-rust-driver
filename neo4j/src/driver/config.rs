@@ -1005,9 +1005,7 @@ mod tests {
 
         let address = ("localhost", 7687).into();
         let connection_config = match uri {
-            None => ConnectionConfig::new(address)
-                .with_encryption_trust_any_certificate()
-                .unwrap(),
+            None => ConnectionConfig::new(address).with_encryption_trust_any_certificate(),
             Some(uri) => ConnectionConfig::try_from(uri).unwrap(),
         };
 
