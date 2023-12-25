@@ -91,7 +91,7 @@ impl SessionConfig {
     ///
     /// Always specify this, if possible, to allow the driver to run more efficiently.
     #[inline]
-    pub fn with_database<'db_>(mut self, database: Arc<String>) -> Self {
+    pub fn with_database(mut self, database: Arc<String>) -> Self {
         self.database = Some(database);
         self
     }

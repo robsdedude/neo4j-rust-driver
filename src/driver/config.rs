@@ -481,6 +481,10 @@ impl ConnectionConfig {
 
     /// Enforce TLS encryption, verifying the server's certificate against the system's root CA
     /// certificate store.
+    ///
+    /// Returns an error if the system's root CA certificate store could not be loaded.
+    ///
+    #[allow(clippy::result_large_err)]
     pub fn with_encryption_trust_default_cas(mut self) -> StdResult<Self, TlsConfigError> {
         self.tls_config = Some(match tls_helper::secure_tls_config() {
             Ok(config) => config,
@@ -496,6 +500,9 @@ impl ConnectionConfig {
 
     /// Enforce TLS encryption, verifying the server's certificate against root CA certificates
     /// loaded from the given file(s).
+    ///
+    /// Returns an error if loading the root CA certificates failed.
+    #[allow(clippy::result_large_err)]
     pub fn with_encryption_trust_custom_cas<P: AsRef<Path>>(
         self,
         paths: &[P],
@@ -518,9 +525,9 @@ impl ConnectionConfig {
     ///
     /// **⚠️ WARNING**:  
     /// This is not secure and should only be used for testing purposes.
-    pub fn with_encryption_trust_any_certificate(mut self) -> StdResult<Self, TlsConfigError> {
+    pub fn with_encryption_trust_any_certificate(mut self) -> Self {
         self.tls_config = Some(tls_helper::self_signed_tls_config());
-        Ok(self)
+        self
     }
 
     /// Enforce TLS encryption, using a custom TLS configuration.

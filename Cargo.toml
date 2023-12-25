@@ -45,4 +45,3 @@ mockall = "0.12.1"
 lazy_static = "1.4.0"
 doc_test_utils = { path = "doc_test_utils" }
 env_logger = "0.10.1"
-testkit_backend = { path = "testkit_backend" }

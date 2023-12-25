@@ -27,9 +27,8 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use super::config::auth::AuthToken;
-use super::io::bolt::message_parameters::RunParameters;
-use super::io::PooledBolt;
-use super::io::{AcquireConfig, Pool, UpdateRtArgs};
+use super::io::bolt::message_parameters::{BeginParameters, RunParameters};
+use super::io::{AcquireConfig, Pool, PooledBolt, UpdateRtArgs};
 use super::record_stream::RecordStream;
 use super::transaction::{Transaction, TransactionTimeout};
 use super::{EagerResult, ReducedDriverConfig, RoutingControl};
@@ -194,10 +193,11 @@ impl<'driver> Session<'driver> {
     ) -> Result<R> {
         let connection = self.acquire_connection(builder.mode)?;
         let mut tx = InnerTransaction::new(connection, self.fetch_size());
-        tx.begin(
-            Some(&*self.session_bookmarks.get_bookmarks_for_work()?),
+        let bookmarks = &*self.session_bookmarks.get_bookmarks_for_work()?;
+        let parameters = BeginParameters::new(
+            Some(bookmarks),
             builder.timeout.raw(),
-            builder.meta.borrow(),
+            Some(builder.meta.borrow()),
             builder.mode.as_protocol_str(),
             self.resolved_db().as_ref().map(|db| db.as_str()),
             self.config
@@ -205,8 +205,8 @@ impl<'driver> Session<'driver> {
                 .impersonated_user
                 .as_ref()
                 .map(|imp| imp.as_str()),
-            self.config.eager_begin,
-        )?;
+        );
+        tx.begin(parameters, self.config.eager_begin)?;
         let res = receiver(Transaction::new(&mut tx));
         let res = match res {
             Ok(_) => {

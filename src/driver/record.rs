@@ -102,10 +102,7 @@ impl Record {
     ///
     /// This is the same as [`Record::values()`], but consumes the record and returns owned values.
     pub fn into_values(self) -> impl Iterator<Item = ValueReceive> {
-        self.entries
-            .into_iter()
-            .map(|(_, value)| value)
-            .filter_map(|v| v)
+        self.entries.into_iter().filter_map(|(_, value)| value)
     }
 
     /// Iterate over the key-value pairs of the record.

@@ -30,7 +30,6 @@ use super::io::bolt::ResponseCallbacks;
 use super::io::PooledBolt;
 use super::record_stream::{GetSingleRecordError, RecordStream, SharedErrorPropagator};
 use super::Record;
-use crate::bookmarks::Bookmarks;
 use crate::error_::ServerError;
 use crate::summary::Summary;
 use crate::{Neo4jError, Result, ValueReceive, ValueSend};
@@ -164,28 +163,11 @@ impl<'driver> InnerTransaction<'driver> {
 
     pub(crate) fn begin<K: Borrow<str> + Debug>(
         &mut self,
-        bookmarks: Option<&Bookmarks>,
-        tx_timeout: Option<i64>,
-        tx_metadata: &HashMap<K, ValueSend>,
-        mode: Option<&str>,
-        db: Option<&str>,
-        imp_user: Option<&str>,
+        parameters: BeginParameters<K>,
         eager: bool,
     ) -> Result<()> {
         let mut cx = self.connection.borrow_mut();
-        let tx_metadata = if tx_metadata.is_empty() {
-            None
-        } else {
-            Some(tx_metadata)
-        };
-        cx.begin(BeginParameters::new(
-            bookmarks,
-            tx_timeout,
-            tx_metadata,
-            mode,
-            db,
-            imp_user,
-        ))?;
+        cx.begin(parameters)?;
         if eager {
             cx.write_all(None)?;
             cx.read_all(None)?;

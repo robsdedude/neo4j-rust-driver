@@ -48,6 +48,8 @@ use single_pool::{SimplePool, SinglePooledBolt, UnpreparedSinglePooledBolt};
 // this is, however, not a hard limit
 const DEFAULT_CLUSTER_SIZE: usize = 7;
 
+type Addresses = Vec<Arc<Address>>;
+
 #[derive(Debug)]
 pub(crate) struct PooledBolt<'pool> {
     bolt: Option<SinglePooledBolt>,
@@ -396,7 +398,7 @@ impl RoutingPool {
     fn choose_addresses_from_fresh_rt(
         &self,
         args: AcquireConfig,
-    ) -> Result<(Vec<Arc<Address>>, Option<Arc<String>>)> {
+    ) -> Result<(Addresses, Option<Arc<String>>)> {
         let (lock, db) = self.get_fresh_rt(args)?;
         let rt = lock
             .get(&db.as_ref().map(Arc::clone))
@@ -405,11 +407,7 @@ impl RoutingPool {
     }
 
     /// Guarantees that Vec is not empty
-    fn choose_addresses(
-        &self,
-        args: AcquireConfig,
-        db: &Option<Arc<String>>,
-    ) -> Result<Vec<Arc<Address>>> {
+    fn choose_addresses(&self, args: AcquireConfig, db: &Option<Arc<String>>) -> Result<Addresses> {
         let rts = self.routing_tables.read();
         self.servers_by_usage(
             rts.get(db)
@@ -500,7 +498,7 @@ impl RoutingPool {
     }
 
     /// Guarantees that Vec is not empty
-    fn servers_by_usage(&self, addresses: &[Arc<Address>]) -> Result<Vec<Arc<Address>>> {
+    fn servers_by_usage(&self, addresses: &[Arc<Address>]) -> Result<Addresses> {
         Ok(match addresses.len() {
             0 => return Err(Neo4jError::disconnect("routing options depleted")),
             1 => vec![Arc::clone(&addresses[0])],
@@ -517,10 +515,10 @@ impl RoutingPool {
         })
     }
 
-    fn update_rts<'a>(
+    fn update_rts(
         &self,
         args: UpdateRtArgs,
-        rts: &'a mut RoutingTables,
+        rts: &mut RoutingTables,
     ) -> Result<Option<Arc<String>>> {
         let rt_key = args.db.map(Arc::clone);
         let rt = rts.entry(rt_key).or_insert_with(|| self.empty_rt());

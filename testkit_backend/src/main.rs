@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod testkit_backend;
+#![allow(clippy::option_map_unit_fn)]
 
-use env_logger;
+mod testkit_backend;
 
 use testkit_backend::start_server;
 

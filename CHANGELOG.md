@@ -1,6 +1,8 @@
 # Changelog
 
 ## NEXT
+ - Removed useless lifetime parameter from `SessionConfig::with_database()`.
+ - Changed return type of `ConnectionConfig::with_encryption_trust_any_certificate() ` to from `Result<Self, Error>` to `Self`.
 
 ## 0.0.2
  - Update dependencies.  

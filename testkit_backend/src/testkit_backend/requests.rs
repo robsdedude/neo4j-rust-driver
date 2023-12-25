@@ -787,7 +787,7 @@ impl Request {
                             .map(|name| format!("/usr/local/share/custom-ca-certificates/{name}"))
                             .collect::<Vec<_>>();
                         match cas.is_empty() {
-                            true => connection_config.with_encryption_trust_any_certificate()?,
+                            true => connection_config.with_encryption_trust_any_certificate(),
                             false => connection_config.with_encryption_trust_custom_cas(&cas)?,
                         }
                     }
@@ -1502,8 +1502,8 @@ fn closed_session_error() -> TestKitError {
     }
 }
 
-fn get_bookmark_manager<'a>(
-    backend_data: &'a BackendData,
+fn get_bookmark_manager(
+    backend_data: &BackendData,
     bookmark_manager_id: &BackendId,
 ) -> Result<Arc<dyn BookmarkManager>, TestKitError> {
     backend_data
