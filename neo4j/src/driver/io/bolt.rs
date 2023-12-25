@@ -424,7 +424,6 @@ trait BoltProtocol: Debug {
         parameters: PullParameters,
         callbacks: ResponseCallbacks,
     ) -> Result<()>;
-    #[allow(clippy::too_many_arguments)]
     fn begin<RW: Read + Write, K: Borrow<str> + Debug>(
         &mut self,
         data: &mut BoltData<RW>,

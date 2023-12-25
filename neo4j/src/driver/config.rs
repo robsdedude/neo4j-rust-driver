@@ -483,7 +483,6 @@ impl ConnectionConfig {
     /// certificate store.
     ///
     /// Returns an error if the system's root CA certificate store could not be loaded.
-    ///
     #[allow(clippy::result_large_err)]
     pub fn with_encryption_trust_default_cas(mut self) -> StdResult<Self, TlsConfigError> {
         self.tls_config = Some(match tls_helper::secure_tls_config() {
