@@ -541,13 +541,13 @@ impl ConnectionConfig {
     /// # use rustls::RootCertStore;
     /// # use rustls_pki_types::{TrustAnchor, Der};
     ///
-    /// # fn get_client_config() -> ClientConfig {
+    /// # fn get_custom_client_config() -> ClientConfig {
     /// #     ClientConfig::builder().with_root_certificates(
     /// #         RootCertStore {
     /// #             roots: vec![
     /// #                 TrustAnchor {
-    /// #                     subject: Der::from_slice(b"1\x0b0\t\x06\x03U\x04\x06\x13\x02US1\"0 \x06\x03U\x04\n\x13\x19Google Trust Services LLC1\x140\x12\x06\x03U\x04\x03\x13\x0bGTS Root R4"),
-    /// #                     subject_public_key_info: Der::from_slice(b"0\x10\x06\x07*\x86H\xce=\x02\x01\x06\x05+\x81\x04\x00\"\x03b\x00\x04\xf3ts\xa7h\x8b`\xaeC\xb85\xc5\x810{KI\x9d\xfb\xc1a\xce\xe6\xdeF\xbdk\xd5a\x185\xae@\xdds\xf7\x89\x910Z\xeb<\xee\x85|\xa2@v;\xa9\xc6\xb8G\xd8*\xe7\x92\x91js\xe9\xb1r9\x9f)\x9f\xa2\x98\xd3_^X\x86e\x0f\xa1\x84e\x06\xd1\xdc\x8b\xc9\xc7s\xc8\x8cj/\xe5\xc4\xab\xd1\x1d\x8a"),
+    /// #                     subject: Der::from_slice(b""),
+    /// #                     subject_public_key_info: Der::from_slice(b""),
     /// #                     name_constraints: None,
     /// #                 },
     /// #             ],
@@ -555,7 +555,7 @@ impl ConnectionConfig {
     /// #     ).with_no_client_auth()
     /// # }
     /// #
-    /// let client_config: ClientConfig = get_client_config();
+    /// let client_config: ClientConfig = get_custom_client_config();
     /// let config = ConnectionConfig::new(("localhost", 7687).into())
     ///     .with_encryption_custom_tls_config(client_config);
     /// ```
@@ -854,21 +854,19 @@ mod mockable {
 
         impl NonVerifyingVerifier {
             pub fn new() -> Self {
-                let default_verifier = WebPkiServerVerifier::builder(Arc::new(
-                    RootCertStore {
-                        roots: vec![
-                            // any certificate will do as we only forward methods to the default
-                            // verifier that do not care about the certificate
-                            TrustAnchor {
-                                subject: Der::from_slice(b"1\x0b0\t\x06\x03U\x04\x06\x13\x02US1\"0 \x06\x03U\x04\n\x13\x19Google Trust Services LLC1\x140\x12\x06\x03U\x04\x03\x13\x0bGTS Root R4"),
-                                subject_public_key_info: Der::from_slice(b"0\x10\x06\x07*\x86H\xce=\x02\x01\x06\x05+\x81\x04\x00\"\x03b\x00\x04\xf3ts\xa7h\x8b`\xaeC\xb85\xc5\x810{KI\x9d\xfb\xc1a\xce\xe6\xdeF\xbdk\xd5a\x185\xae@\xdds\xf7\x89\x910Z\xeb<\xee\x85|\xa2@v;\xa9\xc6\xb8G\xd8*\xe7\x92\x91js\xe9\xb1r9\x9f)\x9f\xa2\x98\xd3_^X\x86e\x0f\xa1\x84e\x06\xd1\xdc\x8b\xc9\xc7s\xc8\x8cj/\xe5\xc4\xab\xd1\x1d\x8a"),
-                                name_constraints: None
-                            },
-                        ],
-                    },
-                ))
-                    .build()
-                    .unwrap();
+                let default_verifier = WebPkiServerVerifier::builder(Arc::new(RootCertStore {
+                    roots: vec![
+                        // any certificate will do as we only forward those methods to the default
+                        // verifier which do not care about the certificate
+                        TrustAnchor {
+                            subject: Der::from_slice(b""),
+                            subject_public_key_info: Der::from_slice(b""),
+                            name_constraints: None,
+                        },
+                    ],
+                }))
+                .build()
+                .unwrap();
                 let default_verifier = Arc::into_inner(default_verifier).unwrap();
                 Self { default_verifier }
             }

@@ -9,7 +9,12 @@ Disclaimer:
    Yet, I decided to publish it as it might be useful for others as well.
 
 
-Feature Progress:
+## MSRV
+Currently, this crate's minimum supported Rust version is `1.65`.
+A bump in MSRV is considered a minor breaking change.
+
+
+## Feature Progress
  * [x] (Well-Written) Docs and Examples
  * [ ] Driver
    * [x] Config
@@ -94,15 +99,14 @@ Feature Progress:
    * [x] `Spatial` (point)
    * [x] `Temporal` (date, time, datetime, duration)
  * [ ] Proper Unit Tests
- * [ ] CI (https://github.com/actions-rust-lang/setup-rust-toolchain ?)
-   * [ ] rustfmt
-   * [ ] clippy
-   * [ ] Unit Tests
+ * [x] CI (https://github.com/actions-rust-lang/setup-rust-toolchain ?)
+   * [x] rustfmt
+   * [x] clippy
+   * [x] Unit Tests
      * [ ] Public API SemVer Compatibility Tests ([cargo-public-api](https://github.com/enselic/cargo-public-api))
-   * [ ] TestKit
+   * [x] TestKit
 
-
-Future Ideas:
- * `serde` support
-   * https://rust-lang.github.io/api-guidelines/interoperability.html#data-structures-implement-serdes-serialize-deserialize-c-serde 
-   * https://stackoverflow.com/questions/57474040/serializing-a-sequence-in-serde-when-both-sequence-length-and-types-must-be-know.
+## Note on async  
+Currently, there are no plans to add async support until a proper abstraction over multiple runtimes is available so that users can choose their preferred runtime.
+As it stands, the async ecosystem would either force this crate to dictate a runtime or do an ugly dance to support multiple runtimes.
+Even then, the supported runtimes would be limited to the ones chosen by this crate.

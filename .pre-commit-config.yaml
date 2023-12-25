@@ -1,0 +1,27 @@
+fail_fast: true
+repos:
+  - repo: local
+    hooks:
+      - id: check
+        name: cargo check
+        entry: cargo check --
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: fmt
+        name: cargo fmt
+        entry: cargo +nightly fmt --all -- --check
+        language: system
+        types: [rust]
+      - id: clippy
+        name: cargo clippy
+        entry: cargo clippy -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: unit
+        name: unit tests
+        entry: cargo test --tests --benches
+        language: system
+        types: [rust]
+        pass_filenames: false

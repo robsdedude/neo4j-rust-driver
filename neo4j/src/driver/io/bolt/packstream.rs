@@ -19,7 +19,6 @@ mod serialize;
 mod tests;
 
 pub(crate) use deserialize::{PackStreamDeserializer, PackStreamDeserializerImpl};
-pub use error::PackStreamDeserializeError;
 pub use serialize::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };

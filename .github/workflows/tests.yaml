@@ -1,0 +1,83 @@
+name: Tests
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+jobs:
+  tests:
+    name: Linting and Testing
+    runs-on: "ubuntu-latest"
+    strategy:
+      matrix:
+        rust-version: ["1.65", "stable"]
+    steps:
+      - name: Pull Neo4j Docker Image
+        run: docker pull neo4j:5.6-enterprise
+      - name: Start Neo4j
+        run: docker run
+          -d --rm --name neo4j
+          -p 7474:7474 -p 7687:7687
+          -e NEO4J_AUTH=neo4j/pass
+          -e NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+          -e NEO4J_dbms_security_auth__minimum__password__length=1 
+          neo4j:5.6-enterprise &
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust-version }}
+          components: clippy
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - name: cargo check
+        env:
+          RUSTFLAGS: -D warnings
+        run: cargo check
+      - name: cargo fmt
+        run: cargo +nightly fmt --all -- --check
+      - name: tests
+        env:
+          TEST_NEO4J_SCHEME: neo4j
+          TEST_NEO4J_HOST: localhost
+          TEST_NEO4J_PORT: 7687
+          TEST_NEO4J_USER: neo4j
+          TEST_NEO4J_PASS: pass
+          TEST_NEO4J_EDITION: enterprise
+          TEST_NEO4J_VERSION: 5.6
+        run: cargo test
+  testkit:
+    needs: [tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout driver
+        uses: actions/checkout@v4
+        with:
+          path: driver
+
+      # - name: Read required TestKit version from driver repo
+      #   id: testkit_vars
+      #   run: echo ::set-output name=testkit_version_ref::$(cat driver/.testkit_version | xargs)
+
+      - name: Checkout TestKit
+        uses: actions/checkout@v4
+        with:
+          repository: robsdedude/testkit
+          path: testkit
+          ref: rust
+          # ref: ${{ steps.testkit_vars.outputs.testkit_version_ref }}
+
+      # Runs a single command using the runners shell
+      - name: Run TestKit
+        env:
+          # to learn what these variables do, see https://github.com/neo4j-drivers/testkit
+          TEST_DRIVER_NAME: rust
+          TEST_DRIVER_REPO: ${{ github.workspace }}/driver
+          TEST_RUN_ALL_TESTS: "true"
+        run: |
+          cd testkit
+          # everything from --run-only-selected is to reduce the number of tests run in this
+          # demonstation setup. In a real setup, you most likely don't want this.
+          python3 main.py --tests TESTKIT_TESTS STUB_TESTS TLS_TESTS
