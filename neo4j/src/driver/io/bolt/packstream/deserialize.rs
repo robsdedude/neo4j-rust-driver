@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::error::PackStreamDeserializeError;
-use crate::driver::io::bolt::BoltStructTranslator;
-use crate::ValueReceive;
 use std::collections::HashMap;
 use std::error::Error;
 use std::io::Read;
+
+use super::error::PackStreamDeserializeError;
+use crate::driver::io::bolt::BoltStructTranslator;
+use crate::value::ValueReceive;
 
 pub(crate) trait PackStreamDeserializer {
     type Error: Error;

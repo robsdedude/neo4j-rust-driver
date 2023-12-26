@@ -18,7 +18,9 @@ use super::spatial;
 use super::time;
 use super::value_receive::ValueReceive;
 use super::ValueConversionError;
-#[cfg(doc)]
+
+// imports for docs
+#[allow(unused)]
 use crate::error_::Neo4jError;
 
 /// A value that can be sent to the server. For example as query parameters or transaction metadata.

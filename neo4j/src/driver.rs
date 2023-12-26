@@ -30,7 +30,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::bookmarks::{bookmark_managers, BookmarkManager};
-use crate::{Result, ValueSend};
+use crate::error_::Result;
+use crate::value::ValueSend;
 use config::auth::AuthToken;
 pub use config::{
     ConfigureFetchSizeError, ConnectionConfig, ConnectionConfigParseError, DriverConfig,

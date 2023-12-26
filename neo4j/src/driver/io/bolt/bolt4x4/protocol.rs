@@ -40,7 +40,8 @@ use super::super::{
     BoltResponse, BoltStructTranslatorWithUtcPatch, OnServerErrorCb, ResponseCallbacks,
     ResponseMessage,
 };
-use crate::{Result, ValueReceive};
+use crate::error_::Result;
+use crate::value::ValueReceive;
 
 const SERVER_AGENT_KEY: &str = "server";
 const PATCH_BOLT_KEY: &str = "patch_bolt";

@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Neo4jError;
 use std::io;
+
+use crate::error_::Neo4jError;
 
 #[derive(thiserror::Error, Debug)]
 #[error("failed serialization: {reason}")]

@@ -12,17 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
-use std::error::Error;
-use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::net::{TcpListener, TcpStream};
-use std::panic;
-use std::sync::Arc;
-
-use atomic_refcell::AtomicRefCell;
-use log::{debug, error, info, warn};
-use serde::Serialize;
-
 mod auth;
 mod backend_id;
 mod bookmarks;
@@ -33,6 +22,17 @@ mod requests;
 mod resolver;
 mod responses;
 mod session_holder;
+
+use std::collections::HashMap;
+use std::error::Error;
+use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::net::{TcpListener, TcpStream};
+use std::panic;
+use std::sync::Arc;
+
+use atomic_refcell::AtomicRefCell;
+use log::{debug, error, info, warn};
+use serde::Serialize;
 
 use neo4j::bookmarks::BookmarkManager;
 use neo4j::driver::auth::AuthManager;

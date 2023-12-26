@@ -15,14 +15,15 @@
 pub mod graph;
 pub mod spatial;
 pub mod time;
-pub(crate) mod value_receive;
-pub(crate) mod value_send;
+mod value_receive;
+mod value_send;
 // mod de;
 // mod ser;
 
 use thiserror::Error;
 
-pub use value_receive::ValueReceive;
+pub(crate) use value_receive::BrokenValueInner;
+pub use value_receive::{BrokenValue, ValueReceive};
 pub use value_send::ValueSend;
 
 /// Error returned when trying to convert a [`ValueReceive`] into a [`ValueSend`] that's not

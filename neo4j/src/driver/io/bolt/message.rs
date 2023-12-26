@@ -14,7 +14,7 @@
 
 use std::io::Read;
 
-use crate::{Neo4jError, Result};
+use crate::error_::{Neo4jError, Result};
 
 #[derive(Debug)]
 pub(crate) struct BoltMessage<V> {

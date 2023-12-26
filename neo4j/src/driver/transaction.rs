@@ -30,9 +30,9 @@ use super::io::bolt::ResponseCallbacks;
 use super::io::PooledBolt;
 use super::record_stream::{GetSingleRecordError, RecordStream, SharedErrorPropagator};
 use super::Record;
-use crate::error_::ServerError;
+use crate::error_::{Neo4jError, Result, ServerError};
 use crate::summary::Summary;
-use crate::{Neo4jError, Result, ValueReceive, ValueSend};
+use crate::value::{ValueReceive, ValueSend};
 
 #[derive(Debug)]
 pub struct Transaction<'driver: 'inner_tx, 'inner_tx> {

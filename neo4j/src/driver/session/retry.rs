@@ -12,23 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use log::warn;
 use std::result::Result as StdResult;
 use std::thread::sleep;
 use std::time::Duration;
 
+use log::warn;
 use rand;
 use rand::Rng;
 use thiserror::Error;
+
+use crate::error_::{Neo4jError, Result};
+use crate::time::Instant;
 
 // imports for docs
 #[allow(unused)]
 use crate::driver::session::TransactionBuilder;
 #[allow(unused)]
 use crate::driver::ExecuteQueryBuilder;
-
-use crate::time::Instant;
-use crate::{Neo4jError, Result};
 
 /// Specifies how to retry work.
 ///

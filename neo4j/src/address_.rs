@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub(crate) mod resolution;
+
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::io::Result as IoResult;
@@ -20,10 +22,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
-use crate::Result;
-
-pub(crate) mod resolution;
-
+use crate::error_::Result;
 use resolution::{AddressResolver, CustomResolution, DnsResolution};
 
 pub(crate) const DEFAULT_PORT: u16 = 7687;

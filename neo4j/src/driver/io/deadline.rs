@@ -18,8 +18,8 @@ use std::io::{self, ErrorKind, Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
+use crate::error_::{Neo4jError, Result};
 use crate::time::Instant;
-use crate::{Neo4jError, Result};
 
 pub(crate) fn rewrite_timeout<R, F: FnOnce() -> Result<R>>(f: F) -> Result<R> {
     match f() {

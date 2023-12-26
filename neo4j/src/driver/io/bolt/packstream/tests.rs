@@ -14,10 +14,6 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::value;
-use crate::value::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
-use crate::{ValueReceive, ValueSend};
-
 use rstest::rstest;
 
 use super::super::super::bolt::BoltStructTranslator;
@@ -26,6 +22,9 @@ use super::deserialize::{PackStreamDeserializer, PackStreamDeserializerImpl};
 use super::error::{PackStreamDeserializeError, PackStreamSerializeError};
 use super::serialize::PackStreamSerializerImpl;
 use crate::macros::hash_map;
+use crate::value;
+use crate::value::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
+use crate::value::{ValueReceive, ValueSend};
 
 // =============
 // Test Decoding

@@ -16,7 +16,6 @@ pub(crate) mod bookmarks;
 pub(crate) mod config;
 pub(crate) mod retry;
 
-use log::{debug, info};
 use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -26,6 +25,8 @@ use std::rc::Rc;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
+use log::{debug, info};
+
 use super::config::auth::AuthToken;
 use super::io::bolt::message_parameters::{BeginParameters, RunParameters};
 use super::io::{AcquireConfig, Pool, PooledBolt, UpdateRtArgs};
@@ -33,8 +34,9 @@ use super::record_stream::RecordStream;
 use super::transaction::{Transaction, TransactionTimeout};
 use super::{EagerResult, ReducedDriverConfig, RoutingControl};
 use crate::driver::io::SessionAuth;
+use crate::error_::{Neo4jError, Result};
 use crate::transaction::InnerTransaction;
-use crate::{Neo4jError, Result, ValueSend};
+use crate::value::ValueSend;
 use bookmarks::{bookmark_managers, BookmarkManager, Bookmarks};
 use config::InternalSessionConfig;
 pub use config::SessionConfig;

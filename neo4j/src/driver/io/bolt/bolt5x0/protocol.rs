@@ -39,8 +39,8 @@ use super::super::{
     debug_buf_start, BoltData, BoltProtocol, BoltResponse, BoltStructTranslator, ConnectionState,
     OnServerErrorCb, ResponseCallbacks, ResponseMessage,
 };
-use crate::error_::ServerError;
-use crate::{Neo4jError, Result, ValueReceive};
+use crate::error_::{Neo4jError, Result, ServerError};
+use crate::value::ValueReceive;
 
 const SERVER_AGENT_KEY: &str = "server";
 const HINTS_KEY: &str = "hints";

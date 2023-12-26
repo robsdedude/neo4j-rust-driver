@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use log::debug;
 use std::error::Error as StdError;
 use std::fmt::Debug;
 use std::io::Result as IoResult;
@@ -21,9 +20,10 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
+use log::debug;
+
 use super::Address;
-use crate::error_::UserCallbackError;
-use crate::{Neo4jError, Result};
+use crate::error_::{Neo4jError, Result, UserCallbackError};
 
 // imports for docs
 #[allow(unused)]

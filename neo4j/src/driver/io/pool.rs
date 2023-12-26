@@ -15,9 +15,6 @@
 mod routing;
 mod single_pool;
 
-use atomic_refcell::AtomicRefCell;
-use itertools::Itertools;
-use rustls::ClientConfig;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
@@ -26,20 +23,24 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::Duration;
 
+use atomic_refcell::AtomicRefCell;
+use itertools::Itertools;
 use log::{debug, info, warn};
 use parking_lot::{Condvar, Mutex, RwLockReadGuard};
+use rustls::ClientConfig;
 
 use super::bolt::message_parameters::RouteParameters;
 use super::bolt::{BoltData, ResponseCallbacks};
-use crate::address::{Address, AddressResolver};
+use crate::address_::resolution::AddressResolver;
+use crate::address_::Address;
 use crate::bookmarks::Bookmarks;
 use crate::driver::config::auth::{auth_managers, AuthToken};
 use crate::driver::config::AuthConfig;
 use crate::driver::RoutingControl;
-use crate::error_::ServerError;
+use crate::error_::{Neo4jError, Result, ServerError};
 use crate::sync::MostlyRLock;
 use crate::time::Instant;
-use crate::{Neo4jError, Result, ValueSend};
+use crate::value::ValueSend;
 use routing::RoutingTable;
 pub(crate) use single_pool::SessionAuth;
 use single_pool::{SimplePool, SinglePooledBolt, UnpreparedSinglePooledBolt};

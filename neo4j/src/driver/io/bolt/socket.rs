@@ -19,7 +19,7 @@ use std::sync::Arc;
 use rustls::{ClientConfig, ClientConnection, StreamOwned};
 use rustls_pki_types::ServerName;
 
-use crate::{Neo4jError, Result};
+use crate::error_::{Neo4jError, Result};
 
 #[derive(Debug)]
 pub(crate) enum BufTcpStream {

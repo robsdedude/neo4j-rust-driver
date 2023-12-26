@@ -19,7 +19,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use crate::driver::config::auth::AuthToken;
-use crate::ValueSend;
+use crate::value::ValueSend;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct HelloParameters<'a> {

@@ -9,8 +9,8 @@ repos:
         types: [rust]
         pass_filenames: false
       - id: fmt
-        name: cargo fmt
-        entry: cargo +nightly fmt --all -- --check
+        name: rustfmt fmt
+        entry: rustfmt +nightly --
         language: system
         types: [rust]
       - id: clippy

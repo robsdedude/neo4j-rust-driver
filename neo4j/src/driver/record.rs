@@ -17,7 +17,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use super::io::bolt::BoltRecordFields;
-use crate::ValueReceive;
+use crate::value::ValueReceive;
 
 /// A record is a collection of key-value pairs that represent a single row of a query result.
 #[derive(Debug)]

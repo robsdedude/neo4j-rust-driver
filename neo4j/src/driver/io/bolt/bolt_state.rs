@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use super::response::ResponseMessage;
 use super::{bolt_debug_extra, dbg_extra};
-use crate::ValueReceive;
+use crate::value::ValueReceive;
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub(crate) enum BoltState {

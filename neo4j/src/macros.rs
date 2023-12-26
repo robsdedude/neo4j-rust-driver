@@ -17,10 +17,9 @@
 
 // imports for docs
 #[allow(unused)]
+use crate::value::ValueSend;
+#[allow(unused)]
 use std::collections::HashMap;
-
-#[cfg(doc)]
-use crate::ValueSend;
 
 #[cfg(test)]
 macro_rules! hash_map {
@@ -389,7 +388,7 @@ mod tests {
     use rstest::rstest;
 
     use crate::value::spatial::*;
-    use crate::ValueSend;
+    use crate::value::ValueSend;
 
     #[test]
     fn test_null() {

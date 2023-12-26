@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::error::Error as StdError;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::result::Result as StdResult;
 use std::sync::Arc;
+
+use parking_lot::RwLock;
 
 use crate::error_::{Neo4jError, Result, UserCallbackError};
 

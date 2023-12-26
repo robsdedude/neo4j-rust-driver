@@ -18,8 +18,9 @@ use std::time::Duration;
 
 use super::io::bolt::BoltMeta;
 use super::io::PooledBolt;
-use crate::address::Address;
-use crate::{Neo4jError, Result, ValueReceive};
+use crate::address_::Address;
+use crate::error_::{Neo4jError, Result};
+use crate::value::ValueReceive;
 
 // Imports for docs
 #[allow(unused)]

@@ -32,8 +32,8 @@ use super::summary::Summary;
 use super::Record;
 use crate::driver::eager_result::EagerResult;
 use crate::driver::io::PooledBolt;
-use crate::error_::ServerError;
-use crate::{Neo4jError, Result, ValueReceive};
+use crate::error_::{Neo4jError, Result, ServerError};
+use crate::value::ValueReceive;
 
 #[derive(Debug)]
 pub struct RecordStream<'driver> {

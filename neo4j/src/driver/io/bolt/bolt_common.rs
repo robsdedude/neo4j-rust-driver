@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::value::value_receive::{BrokenValueInner, ValueReceive};
-use crate::Neo4jError;
+use crate::error_::Neo4jError;
+use crate::value::{BrokenValueInner, ValueReceive};
 
 pub(super) const TAG_2D_POINT: u8 = b'X';
 pub(super) const TAG_3D_POINT: u8 = b'Y';

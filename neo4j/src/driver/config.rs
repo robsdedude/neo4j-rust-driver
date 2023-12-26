@@ -27,9 +27,10 @@ use rustls::ClientConfig;
 use thiserror::Error;
 use uriparse::{Query, URIError, URI};
 
-use crate::address::{Address, AddressResolver};
+use crate::address_::resolution::AddressResolver;
+use crate::address_::Address;
 use crate::address_::DEFAULT_PORT;
-use crate::ValueSend;
+use crate::value::ValueSend;
 use auth::{AuthManager, AuthToken};
 
 // imports for docs

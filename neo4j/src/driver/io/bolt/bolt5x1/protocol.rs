@@ -38,7 +38,8 @@ use super::super::{
     BoltProtocol, BoltResponse, BoltStructTranslator, OnServerErrorCb, ResponseCallbacks,
     ResponseMessage,
 };
-use crate::{Result, ValueReceive};
+use crate::error_::Result;
+use crate::value::ValueReceive;
 
 const SERVER_AGENT_KEY: &str = "server";
 const HINTS_KEY: &str = "hints";

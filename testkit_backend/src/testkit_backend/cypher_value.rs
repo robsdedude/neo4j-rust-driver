@@ -24,16 +24,14 @@ use serde::{de::Error as DeError, de::Visitor, Deserialize, Deserializer, Serial
 use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue, Value};
 use thiserror::Error;
 
+use super::errors::TestKitError;
 use neo4j::driver::Record;
 use neo4j::value::graph::{
     Node as Neo4jNode, Relationship as Neo4jRelationship,
     UnboundRelationship as Neo4jUnboundRelationship,
 };
 use neo4j::value::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
-use neo4j::value::time;
-use neo4j::{ValueReceive, ValueSend};
-
-use super::errors::TestKitError;
+use neo4j::value::{time, ValueReceive, ValueSend};
 
 #[derive(Debug)]
 #[repr(transparent)]
