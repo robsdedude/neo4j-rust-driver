@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use std::io::{Error as IoError, Result as IoResult};
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
-use std::str::FromStr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
+use itertools::Itertools;
 use log::error;
 
 use neo4j::address::{Address, AddressResolver, AddressResolverReturn};
@@ -121,17 +121,11 @@ impl TestKitResolver {
                 ))))
             }
         };
-        testkit_to_io_error(
-            addresses_out
-                .into_iter()
-                .map(|name| match IpAddr::from_str(&name) {
-                    Ok(ip_addr) => Ok(SocketAddr::from((ip_addr, address.port()))),
-                    Err(err) => Err(TestKitError::backend_err(format!(
-                        "invalid IP address received from backend: {err}"
-                    ))),
-                })
-                .collect(),
-        )
+        addresses_out
+            .into_iter()
+            .map(|s| (s, address.port()).to_socket_addrs())
+            .flatten_ok()
+            .collect()
     }
 }
 

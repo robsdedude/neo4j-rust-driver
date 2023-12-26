@@ -22,7 +22,7 @@ jobs:
           -p 7474:7474 -p 7687:7687
           -e NEO4J_AUTH=neo4j/pass
           -e NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
-          -e NEO4J_dbms_security_auth__minimum__password__length=1 
+          -e NEO4J_dbms_security_auth__minimum__password__length=1
           neo4j:5.6-enterprise &
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@v1
@@ -69,10 +69,8 @@ jobs:
           ref: rust
           # ref: ${{ steps.testkit_vars.outputs.testkit_version_ref }}
 
-      # Runs a single command using the runners shell
       - name: Run TestKit
         env:
-          # to learn what these variables do, see https://github.com/neo4j-drivers/testkit
           TEST_DRIVER_NAME: rust
           TEST_DRIVER_REPO: ${{ github.workspace }}/driver
           TEST_RUN_ALL_TESTS: "true"
