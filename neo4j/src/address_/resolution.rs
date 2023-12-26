@@ -25,9 +25,17 @@ use super::Address;
 use crate::error_::UserCallbackError;
 use crate::{Neo4jError, Result};
 
+// imports for docs
+#[allow(unused)]
+use crate::driver::DriverConfig;
+
 type BoxError = Box<dyn StdError + Send + Sync>;
+/// See [`AddressResolver::resolve()`].
 pub type AddressResolverReturn = StdResult<Vec<Address>, BoxError>;
 
+/// A trait for custom address resolution.
+///
+/// See [`DriverConfig::with_resolver()`].
 pub trait AddressResolver: Debug + Send + Sync {
     /// must not return an empty vector
     fn resolve(&self, address: &Address) -> AddressResolverReturn;
