@@ -20,7 +20,7 @@ use std::panic;
 use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
-use log::{debug, error, info, log_enabled, warn};
+use log::{debug, error, info, warn};
 use serde::Serialize;
 
 mod auth;
@@ -37,6 +37,7 @@ mod session_holder;
 use neo4j::bookmarks::BookmarkManager;
 use neo4j::driver::auth::AuthManager;
 
+use super::logging;
 use backend_id::BackendId;
 use backend_id::Generator;
 use driver_holder::DriverHolder;
@@ -54,17 +55,14 @@ pub(super) fn start_server() {
     let listener = TcpListener::bind(ADDRESS).unwrap();
     println!("Listening on {}", ADDRESS);
     for stream in listener.incoming() {
+        logging::clear_log();
         match stream {
             Ok(stream) => {
                 let res = panic::catch_unwind(|| handle_stream(stream));
                 match res {
                     Ok(res) => info!("TestKit disconnected {res:?}"),
                     Err(err) => {
-                        if log_enabled!(log::Level::Error) {
-                            error!("TestKit panicked {err:?}");
-                        } else {
-                            eprintln!("TestKit panicked {err:?}");
-                        }
+                        error!("TestKit panicked {err:?}");
                     }
                 }
             }
@@ -226,7 +224,15 @@ impl BackendIo {
         }
     }
 
+    fn send_logs(&mut self) -> TestKitResult {
+        let logs = logging::take_log();
+        TestKitError::wrap_fatal(self.writer.write_all(&logs))?;
+        TestKitError::wrap_fatal(self.writer.flush())?;
+        Ok(())
+    }
+
     fn send<S: Serialize>(&mut self, message: &S) -> TestKitResult {
+        self.send_logs()?;
         let data = TestKitError::wrap_fatal(serde_json::to_string(message))?;
         debug!(">>> {data}");
         TestKitError::wrap_fatal(self.writer.write_all(b"#response begin\n"))?;
@@ -237,6 +243,7 @@ impl BackendIo {
     }
 
     fn send_err(&mut self, err: TestKitError, id_generator: &Generator) -> TestKitResult {
+        self.send_logs()?;
         let response = Response::try_from_testkit_error(err, id_generator)?;
         self.send(&response)
     }

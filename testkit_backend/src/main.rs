@@ -14,16 +14,12 @@
 
 #![allow(clippy::option_map_unit_fn)]
 
+mod logging;
 mod testkit_backend;
 
 use testkit_backend::start_server;
 
 fn main() {
-    env_logger::builder()
-        .target(env_logger::Target::Stdout)
-        .format_timestamp_millis()
-        .format_module_path(false)
-        .format_target(false)
-        .init();
+    logging::init();
     start_server()
 }
