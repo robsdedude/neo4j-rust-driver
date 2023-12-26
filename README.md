@@ -99,7 +99,7 @@ A bump in MSRV is considered a minor breaking change.
    * [x] `Spatial` (point)
    * [x] `Temporal` (date, time, datetime, duration)
  * [ ] Proper Unit Tests
- * [x] CI (https://github.com/actions-rust-lang/setup-rust-toolchain ?)
+ * [x] CI
    * [x] rustfmt
    * [x] clippy
    * [x] Unit Tests
