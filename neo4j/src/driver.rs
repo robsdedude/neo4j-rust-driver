@@ -100,6 +100,7 @@ impl Driver {
             tls_config: connection_config.tls_config.map(Arc::new),
             user_agent: config.user_agent,
             auth: config.auth,
+            max_connection_lifetime: config.max_connection_lifetime,
             max_connection_pool_size: config.max_connection_pool_size,
             connection_timeout: config.connection_timeout,
             connection_acquisition_timeout: config.connection_acquisition_timeout,

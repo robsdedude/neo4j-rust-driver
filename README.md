@@ -29,7 +29,7 @@ A bump in MSRV is considered a minor breaking change.
      * [x] `connection_timeout`
      * [x] `connection_acquisition_timeout`
      * [x] `resolver`
-     * [ ] `max_connection_lifetime`
+     * [x] `max_connection_lifetime`
      * [x] routing and direct connections
      * [ ] `keep_alive` (not supported by `std` https://github.com/rust-lang/rust/issues/69774)
      * [x] `TLS`

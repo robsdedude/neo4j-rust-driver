@@ -150,6 +150,7 @@ pub(crate) struct PoolConfig {
     pub(crate) tls_config: Option<Arc<ClientConfig>>,
     pub(crate) user_agent: String,
     pub(crate) auth: AuthConfig,
+    pub(crate) max_connection_lifetime: Option<Duration>,
     pub(crate) max_connection_pool_size: usize,
     pub(crate) connection_timeout: Option<Duration>,
     pub(crate) connection_acquisition_timeout: Option<Duration>,

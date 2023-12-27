@@ -371,6 +371,9 @@ impl<RW: Read + Write> Bolt<RW> {
     pub(crate) fn needs_reset(&self) -> bool {
         self.data.needs_reset()
     }
+    pub(crate) fn is_older_than(&self, duration: Duration) -> bool {
+        self.data.is_older_than(duration)
+    }
     pub(crate) fn is_idle_for(&self, timeout: Duration) -> bool {
         self.data.is_idle_for(timeout)
     }
@@ -493,6 +496,7 @@ pub(crate) struct BoltData<RW: Read + Write> {
     auth: Option<Arc<AuthToken>>,
     session_auth: bool,
     auth_reset: AuthResetHandle,
+    created_at: Instant,
     idle_since: Instant,
 }
 
@@ -505,6 +509,7 @@ impl<RW: Read + Write> BoltData<RW> {
         address: Arc<Address>,
     ) -> Self {
         let address_str = address.to_string();
+        let now = Instant::now();
         Self {
             message_buff: VecDeque::with_capacity(2048),
             responses: VecDeque::with_capacity(10),
@@ -522,7 +527,8 @@ impl<RW: Read + Write> BoltData<RW> {
             auth: None,
             session_auth: false,
             auth_reset: Default::default(),
-            idle_since: Instant::now(),
+            created_at: now,
+            idle_since: now,
         }
     }
 
@@ -696,6 +702,10 @@ impl<RW: Read + Write> BoltData<RW> {
                 .as_ref()
                 .map(|auth| !auth.eq_data(parameters.auth))
                 .unwrap_or(true)
+    }
+
+    fn is_older_than(&self, duration: Duration) -> bool {
+        self.created_at.elapsed() >= duration
     }
 
     fn is_idle_for(&self, timeout: Duration) -> bool {

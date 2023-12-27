@@ -313,6 +313,13 @@ impl UnpreparedSinglePooledBolt {
             }
             Some(mut connection) => {
                 // room for health check etc. (return None on failed health check)
+                if let Some(max_lifetime) = self.pool.config.max_connection_lifetime {
+                    if connection.is_idle_for(max_lifetime) {
+                        connection.debug_log(|| String::from("connection reached max lifetime"));
+                        connection.close();
+                        return Ok(None);
+                    }
+                }
                 match idle_time_before_connection_test {
                     None => {}
                     Some(timeout) => {
