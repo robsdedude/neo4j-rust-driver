@@ -16,10 +16,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::super::config::auth::AuthToken;
+use super::super::config::notification::NotificationFilter;
 use super::super::config::ConfigureFetchSizeError;
 use super::super::session::bookmarks::{BookmarkManager, Bookmarks};
 
 // imports for docs
+#[allow(unused)]
+use super::super::config::DriverConfig;
 #[allow(unused)]
 use super::super::Driver;
 #[allow(unused)]
@@ -76,6 +79,7 @@ pub struct SessionConfig {
     pub(crate) fetch_size: Option<i64>,
     pub(crate) auth: Option<Arc<AuthToken>>,
     pub(crate) bookmark_manager: Option<Arc<dyn BookmarkManager>>,
+    pub(crate) notification_filter: NotificationFilter,
 }
 
 impl SessionConfig {
@@ -229,7 +233,7 @@ impl SessionConfig {
     /// Use the given authentication token for the duration of the session.
     ///
     /// This requires Neo4j 5.5 or newer.
-    /// For older versions, this will result in a [`Neo4jError::UserCallback`].
+    /// For older versions, this will result in a [`Neo4jError::InvalidConfig`].
     #[inline]
     pub fn with_session_auth(mut self, auth: Arc<AuthToken>) -> Self {
         self.auth = Some(auth);
@@ -242,6 +246,29 @@ impl SessionConfig {
     #[inline]
     pub fn without_session_auth(mut self) -> Self {
         self.auth = None;
+        self
+    }
+
+    /// Configure what notifications the driver should receive from the DBMS for this session.
+    ///
+    /// This requires Neo4j 5.7 or newer.
+    /// For older versions, this will result in a [`Neo4jError::InvalidConfig`].
+    ///
+    /// See also [`DriverConfig::with_notification_filter()`].
+    #[inline]
+    pub fn with_notification_filter(mut self, notification_filter: NotificationFilter) -> Self {
+        self.notification_filter = notification_filter;
+        self
+    }
+
+    /// Use the default notification filters.
+    ///
+    /// This means using the filter configured in the driver.
+    ///
+    /// See also [`DriverConfig::with_notification_filter()`].
+    #[inline]
+    pub fn with_default_notification_filter(mut self) -> Self {
+        self.notification_filter = Default::default();
         self
     }
 }

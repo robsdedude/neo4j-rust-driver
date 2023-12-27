@@ -154,6 +154,7 @@ impl<'driver> Session<'driver> {
                     .impersonated_user
                     .as_ref()
                     .map(|imp| imp.as_str()),
+                &self.config.config.notification_filter,
             ))
             .and_then(|_| (builder.receiver)(&mut record_stream));
         let res = match res {
@@ -207,6 +208,7 @@ impl<'driver> Session<'driver> {
                 .impersonated_user
                 .as_ref()
                 .map(|imp| imp.as_str()),
+            &self.config.config.notification_filter,
         );
         tx.begin(parameters, self.config.eager_begin)?;
         let res = receiver(Transaction::new(&mut tx));
@@ -879,22 +881,29 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     ///
     /// # Example
     /// ```
+    /// use std::sync::Arc;
+    ///
     /// use neo4j::driver::EagerResult;
     /// use neo4j::transaction::Transaction;
     /// use neo4j::Result;
     /// use neo4j::{value_map, ValueReceive};
     ///
+    /// # use doc_test_utils::get_session;
+    /// #
     /// # doc_test_utils::db_exclusive(|| {
     /// # let driver = doc_test_utils::get_driver();
-    /// # let mut session = doc_test_utils::get_session(&driver);
     /// #
+    /// // always specify the database name, if possible
+    /// let database = Arc::new(String::from("neo4j"));
+    ///
     /// // populate database
     /// driver
     ///     .execute_query("UNWIND range(1, 3) AS x CREATE (n:Actor {fame: x})")
+    ///     .with_database(Arc::clone(&database))
     ///     .run()
     ///     .unwrap();
     ///
-    /// let total_fame = session
+    /// let total_fame = get_session(&driver)
     ///     .transaction()
     ///     .run(|tx: Transaction| {
     ///         let actors = tx.query("MATCH (n:Actor) RETURN n").run()?;
@@ -924,6 +933,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     /// assert_eq!(total_fame, 12);
     /// let db_total_fame = driver
     ///     .execute_query("MATCH (n:Actor) RETURN sum(n.fame) AS total_fame")
+    ///     .with_database(Arc::clone(&database))
     ///     .run()
     ///     .unwrap()
     ///     .into_scalar()

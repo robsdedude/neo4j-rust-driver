@@ -99,6 +99,7 @@ pub(super) fn failed_struct(reason: impl Into<String>) -> ValueReceive {
     ValueReceive::BrokenValue(BrokenValueInner::Reason(reason.into()).into())
 }
 
+#[derive(Debug, Copy, Clone)]
 pub(super) enum ServerAwareBoltVersion {
     V4x4,
     V5x0,

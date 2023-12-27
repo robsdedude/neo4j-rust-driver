@@ -17,7 +17,7 @@ A bump in MSRV is considered a minor breaking change.
 ## Feature Progress
  * [x] (Well-Written) Docs and Examples
  * [ ] Driver
-   * [x] Config
+   * [ ] Config
      * [x] `user_agent`
      * [x] `auth`
        * [x] basic
@@ -29,6 +29,7 @@ A bump in MSRV is considered a minor breaking change.
      * [x] `connection_timeout`
      * [x] `connection_acquisition_timeout`
      * [x] `resolver`
+     * [ ] `max_connection_lifetime`
      * [x] routing and direct connections
      * [ ] `keep_alive` (not supported by `std` https://github.com/rust-lang/rust/issues/69774)
      * [x] `TLS`
@@ -81,7 +82,7 @@ A bump in MSRV is considered a minor breaking change.
    * [x] 4.4
    * [x] 5.0 (utc fix)
    * [x] 5.1 (re-auth)
-   * [ ] 5.2 (notification filtering)
+   * [x] 5.2 (notification filtering)
    * [ ] 5.3 (bolt agent)
    * [ ] 5.4 (telemetry)
  * [x] Types

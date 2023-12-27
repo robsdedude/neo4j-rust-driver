@@ -52,22 +52,24 @@ const RECV_TIMEOUT_KEY: &str = "connection.recv_timeout_seconds";
 pub(crate) struct Bolt4x4<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> {
     translator: Arc<AtomicRefCell<T>>,
     bolt5x0: Bolt5x0<Arc<AtomicRefCell<T>>>,
+    protocol_version: ServerAwareBoltVersion,
 }
 
 impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> Bolt4x4<T> {
-    pub(crate) fn new() -> Self {
+    pub(in super::super) fn new(protocol_version: ServerAwareBoltVersion) -> Self {
         let translator: Arc<AtomicRefCell<T>> = Default::default();
-        let bolt5x0 = Bolt5x0::new(Arc::clone(&translator));
+        let bolt5x0 = Bolt5x0::new(Arc::clone(&translator), protocol_version);
         Bolt4x4 {
             translator,
             bolt5x0,
+            protocol_version,
         }
     }
 }
 
 impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> Default for Bolt4x4<T> {
     fn default() -> Self {
-        Self::new()
+        Self::new(ServerAwareBoltVersion::V4x4)
     }
 }
 
@@ -81,7 +83,10 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
             user_agent,
             auth,
             routing_context,
+            notification_filter,
         } = parameters;
+        self.bolt5x0
+            .check_no_notification_filter(Some(notification_filter))?;
         debug_buf_start!(log_buf);
         debug_buf!(log_buf, "C: HELLO");
         let translator = &*(*self.translator).borrow();
@@ -232,7 +237,7 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
     ) -> Result<()> {
         Err(unsupported_protocol_feature_error(
             "session authentication",
-            ServerAwareBoltVersion::V4x4,
+            self.protocol_version,
             ServerAwareBoltVersion::V5x1,
         ))
     }

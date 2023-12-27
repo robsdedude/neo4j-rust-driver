@@ -25,3 +25,9 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
+      - id: docs
+        name: cargo doc
+        entry: env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+        language: system
+        types: [rust]
+        pass_filenames: false

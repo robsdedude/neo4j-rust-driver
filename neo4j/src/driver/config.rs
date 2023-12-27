@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub(crate) mod auth;
+pub(crate) mod notification;
 
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -32,10 +33,15 @@ use crate::address_::Address;
 use crate::address_::DEFAULT_PORT;
 use crate::value::ValueSend;
 use auth::{AuthManager, AuthToken};
+use notification::NotificationFilter;
 
 // imports for docs
 #[allow(unused)]
 use super::session::SessionConfig;
+#[allow(unused)]
+use super::ExecuteQueryBuilder;
+#[allow(unused)]
+use crate::error_::Neo4jError;
 
 const DEFAULT_USER_AGENT: &str = env!("NEO4J_DEFAULT_USER_AGENT");
 pub(crate) const DEFAULT_FETCH_SIZE: i64 = 1000;
@@ -54,6 +60,7 @@ pub struct DriverConfig {
     pub(crate) connection_timeout: Option<Duration>,
     pub(crate) connection_acquisition_timeout: Option<Duration>,
     pub(crate) resolver: Option<Box<dyn AddressResolver>>,
+    pub(crate) notification_filter: NotificationFilter,
     // not supported by std https://github.com/rust-lang/rust/issues/69774
     // keep_alive
 }
@@ -132,6 +139,7 @@ impl Default for DriverConfig {
             connection_timeout: Some(DEFAULT_CONNECTION_TIMEOUT),
             connection_acquisition_timeout: Some(DEFAULT_CONNECTION_ACQUISITION_TIMEOUT),
             resolver: None,
+            notification_filter: Default::default(),
         }
     }
 }
@@ -358,6 +366,8 @@ impl DriverConfig {
     ///    (see [`DriverConfig::with_idle_time_before_connection_test()`]),
     ///  * establishing a new connection if necessary,
     ///  * etc.
+    ///
+    /// See also [`DriverConfig::with_default_connection_acquisition_timeout()`].
     #[inline]
     pub fn with_connection_acquisition_timeout(mut self, timeout: Duration) -> Self {
         self.connection_acquisition_timeout = Some(timeout);
@@ -407,6 +417,49 @@ impl DriverConfig {
     #[inline]
     pub fn without_resolver(mut self) -> Self {
         self.resolver = None;
+        self
+    }
+
+    /// Configure what notifications the driver should receive from the DBMS.
+    ///
+    /// This requires Neo4j 5.7 or newer.
+    /// For older versions, this will result in a [`Neo4jError::InvalidConfig`].
+    ///
+    /// Disabling all irrelevant notifications can improve performance.
+    /// Especially when deploying an application to production, it is recommended to disable
+    /// notifications that are not relevant to the application, or even all, and only using
+    /// notifications in development, testing, and possibly staging environments.
+    ///
+    /// This setting may be overwritten per session.
+    /// See [`SessionConfig::with_notification_filter()`] and
+    /// [`ExecuteQueryBuilder::with_notification_filter()`].
+    ///
+    /// See [`NotificationFilter`] for configuration options.
+    ///
+    /// # Example
+    /// ```
+    /// use neo4j::driver::notification::{DisabledCategory, MinimumSeverity, NotificationFilter};
+    /// use neo4j::driver::DriverConfig;
+    ///
+    /// // filter to only receive warnings (and above), but no performance notifications
+    /// let filter = NotificationFilter {
+    ///     minimum_severity: Some(MinimumSeverity::Warning),
+    ///     disabled_categories: Some(vec![DisabledCategory::Performance]),
+    /// };
+    /// let config = DriverConfig::new().with_notification_filter(filter);
+    /// ```
+    #[inline]
+    pub fn with_notification_filter(mut self, notification_filter: NotificationFilter) -> Self {
+        self.notification_filter = notification_filter;
+        self
+    }
+
+    /// Use the default notification filters.
+    ///
+    /// This means leaving it up to the DBMS to decide what notifications to send.
+    #[inline]
+    pub fn with_default_notification_filter(mut self) -> Self {
+        self.notification_filter = Default::default();
         self
     }
 }

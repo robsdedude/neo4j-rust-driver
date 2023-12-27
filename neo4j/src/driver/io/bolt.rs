@@ -17,6 +17,7 @@ mod bolt_common;
 mod bolt4x4;
 mod bolt5x0;
 mod bolt5x1;
+mod bolt5x2;
 mod bolt_state;
 mod chunk;
 mod message;
@@ -52,6 +53,7 @@ use crate::value::{ValueReceive, ValueSend};
 use bolt4x4::{Bolt4x4, Bolt4x4StructTranslator};
 use bolt5x0::{Bolt5x0, Bolt5x0StructTranslator};
 use bolt5x1::{Bolt5x1, Bolt5x1StructTranslator};
+use bolt5x2::{Bolt5x2, Bolt5x2StructTranslator};
 use bolt_state::{BoltState, BoltStateTracker};
 use chunk::{Chunker, Dechunker};
 use message::BoltMessage;
@@ -166,7 +168,9 @@ impl<RW: Read + Write> Bolt<RW> {
     ) -> Self {
         Self {
             data: BoltData::new(version, stream, socket, local_port, address),
+            // [bolt-version-bump] search tag when changing bolt version support
             protocol: match version {
+                (5, 2) => Bolt5x2::<Bolt5x2StructTranslator>::default().into(),
                 (5, 1) => Bolt5x1::<Bolt5x1StructTranslator>::default().into(),
                 (5, 0) => Bolt5x0::<Bolt5x0StructTranslator>::default().into(),
                 (4, 4) => Bolt4x4::<Bolt4x4StructTranslator>::default().into(),
@@ -462,6 +466,7 @@ enum BoltProtocolVersion {
     V4x4(Bolt4x4<Bolt4x4StructTranslator>),
     V5x0(Bolt5x0<Bolt5x0StructTranslator>),
     V5x1(Bolt5x1<Bolt5x1StructTranslator>),
+    V5x2(Bolt5x2<Bolt5x2StructTranslator>),
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -788,8 +793,9 @@ fn assert_response_field_count<T>(name: &str, fields: &[T], expected_count: usiz
 }
 
 const BOLT_MAGIC_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
+// [bolt-version-bump] search tag when changing bolt version support
 const BOLT_VERSION_OFFER: [u8; 16] = [
-    0, 1, 1, 5, // BOLT 5.1 - 5.0
+    0, 2, 2, 5, // BOLT 5.2 - 5.0
     0, 0, 4, 4, // BOLT 4.4
     0, 0, 0, 0, // -
     0, 0, 0, 0, // -
@@ -860,10 +866,12 @@ pub(crate) fn open(
     )?;
     socket_debug!(local_port, "S: <BOLT> {:02X?}", negotiated_version);
 
+    // [bolt-version-bump] search tag when changing bolt version support
     let version = match negotiated_version {
         [0, 0, 0, 0] => Err(Neo4jError::InvalidConfig {
-            message: String::from("Server version not supported."),
+            message: String::from("server version not supported"),
         }),
+        [0, 0, 2, 5] => Ok((5, 2)),
         [0, 0, 1, 5] => Ok((5, 1)),
         [0, 0, 0, 5] => Ok((5, 0)),
         [0, 0, 4, 4] => Ok((4, 4)),
@@ -871,14 +879,14 @@ pub(crate) fn open(
             // "HTTP"
             Err(Neo4jError::InvalidConfig {
                 message: format!(
-                    "Unexpected server handshake response {:?} (looks like HTTP)",
+                    "unexpected server handshake response {:?} (looks like HTTP)",
                     &negotiated_version
                 ),
             })
         }
         _ => Err(Neo4jError::InvalidConfig {
             message: format!(
-                "Unexpected server handshake response {:?}",
+                "unexpected server handshake response {:?}",
                 &negotiated_version
             ),
         }),

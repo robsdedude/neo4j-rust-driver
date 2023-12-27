@@ -278,6 +278,7 @@ impl SummaryQueryType {
     }
 }
 
+/// See [`Summary::notifications`].
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct Notification {
@@ -379,6 +380,7 @@ impl Position {
     }
 }
 
+/// See [`Notification::severity`].
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Severity {
@@ -397,6 +399,7 @@ impl Severity {
     }
 }
 
+/// See [`Notification::category`].
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Category {
@@ -406,6 +409,8 @@ pub enum Category {
     Performance,
     Deprecation,
     Generic,
+    Security,
+    Topology,
     Unknown,
 }
 
@@ -418,6 +423,8 @@ impl Category {
             "PERFORMANCE" => Self::Performance,
             "DEPRECATION" => Self::Deprecation,
             "GENERIC" => Self::Generic,
+            "SECURITY" => Self::Security,
+            "TOPOLOGY" => Self::Topology,
             _ => Self::Unknown,
         }
     }
