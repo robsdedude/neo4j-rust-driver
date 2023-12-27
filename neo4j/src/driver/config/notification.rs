@@ -16,12 +16,16 @@
 #[allow(unused)]
 use super::super::session::config::SessionConfig;
 #[allow(unused)]
+use super::super::ExecuteQueryBuilder;
+#[allow(unused)]
 use super::DriverConfig;
 #[allow(unused)]
 use crate::Neo4jError;
 
-/// See [`DriverConfig::with_notification_filter()`] and
-/// [`SessionConfig::with_notification_filter()`].
+/// Defines which notifications the server should send to the client.
+///
+/// See [`DriverConfig::with_notification_filter()`], [`SessionConfig::with_notification_filter()`],
+/// and [`ExecuteQueryBuilder::with_notification_filter()`].
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct NotificationFilter {
     /// Request the server to only send notifications of this severity or higher.

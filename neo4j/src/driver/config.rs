@@ -434,6 +434,8 @@ impl DriverConfig {
     /// See [`SessionConfig::with_notification_filter()`] and
     /// [`ExecuteQueryBuilder::with_notification_filter()`].
     ///
+    /// See [`NotificationFilter`] for configuration options.
+    ///
     /// # Example
     /// ```
     /// use neo4j::driver::notification::{DisabledCategory, MinimumSeverity, NotificationFilter};
@@ -442,7 +444,7 @@ impl DriverConfig {
     /// // filter to only receive warnings (and above), but no performance notifications
     /// let filter = NotificationFilter {
     ///     minimum_severity: Some(MinimumSeverity::Warning),
-    ///     disabled_categories: vec![DisabledCategory::Performance],
+    ///     disabled_categories: Some(vec![DisabledCategory::Performance]),
     /// };
     /// let config = DriverConfig::new().with_notification_filter(filter);
     /// ```
