@@ -104,9 +104,10 @@ impl InnerPool {
         let mut connection = self.open_socket(address, deadline)?;
 
         connection.hello(HelloParameters::new(
-            self.config.user_agent.as_str(),
+            &self.config.user_agent,
             auth.as_ref(),
             self.config.routing_context.as_ref(),
+            &self.config.notification_filters,
         ))?;
         let is_session_auth = !matches!(session_auth, SessionAuth::None);
         let supports_reauth = connection.supports_reauth();

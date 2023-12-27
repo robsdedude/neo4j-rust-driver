@@ -39,6 +39,7 @@ pub use config::{
 };
 pub use eager_result::{EagerResult, ScalarError};
 use io::{AcquireConfig, Pool, PoolConfig, PooledBolt, SessionAuth, UpdateRtArgs};
+use notification::NotificationFilter;
 pub use record::Record;
 use record_stream::RecordStream;
 use session::config::InternalSessionConfig;
@@ -58,6 +59,9 @@ use session::TransactionBuilder;
 
 pub mod auth {
     pub use super::config::auth::*;
+}
+pub mod notification {
+    pub use super::config::notification::*;
 }
 
 /// The driver hold the configuration and connection pool to your Neo4j DBMS.
@@ -100,6 +104,7 @@ impl Driver {
             connection_timeout: config.connection_timeout,
             connection_acquisition_timeout: config.connection_acquisition_timeout,
             resolver: config.resolver,
+            notification_filters: Arc::new(config.notification_filter),
         };
         Driver {
             config: ReducedDriverConfig {
@@ -165,6 +170,7 @@ impl Driver {
         impersonated_user: Option<Arc<String>>,
         auth: Option<Arc<AuthToken>>,
         bookmark_manager: ExecuteQueryBookmarkManager,
+        notification_filter: NotificationFilter,
     ) -> Session {
         let mut session_config = SessionConfig::new();
         session_config.database = database;
@@ -177,6 +183,7 @@ impl Driver {
             }
             ExecuteQueryBookmarkManager::Custom(manager) => Some(Arc::clone(manager)),
         };
+        session_config.notification_filter = notification_filter;
         let config = InternalSessionConfig {
             config: session_config,
             idle_time_before_connection_test: self.config.idle_time_before_connection_test,
@@ -379,6 +386,7 @@ pub struct ExecuteQueryBuilder<'driver, Q, KP, P, KM, M, FRes> {
     impersonated_user: Option<Arc<String>>,
     auth: Option<Arc<AuthToken>>,
     bookmark_manager: ExecuteQueryBookmarkManager,
+    notification_filter: NotificationFilter,
     receiver: FRes,
 }
 
@@ -408,6 +416,7 @@ impl<'driver, Q: AsRef<str>>
             bookmark_manager: ExecuteQueryBookmarkManager::DriverDefault,
             auth: None,
             receiver: default_receiver,
+            notification_filter: Default::default(),
         }
     }
 }
@@ -460,8 +469,9 @@ impl<
             mode,
             database,
             impersonated_user,
-            bookmark_manager,
             auth,
+            bookmark_manager,
+            notification_filter,
             receiver,
         } = self;
         ExecuteQueryBuilder {
@@ -475,8 +485,9 @@ impl<
             mode,
             database,
             impersonated_user,
-            bookmark_manager,
             auth,
+            bookmark_manager,
+            notification_filter,
             receiver,
         }
     }
@@ -499,8 +510,9 @@ impl<
             mode,
             database,
             impersonated_user,
-            bookmark_manager,
             auth,
+            bookmark_manager,
+            notification_filter,
             receiver,
         } = self;
         ExecuteQueryBuilder {
@@ -514,8 +526,9 @@ impl<
             mode,
             database,
             impersonated_user,
-            bookmark_manager,
             auth,
+            bookmark_manager,
+            notification_filter,
             receiver,
         }
     }
@@ -551,8 +564,9 @@ impl<
             mode,
             database,
             impersonated_user,
-            bookmark_manager,
             auth,
+            bookmark_manager,
+            notification_filter,
             receiver,
         } = self;
         ExecuteQueryBuilder {
@@ -566,8 +580,9 @@ impl<
             mode,
             database,
             impersonated_user,
-            bookmark_manager,
             auth,
+            bookmark_manager,
+            notification_filter,
             receiver,
         }
     }
@@ -590,8 +605,9 @@ impl<
             mode,
             database,
             impersonated_user,
-            bookmark_manager,
             auth,
+            bookmark_manager,
+            notification_filter,
             receiver,
         } = self;
         ExecuteQueryBuilder {
@@ -605,8 +621,9 @@ impl<
             mode,
             database,
             impersonated_user,
-            bookmark_manager,
             auth,
+            bookmark_manager,
+            notification_filter,
             receiver,
         }
     }
@@ -725,6 +742,29 @@ impl<
         self
     }
 
+    /// Configure what notifications the driver should receive from the DBMS for this query.
+    ///
+    /// This requires Neo4j 5.7 or newer.
+    /// For older versions, this will result in a [`Neo4jError::InvalidConfig`].
+    ///
+    /// See also [`SessionConfig::with_notification_filter()`].
+    #[inline]
+    pub fn with_notification_filter(mut self, notification_filter: NotificationFilter) -> Self {
+        self.notification_filter = notification_filter;
+        self
+    }
+
+    /// Use the default notification filters.
+    ///
+    /// This means using the filter configured in the driver.
+    ///
+    /// See also [`SessionConfig::with_default_notification_filter()`].
+    #[inline]
+    pub fn with_default_notification_filter(mut self) -> Self {
+        self.notification_filter = Default::default();
+        self
+    }
+
     /// Specify a custom receiver to handle the result stream.
     ///
     /// By default (see [`ExecuteQueryBuilder::with_default_receiver()`]), the result stream will be
@@ -771,8 +811,9 @@ impl<
             mode,
             database,
             impersonated_user,
-            bookmark_manager,
             auth,
+            bookmark_manager,
+            notification_filter,
             receiver: _,
         } = self;
         ExecuteQueryBuilder {
@@ -786,8 +827,9 @@ impl<
             mode,
             database,
             impersonated_user,
-            bookmark_manager,
             auth,
+            bookmark_manager,
+            notification_filter,
             receiver,
         }
     }
@@ -809,8 +851,9 @@ impl<
             mode,
             database,
             impersonated_user,
-            bookmark_manager,
             auth,
+            bookmark_manager,
+            notification_filter,
             receiver: _,
         } = self;
         ExecuteQueryBuilder {
@@ -824,8 +867,9 @@ impl<
             mode,
             database,
             impersonated_user,
-            bookmark_manager,
             auth,
+            bookmark_manager,
+            notification_filter,
             receiver: default_receiver,
         }
     }
@@ -845,10 +889,16 @@ impl<
             impersonated_user,
             auth,
             bookmark_manager,
+            notification_filter,
             mut receiver,
         } = self;
-        let mut session =
-            driver.execute_query_session(database, impersonated_user, auth, bookmark_manager);
+        let mut session = driver.execute_query_session(
+            database,
+            impersonated_user,
+            auth,
+            bookmark_manager,
+            notification_filter,
+        );
         let tx_builder = session
             .transaction()
             .with_transaction_meta(meta.borrow())
@@ -884,10 +934,16 @@ impl<
             impersonated_user,
             auth,
             bookmark_manager,
+            notification_filter,
             mut receiver,
         } = self;
-        let mut session =
-            driver.execute_query_session(database, impersonated_user, auth, bookmark_manager);
+        let mut session = driver.execute_query_session(
+            database,
+            impersonated_user,
+            auth,
+            bookmark_manager,
+            notification_filter,
+        );
         let tx_builder = session
             .transaction()
             .with_transaction_meta(meta.borrow())

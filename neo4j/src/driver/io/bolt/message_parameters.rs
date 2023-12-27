@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::bookmarks::Bookmarks;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use crate::bookmarks::Bookmarks;
 use crate::driver::config::auth::AuthToken;
+use crate::driver::config::notification::NotificationFilter;
 use crate::value::ValueSend;
 
 #[derive(Debug, Clone, Copy)]
@@ -26,6 +27,7 @@ pub(crate) struct HelloParameters<'a> {
     pub(super) user_agent: &'a str,
     pub(super) auth: &'a Arc<AuthToken>,
     pub(super) routing_context: Option<&'a HashMap<String, ValueSend>>,
+    pub(super) notification_filter: &'a NotificationFilter,
 }
 
 impl<'a> HelloParameters<'a> {
@@ -33,11 +35,13 @@ impl<'a> HelloParameters<'a> {
         user_agent: &'a str,
         auth: &'a Arc<AuthToken>,
         routing_context: Option<&'a HashMap<String, ValueSend>>,
+        notification_filter: &'a NotificationFilter,
     ) -> Self {
         Self {
             user_agent,
             auth,
             routing_context,
+            notification_filter,
         }
     }
 }
@@ -82,6 +86,7 @@ pub(crate) struct RunParameters<'a, KP: Borrow<str> + Debug, KM: Borrow<str> + D
     pub(super) mode: Option<&'a str>,
     pub(super) db: Option<&'a str>,
     pub(super) imp_user: Option<&'a str>,
+    pub(super) notification_filter: Option<&'a NotificationFilter>,
 }
 
 impl<'a, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug> RunParameters<'a, KP, KM> {
@@ -95,6 +100,7 @@ impl<'a, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug> RunParameters<'a, KP,
         mode: Option<&'a str>,
         db: Option<&'a str>,
         imp_user: Option<&'a str>,
+        notification_filter: &'a NotificationFilter,
     ) -> Self {
         Self {
             query,
@@ -105,6 +111,7 @@ impl<'a, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug> RunParameters<'a, KP,
             mode,
             db,
             imp_user,
+            notification_filter: Some(notification_filter),
         }
     }
 }
@@ -123,6 +130,7 @@ impl<'a, KP: Borrow<str> + Debug> RunParameters<'a, KP, String> {
             mode: None,
             db: None,
             imp_user: None,
+            notification_filter: None,
         }
     }
 }
@@ -159,6 +167,7 @@ pub(crate) struct BeginParameters<'a, K: Borrow<str> + Debug> {
     pub(super) mode: Option<&'a str>,
     pub(super) db: Option<&'a str>,
     pub(super) imp_user: Option<&'a str>,
+    pub(super) notification_filter: &'a NotificationFilter,
 }
 
 impl<'a, K: Borrow<str> + Debug> BeginParameters<'a, K> {
@@ -169,6 +178,7 @@ impl<'a, K: Borrow<str> + Debug> BeginParameters<'a, K> {
         mode: Option<&'a str>,
         db: Option<&'a str>,
         imp_user: Option<&'a str>,
+        notification_filter: &'a NotificationFilter,
     ) -> Self {
         Self {
             bookmarks,
@@ -177,6 +187,7 @@ impl<'a, K: Borrow<str> + Debug> BeginParameters<'a, K> {
             mode,
             db,
             imp_user,
+            notification_filter,
         }
     }
 }

@@ -21,6 +21,7 @@ use serde_json::Value as JsonValue;
 
 use neo4j::bookmarks::{BookmarkManager, Bookmarks};
 use neo4j::driver::auth::AuthToken;
+use neo4j::driver::notification::{DisabledCategory, MinimumSeverity, NotificationFilter};
 use neo4j::driver::{ConnectionConfig, DriverConfig, RoutingControl};
 use neo4j::session::SessionConfig;
 use neo4j::transaction::TransactionTimeout;
@@ -600,6 +601,58 @@ where
     }
 }
 
+fn load_notification_filter(
+    notifications_min_severity: Option<String>,
+    notifications_disabled_categories: Option<Vec<String>>,
+) -> Result<Option<NotificationFilter>, TestKitError> {
+    if notifications_disabled_categories.is_none() && notifications_min_severity.is_none() {
+        return Ok(None);
+    }
+    let minimum_severity = match notifications_min_severity {
+        None => None,
+        Some(severity) => Some(match severity.as_str() {
+            "OFF" => MinimumSeverity::Disabled,
+            "INFORMATION" => MinimumSeverity::Information,
+            "WARNING" => MinimumSeverity::Warning,
+            _ => {
+                return Err(TestKitError::backend_err(format!(
+                    "unknown minimum notification severity: {severity:?}",
+                    severity = severity
+                )))
+            }
+        }),
+    };
+    let disabled_categories = notifications_disabled_categories
+        .map(|categories| {
+            categories
+                .into_iter()
+                .map(|category| {
+                    Ok(match category.as_str() {
+                        "HINT" => DisabledCategory::Hint,
+                        "UNRECOGNIZED" => DisabledCategory::Unrecognized,
+                        "UNSUPPORTED" => DisabledCategory::Unsupported,
+                        "PERFORMANCE" => DisabledCategory::Performance,
+                        "DEPRECATION" => DisabledCategory::Deprecation,
+                        "GENERIC" => DisabledCategory::Generic,
+                        "SECURITY" => DisabledCategory::Security,
+                        "TOPOLOGY" => DisabledCategory::Topology,
+                        _ => {
+                            return Err(TestKitError::backend_err(format!(
+                                "unknown disabled notification category: {cat:?}",
+                                cat = category
+                            )))
+                        }
+                    })
+                })
+                .collect::<Result<_, _>>()
+        })
+        .transpose()?;
+    Ok(Some(NotificationFilter {
+        minimum_severity,
+        disabled_categories,
+    }))
+}
+
 impl Request {
     pub(super) fn handle(self, backend: &Backend) -> TestKitResult {
         match self {
@@ -767,15 +820,11 @@ impl Request {
                 Duration::from_millis(connection_acquisition_timeout_ms),
             );
         }
-        if notifications_min_severity.is_some() {
-            return Err(TestKitError::backend_err(
-                "notification severity filter unsupported",
-            ));
-        }
-        if notifications_disabled_categories.is_some() {
-            return Err(TestKitError::backend_err(
-                "notification category filter unsupported",
-            ));
+        if let Some(filter) = load_notification_filter(
+            notifications_min_severity,
+            notifications_disabled_categories,
+        )? {
+            driver_config = driver_config.with_notification_filter(filter);
         }
         if let Some(encrypted) = encrypted {
             connection_config = match encrypted {
@@ -1010,11 +1059,11 @@ impl Request {
         if let Some(imp_user) = impersonated_user {
             config = config.with_impersonated_user(Arc::new(imp_user));
         }
-        if let Some(notifications_min_severity) = notifications_min_severity {
-            return Err(TestKitError::backend_err(format!("Driver does not yet support notifications_min_severity, found {notifications_min_severity}")));
-        }
-        if let Some(notifications_disabled_categories) = notifications_disabled_categories {
-            return Err(TestKitError::backend_err(format!("Driver does not yet support notifications_disabled_categories, found {notifications_disabled_categories:?}")));
+        if let Some(filter) = load_notification_filter(
+            notifications_min_severity,
+            notifications_disabled_categories,
+        )? {
+            config = config.with_notification_filter(filter);
         }
         let bookmark_manager = bookmark_manager_id
             .map(|id| get_bookmark_manager(&data, &id))

@@ -24,6 +24,7 @@ use log::{debug, log_enabled, warn, Level};
 use usize_cast::FromUsize;
 
 use super::super::bolt5x0::Bolt5x0;
+use super::super::bolt_common::{unsupported_protocol_feature_error, ServerAwareBoltVersion};
 use super::super::message::BoltMessage;
 use super::super::message_parameters::{
     BeginParameters, CommitParameters, DiscardParameters, GoodbyeParameters, HelloParameters,
@@ -45,14 +46,31 @@ const SERVER_AGENT_KEY: &str = "server";
 const HINTS_KEY: &str = "hints";
 const RECV_TIMEOUT_KEY: &str = "connection.recv_timeout_seconds";
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Bolt5x1<T: BoltStructTranslator> {
     translator: T,
     bolt5x0: Bolt5x0<T>,
+    protocol_version: ServerAwareBoltVersion,
 }
 
 impl<T: BoltStructTranslator> Bolt5x1<T> {
-    fn logon<RW: Read + Write>(
+    pub(in super::super) fn new(protocol_version: ServerAwareBoltVersion) -> Self {
+        Self {
+            translator: T::default(),
+            bolt5x0: Bolt5x0::new(T::default(), protocol_version),
+            protocol_version,
+        }
+    }
+}
+
+impl<T: BoltStructTranslator> Default for Bolt5x1<T> {
+    fn default() -> Self {
+        Self::new(ServerAwareBoltVersion::V5x1)
+    }
+}
+
+impl<T: BoltStructTranslator> Bolt5x1<T> {
+    pub(in super::super) fn logon<RW: Read + Write>(
         &mut self,
         data: &mut BoltData<RW>,
         parameters: ReauthParameters,
@@ -104,7 +122,10 @@ impl<T: BoltStructTranslator> Bolt5x1<T> {
         Ok(())
     }
 
-    fn logoff<RW: Read + Write>(&mut self, data: &mut BoltData<RW>) -> Result<()> {
+    pub(in super::super) fn logoff<RW: Read + Write>(
+        &mut self,
+        data: &mut BoltData<RW>,
+    ) -> Result<()> {
         let mut message_buff = Vec::new();
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(0x6B, 0)?;
@@ -126,7 +147,15 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x1<T> {
             user_agent,
             auth: _,
             routing_context,
+            notification_filter,
         } = parameters;
+        if !notification_filter.is_default() {
+            return Err(unsupported_protocol_feature_error(
+                "notification filtering",
+                self.protocol_version,
+                ServerAwareBoltVersion::V5x2,
+            ));
+        }
         debug_buf_start!(log_buf);
         debug_buf!(log_buf, "C: HELLO");
         let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
@@ -268,6 +297,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x1<T> {
     ) -> Result<()> {
         self.bolt5x0.run(data, parameters, callbacks)
     }
+
     #[inline]
     fn discard<RW: Read + Write>(
         &mut self,

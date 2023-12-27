@@ -35,6 +35,7 @@ use crate::address_::resolution::AddressResolver;
 use crate::address_::Address;
 use crate::bookmarks::Bookmarks;
 use crate::driver::config::auth::{auth_managers, AuthToken};
+use crate::driver::config::notification::NotificationFilter;
 use crate::driver::config::AuthConfig;
 use crate::driver::RoutingControl;
 use crate::error_::{Neo4jError, Result, ServerError};
@@ -153,6 +154,7 @@ pub(crate) struct PoolConfig {
     pub(crate) connection_timeout: Option<Duration>,
     pub(crate) connection_acquisition_timeout: Option<Duration>,
     pub(crate) resolver: Option<Box<dyn AddressResolver>>,
+    pub(crate) notification_filters: Arc<NotificationFilter>,
 }
 
 impl PoolConfig {
