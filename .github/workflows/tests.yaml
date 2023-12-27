@@ -56,26 +56,18 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        testkit-config:
-          - tests: TESTKIT_TESTS
-            config: 4.4-community-bolt
-          - tests: TESTKIT_TESTS
-            config: 4.4-community-neo4j
-          - tests: TESTKIT_TESTS
-            config: 4.4-enterprise-bolt
-          - tests: TESTKIT_TESTS
-            config: 4.4-enterprise-neo4j
-          - tests: TESTKIT_TESTS
-            config: 4.4-enterprise-cluster-neo4j
-          - tests: TESTKIT_TESTS
-            config: 5.1-enterprise-cluster-neo4j
-          - tests: TESTKIT_TESTS
-            config: 5.5-enterprise-cluster-neo4j
-          - tests: TESTKIT_TESTS
-            config: 5.7-enterprise-cluster-neo4j
-          - tests: TESTKIT_TESTS
-            config: 5.9-enterprise-cluster-neo4j
-
+        tests: [TESTKIT_TESTS]
+        configs:
+          - 4.4-community-bolt
+          - 4.4-community-neo4j
+          - 4.4-enterprise-bolt
+          - 4.4-enterprise-neo4j
+          - 4.4-enterprise-cluster-neo4j
+          - 5.1-enterprise-cluster-neo4j
+          - 5.5-enterprise-cluster-neo4j
+          - 5.7-enterprise-cluster-neo4j
+          - 5.9-enterprise-cluster-neo4j
+        include:
           - tests: STUB_TESTS
             config: ""
           - tests: TLS_TESTS
