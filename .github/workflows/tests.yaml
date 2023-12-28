@@ -57,7 +57,7 @@ jobs:
     strategy:
       matrix:
         tests: [TESTKIT_TESTS]
-        configs:
+        config:
           - 4.4-community-bolt
           - 4.4-community-neo4j
           - 4.4-enterprise-bolt
@@ -97,5 +97,5 @@ jobs:
           TEST_RUN_ALL_TESTS: "true"
         run: |
           cd testkit
-          python3 main.py --tests ${{ matrix.testkit-config.tests }} \
-            ${{ matrix.testkit-config.config && format('--config {0}', matrix.testkit-config.config) || ''}}
+          python3 main.py --tests ${{ matrix.tests }} \
+            ${{ matrix.config && format('--config {0}', matrix.config) || ''}}
