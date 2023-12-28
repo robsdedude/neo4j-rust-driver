@@ -47,13 +47,14 @@ const DEFAULT_USER_AGENT: &str = env!("NEO4J_DEFAULT_USER_AGENT");
 pub(crate) const DEFAULT_FETCH_SIZE: i64 = 1000;
 pub(crate) const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const DEFAULT_CONNECTION_ACQUISITION_TIMEOUT: Duration = Duration::from_secs(60);
+pub(crate) const DEFAULT_MAX_CONNECTION_LIFETIME: Duration = Duration::from_secs(3600);
 
 /// Configure how the driver should behave.
 #[derive(Debug)]
 pub struct DriverConfig {
     pub(crate) user_agent: String,
     pub(crate) auth: AuthConfig,
-    // max_connection_lifetime
+    pub(crate) max_connection_lifetime: Option<Duration>,
     pub(crate) idle_time_before_connection_test: Option<Duration>,
     pub(crate) max_connection_pool_size: usize,
     pub(crate) fetch_size: i64,
@@ -133,6 +134,7 @@ impl Default for DriverConfig {
         Self {
             user_agent: String::from(DEFAULT_USER_AGENT),
             auth: AuthConfig::Static(Default::default()),
+            max_connection_lifetime: Some(DEFAULT_MAX_CONNECTION_LIFETIME),
             idle_time_before_connection_test: None,
             max_connection_pool_size: 100,
             fetch_size: DEFAULT_FETCH_SIZE,
@@ -213,6 +215,37 @@ impl DriverConfig {
     #[inline]
     pub fn with_auth_manager(mut self, manager: Arc<dyn AuthManager>) -> Self {
         self.auth = AuthConfig::Manager(manager);
+        self
+    }
+
+    /// Limit the maximum lifetime of any connection.
+    ///
+    /// When a connection is attempted to be picked up from the connection pool, it will be closed
+    /// if it has been created longer than this duration ago.
+    #[inline]
+    pub fn with_max_connection_lifetime(mut self, max_connection_lifetime: Duration) -> Self {
+        self.max_connection_lifetime = Some(max_connection_lifetime);
+        self
+    }
+
+    /// Disable closing connections based on their age.
+    ///
+    /// See also [`DriverConfig::with_max_connection_lifetime()`].
+    #[inline]
+    pub fn without_max_connection_lifetime(mut self) -> Self {
+        self.max_connection_lifetime = None;
+        self
+    }
+
+    /// Use the default maximum connection lifetime.
+    ///
+    /// Currently, this is `3600` seconds.
+    /// This is an implementation detail and may change in the future.
+    ///
+    /// See also [`DriverConfig::with_max_connection_lifetime()`].
+    #[inline]
+    pub fn with_default_max_connection_lifetime(mut self) -> Self {
+        self.max_connection_lifetime = Some(DEFAULT_MAX_CONNECTION_LIFETIME);
         self
     }
 
