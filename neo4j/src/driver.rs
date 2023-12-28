@@ -198,7 +198,7 @@ impl Driver {
     /// By default, all work executed over multiple `execute_query()` calls is
     /// [causally chained](crate#causal-consistency) (i.e., can read previous writes).
     /// This is achieved by using a common bookmark manager for all `execute_query()` calls:
-    /// [`Driver::execute_query_bookmark_manager`].
+    /// [`Driver::execute_query_bookmark_manager()`].
     /// Causal chaining can cause the DBMS to wait for previous writes to be visible to the
     /// transaction, which can increase latency.
     /// If no causal chaining is desired, use [`ExecuteQueryBuilder::without_bookmark_manager()`]

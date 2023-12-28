@@ -1,6 +1,9 @@
 # Changelog
 
 ## NEXT
+ - Bumped MSRV to 1.75.0
+ - Simplified of generic parameters of `ExecuteQueryBuilder`, `TransactionBuilder`, `TransactionQueryBuilder`, and
+   `AutoCommitBuilder`.
  - Removed useless lifetime parameter from `SessionConfig::with_database()`.
  - Changed return type of `ConnectionConfig::with_encryption_trust_any_certificate() ` from `Result<Self, Error>` to `Self`.
  - Add support for Bolt 5.2, which adds notification filtering.

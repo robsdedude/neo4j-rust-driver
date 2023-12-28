@@ -18,54 +18,92 @@ use std::fmt::Debug;
 
 use super::value_send::ValueSend;
 
+/// A trait for types that can be used as query parameters, transaction metadata, etc.
 pub trait ValueMap: Debug {
-    fn items(&self) -> impl Iterator<Item = (&'_ str, &'_ ValueSend)> + '_;
-    fn items_len(&self) -> usize {
-        self.items().count()
-    }
+    /// Returns an iterator over key-value pairs.
+    ///
+    /// If the same key is present multiple times, the last occurrence is used.
+    /// However, this will result in a waste of bandwidth, since the same key will be sent multiple
+    /// times.
+    ///
+    /// # Panics
+    /// The driver will panic if a ValueMap with incorrect ExactSizeIterator implementation is
+    /// returned.
+    /// This is to prevent protocol violations, which, paired maliciously crafted inputs, could lead
+    /// to security vulnerabilities.
+    ///
+    /// # Examples
+    /// ```
+    /// use std::fmt::Debug;
+    ///
+    /// use neo4j::value::{ValueMap, ValueSend};
+    ///
+    /// struct MyStruct {
+    ///     foo: String,
+    ///     bar: i64,
+    /// }
+    ///
+    /// impl MyStruct {
+    ///     fn into_value_map(self) -> impl ValueMap {
+    ///         [
+    ///             ("foo", ValueSend::String(self.foo)),
+    ///             ("bar", ValueSend::Integer(self.bar)),
+    ///         ]
+    ///     }
+    /// }
+    ///
+    /// fn check_trait_bound(map: impl ValueMap) -> impl ValueMap {
+    ///     map
+    /// }
+    ///
+    /// let my_struct = MyStruct {
+    ///     foo: String::from("foo"),
+    ///     bar: 42,
+    /// };
+    /// let value_map = check_trait_bound(my_struct.into_value_map());
+    /// let map1 = check_trait_bound(&value_map);
+    /// let map2 = check_trait_bound(&value_map);
+    ///
+    /// assert_eq!(
+    ///     map1.items().collect::<Vec<_>>(),
+    ///     vec![
+    ///         ("foo", &ValueSend::String(String::from("foo"))),
+    ///         ("bar", &ValueSend::Integer(42))
+    ///     ]
+    /// );
+    /// assert_eq!(
+    ///     map1.items().collect::<Vec<_>>(),
+    ///     map2.items().collect::<Vec<_>>()
+    /// );
+    /// ```
+    fn items(&self) -> impl ExactSizeIterator<Item = (&'_ str, &'_ ValueSend)> + '_;
 }
 
 impl<M: ValueMap> ValueMap for &M {
     #[inline]
-    fn items(&self) -> impl Iterator<Item = (&'_ str, &'_ ValueSend)> + '_ {
+    fn items(&self) -> impl ExactSizeIterator<Item = (&'_ str, &'_ ValueSend)> + '_ {
         (*self).items()
-    }
-    #[inline]
-    fn items_len(&self) -> usize {
-        (*self).items_len()
     }
 }
 
 impl<K: Borrow<str> + Debug, V: Borrow<ValueSend> + Debug> ValueMap for HashMap<K, V> {
     #[inline]
-    fn items(&self) -> impl Iterator<Item = (&'_ str, &'_ ValueSend)> + '_ {
+    fn items(&self) -> impl ExactSizeIterator<Item = (&'_ str, &'_ ValueSend)> + '_ {
         self.iter().map(|(k, v)| (k.borrow(), v.borrow()))
-    }
-    #[inline]
-    fn items_len(&self) -> usize {
-        self.len()
     }
 }
 
 impl<K: Borrow<str> + Debug, V: Borrow<ValueSend> + Debug> ValueMap for BTreeMap<K, V> {
     #[inline]
-    fn items(&self) -> impl Iterator<Item = (&'_ str, &'_ ValueSend)> + '_ {
+    fn items(&self) -> impl ExactSizeIterator<Item = (&'_ str, &'_ ValueSend)> + '_ {
         self.iter().map(|(k, v)| (k.borrow(), v.borrow()))
-    }
-    #[inline]
-    fn items_len(&self) -> usize {
-        self.len()
     }
 }
 
 impl<K: Borrow<str> + Debug, V: Borrow<ValueSend> + Debug> ValueMap for Vec<(K, V)> {
     #[inline]
-    fn items(&self) -> impl Iterator<Item = (&'_ str, &'_ ValueSend)> + '_ {
+    fn items(&self) -> impl ExactSizeIterator<Item = (&'_ str, &'_ ValueSend)> + '_ {
         self.iter().map(|(k, v)| (k.borrow(), v.borrow()))
-    }
-    #[inline]
-    fn items_len(&self) -> usize {
-        self.len()
     }
 }
 
@@ -73,12 +111,15 @@ impl<const N: usize, K: Borrow<str> + Debug, V: Borrow<ValueSend> + Debug> Value
     for [(K, V); N]
 {
     #[inline]
-    fn items(&self) -> impl Iterator<Item = (&'_ str, &'_ ValueSend)> + '_ {
+    fn items(&self) -> impl ExactSizeIterator<Item = (&'_ str, &'_ ValueSend)> + '_ {
         self.iter().map(|(k, v)| (k.borrow(), v.borrow()))
     }
+}
+
+impl<K: Borrow<str> + Debug, V: Borrow<ValueSend> + Debug> ValueMap for &[(K, V)] {
     #[inline]
-    fn items_len(&self) -> usize {
-        self.len()
+    fn items(&self) -> impl ExactSizeIterator<Item = (&'_ str, &'_ ValueSend)> + '_ {
+        self.iter().map(|(k, v)| (k.borrow(), v.borrow()))
     }
 }
 

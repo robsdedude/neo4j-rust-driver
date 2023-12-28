@@ -560,15 +560,27 @@ impl<RW: Read + Write> BoltData<RW> {
     }
 
     fn serialize_value_map<S: PackStreamSerializer, T: BoltStructTranslator, M: ValueMap>(
-        &self,
+        &mut self,
         serializer: &mut S,
         translator: &T,
         map: &M,
     ) -> result::Result<(), S::Error> {
-        serializer.write_dict_header(u64::from_usize(map.items_len()))?;
-        for (k, v) in map.items() {
+        let iter = map.items();
+        let len = iter.len();
+        let mut count = 0;
+        serializer.write_dict_header(u64::from_usize(len))?;
+        for (k, v) in iter {
+            if count == len {
+                self.connection_state = ConnectionState::Broken;
+                panic!("ValueMap with incorrect ExactSizeIterator implementation");
+            }
             serializer.write_string(k)?;
             self.serialize_value(serializer, translator, v)?;
+            count += 1;
+        }
+        if count != len {
+            self.connection_state = ConnectionState::Broken;
+            panic!("ValueMap with incorrect ExactSizeIterator implementation");
         }
         Ok(())
     }

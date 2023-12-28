@@ -58,7 +58,7 @@ impl TestKitAuthManagers {
                             id, request_id
                         ))));
                     }
-                    Ok(auth.try_into()?)
+                    Ok(auth.into())
                 }
                 _ => Err(Box::new(TestKitError::backend_err(format!(
                     "expected BasicAuthTokenProviderCompleted, received {:?}",
@@ -116,7 +116,7 @@ impl TestKitAuthManagers {
                             }
                         })
                         .transpose()?;
-                    Ok((auth.try_into()?, expires))
+                    Ok((auth.into(), expires))
                 }
                 _ => Err(Box::new(TestKitError::backend_err(format!(
                     "expected BearerAuthTokenProviderCompleted, received {:?}",
@@ -172,7 +172,7 @@ impl AuthManager for TestKitCustomAuthManager {
                         id, request_id
                     ))));
                 }
-                Ok(Arc::new(auth.try_into()?))
+                Ok(Arc::new(auth.into()))
             }
             _ => Err(Box::new(TestKitError::backend_err(format!(
                 "expected AuthTokenManagerGetAuthCompleted, received {:?}",

@@ -334,7 +334,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x2<T> {
             + [
                 bookmarks.is_some() && !bookmarks.unwrap().is_empty(),
                 tx_timeout.is_some(),
-                tx_metadata.map(|m| m.items_len()).unwrap_or_default() > 0,
+                tx_metadata.map(|m| m.items().len()).unwrap_or_default() > 0,
                 mode.is_some() && mode.unwrap() != "w",
                 db.is_some(),
                 imp_user.is_some(),
@@ -373,7 +373,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x2<T> {
         }
 
         if let Some(tx_metadata) = tx_metadata {
-            if !tx_metadata.items_len() > 0 {
+            if !tx_metadata.items().len() > 0 {
                 serializer.write_string("tx_metadata")?;
                 data.serialize_value_map(&mut serializer, &self.translator, tx_metadata)?;
                 debug_buf!(log_buf, "{}", {
@@ -494,7 +494,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x2<T> {
             + [
                 bookmarks.is_some() && !bookmarks.unwrap().is_empty(),
                 tx_timeout.is_some(),
-                tx_metadata.map(|m| m.items_len()).unwrap_or_default() > 0,
+                tx_metadata.map(|m| m.items().len()).unwrap_or_default() > 0,
                 mode.is_some() && mode.unwrap() != "w",
                 db.is_some(),
                 imp_user.is_some(),
@@ -533,7 +533,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x2<T> {
         }
 
         if let Some(tx_metadata) = tx_metadata {
-            if !tx_metadata.items_len() > 0 {
+            if !tx_metadata.items().len() > 0 {
                 debug_buf!(log_buf, "{}", {
                     dbg_serializer.write_string("tx_metadata").unwrap();
                     data.serialize_value_map(&mut dbg_serializer, &self.translator, tx_metadata)
