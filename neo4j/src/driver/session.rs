@@ -20,7 +20,6 @@ use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
 use std::rc::Rc;
 use std::result::Result as StdResult;
 use std::sync::Arc;
@@ -36,7 +35,7 @@ use super::{EagerResult, ReducedDriverConfig, RoutingControl};
 use crate::driver::io::SessionAuth;
 use crate::error_::{Neo4jError, Result};
 use crate::transaction::InnerTransaction;
-use crate::value::ValueSend;
+use crate::value::{ValueMap, ValueSend};
 use bookmarks::{bookmark_managers, BookmarkManager, Bookmarks};
 use config::InternalSessionConfig;
 pub use config::SessionConfig;
@@ -110,31 +109,20 @@ impl<'driver> Session<'driver> {
     pub fn auto_commit<'session, Q: AsRef<str>>(
         &'session mut self,
         query: Q,
-    ) -> AutoCommitBuilder<
-        'driver,
-        'session,
-        Q,
-        DefaultParamKey,
-        DefaultParam,
-        DefaultMetaKey,
-        DefaultMeta,
-        DefaultReceiver,
-    > {
+    ) -> AutoCommitBuilder<'driver, 'session, Q, DefaultParam, DefaultMeta, DefaultReceiver> {
         AutoCommitBuilder::new(self, query)
     }
 
     fn auto_commit_run<
         'session,
         Q: AsRef<str>,
-        KP: Borrow<str> + Debug,
-        P: Borrow<HashMap<KP, ValueSend>>,
-        KM: Borrow<str> + Debug,
-        M: Borrow<HashMap<KM, ValueSend>>,
+        P: ValueMap,
+        M: ValueMap,
         R,
         FRes: FnOnce(&mut RecordStream) -> Result<R>,
     >(
         &'session mut self,
-        builder: AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>,
+        builder: AutoCommitBuilder<'driver, 'session, Q, P, M, FRes>,
     ) -> Result<R> {
         let cx = self.acquire_connection(builder.mode)?;
         let mut record_stream =
@@ -179,19 +167,18 @@ impl<'driver> Session<'driver> {
     /// Use the returned [`TransactionBuilder`] to configure the transaction and run it.
     pub fn transaction<'session>(
         &'session mut self,
-    ) -> TransactionBuilder<'driver, 'session, DefaultMetaKey, DefaultMeta> {
+    ) -> TransactionBuilder<'driver, 'session, DefaultMeta> {
         TransactionBuilder::new(self)
     }
 
     fn transaction_run<
         'session,
-        KM: Borrow<str> + Debug,
-        M: Borrow<HashMap<KM, ValueSend>>,
+        M: ValueMap,
         R,
         FTx: for<'tx> FnOnce(Transaction<'driver, 'tx>) -> Result<R>,
     >(
         &'session mut self,
-        builder: &TransactionBuilder<'driver, 'session, KM, M>,
+        builder: &TransactionBuilder<'driver, 'session, M>,
         receiver: FTx,
     ) -> Result<R> {
         let connection = self.acquire_connection(builder.mode)?;
@@ -390,12 +377,10 @@ impl<'driver> Session<'driver> {
 ///
 /// Use [`Session::auto_commit()`] for creating one and call [`AutoCommitBuilder::run()`]
 /// to execute the auto-commit transaction when you're done configuring it.
-pub struct AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes> {
+pub struct AutoCommitBuilder<'driver, 'session, Q, P, M, FRes> {
     session: Option<&'session mut Session<'driver>>,
     query: Q,
-    _kp: PhantomData<KP>,
     param: P,
-    _km: PhantomData<KM>,
     meta: M,
     timeout: TransactionTimeout,
     mode: RoutingControl,
@@ -409,30 +394,17 @@ pub(crate) fn default_receiver(res: &mut RecordStream) -> Result<EagerResult> {
 }
 
 pub(crate) type DefaultReceiver = fn(&mut RecordStream) -> Result<EagerResult>;
-pub(crate) type DefaultParamKey = String;
-pub(crate) type DefaultParam = HashMap<DefaultParamKey, ValueSend>;
-pub(crate) type DefaultMetaKey = String;
-pub(crate) type DefaultMeta = HashMap<DefaultMetaKey, ValueSend>;
+pub(crate) type DefaultParam = HashMap<String, ValueSend>;
+pub(crate) type DefaultMeta = HashMap<String, ValueSend>;
 
 impl<'driver, 'session, Q: AsRef<str>>
-    AutoCommitBuilder<
-        'driver,
-        'session,
-        Q,
-        DefaultParamKey,
-        DefaultParam,
-        DefaultMetaKey,
-        DefaultMeta,
-        DefaultReceiver,
-    >
+    AutoCommitBuilder<'driver, 'session, Q, DefaultParam, DefaultMeta, DefaultReceiver>
 {
     fn new(session: &'session mut Session<'driver>, query: Q) -> Self {
         Self {
             session: Some(session),
             query,
-            _kp: PhantomData,
             param: Default::default(),
-            _km: PhantomData,
             meta: Default::default(),
             timeout: Default::default(),
             mode: RoutingControl::Write,
@@ -445,13 +417,11 @@ impl<
         'driver,
         'session,
         Q: AsRef<str>,
-        KP: Borrow<str> + Debug,
-        P: Borrow<HashMap<KP, ValueSend>>,
-        KM: Borrow<str> + Debug,
-        M: Borrow<HashMap<KM, ValueSend>>,
+        P: ValueMap,
+        M: ValueMap,
         R,
         FRes: FnOnce(&mut RecordStream) -> Result<R>,
-    > AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>
+    > AutoCommitBuilder<'driver, 'session, Q, P, M, FRes>
 {
     /// Configure query parameters.
     ///
@@ -475,16 +445,14 @@ impl<
     /// Always prefer this over query string manipulation to avoid injection vulnerabilities and to
     /// allow the server to cache the query plan.
     #[inline]
-    pub fn with_parameters<KP_: Borrow<str> + Debug, P_: Borrow<HashMap<KP_, ValueSend>>>(
+    pub fn with_parameters<P_: ValueMap>(
         self,
         param: P_,
-    ) -> AutoCommitBuilder<'driver, 'session, Q, KP_, P_, KM, M, FRes> {
+    ) -> AutoCommitBuilder<'driver, 'session, Q, P_, M, FRes> {
         let Self {
             session,
             query,
-            _kp: _,
             param: _,
-            _km,
             meta,
             timeout,
             mode,
@@ -493,9 +461,7 @@ impl<
         AutoCommitBuilder {
             session,
             query,
-            _kp: PhantomData,
             param,
-            _km,
             meta,
             timeout,
             mode,
@@ -509,13 +475,11 @@ impl<
     #[inline]
     pub fn without_parameters(
         self,
-    ) -> AutoCommitBuilder<'driver, 'session, Q, DefaultParamKey, DefaultParam, KM, M, FRes> {
+    ) -> AutoCommitBuilder<'driver, 'session, Q, DefaultParam, M, FRes> {
         let Self {
             session,
             query,
-            _kp: _,
             param: _,
-            _km,
             meta,
             timeout,
             mode,
@@ -524,9 +488,7 @@ impl<
         AutoCommitBuilder {
             session,
             query,
-            _kp: PhantomData,
             param: Default::default(),
-            _km,
             meta,
             timeout,
             mode,
@@ -551,16 +513,14 @@ impl<
     ///    .unwrap();
     /// ```
     #[inline]
-    pub fn with_transaction_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
+    pub fn with_transaction_meta<M_: ValueMap>(
         self,
         meta: M_,
-    ) -> AutoCommitBuilder<'driver, 'session, Q, KP, P, KM_, M_, FRes> {
+    ) -> AutoCommitBuilder<'driver, 'session, Q, P, M_, FRes> {
         let Self {
             session,
             query,
-            _kp,
             param,
-            _km: _,
             meta: _,
             timeout,
             mode,
@@ -569,9 +529,7 @@ impl<
         AutoCommitBuilder {
             session,
             query,
-            _kp,
             param,
-            _km: PhantomData,
             meta,
             timeout,
             mode,
@@ -585,13 +543,11 @@ impl<
     #[inline]
     pub fn without_transaction_meta(
         self,
-    ) -> AutoCommitBuilder<'driver, 'session, Q, KP, P, DefaultMetaKey, DefaultMeta, FRes> {
+    ) -> AutoCommitBuilder<'driver, 'session, Q, P, DefaultMeta, FRes> {
         let Self {
             session,
             query,
-            _kp,
             param,
-            _km: _,
             meta: _,
             timeout,
             mode,
@@ -600,9 +556,7 @@ impl<
         AutoCommitBuilder {
             session,
             query,
-            _kp,
             param,
-            _km: PhantomData,
             meta: Default::default(),
             timeout,
             mode,
@@ -659,13 +613,11 @@ impl<
     pub fn with_receiver<R_, FRes_: FnOnce(&mut RecordStream) -> Result<R_>>(
         self,
         receiver: FRes_,
-    ) -> AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes_> {
+    ) -> AutoCommitBuilder<'driver, 'session, Q, P, M, FRes_> {
         let Self {
             session,
             query,
-            _kp,
             param,
-            _km,
             meta,
             timeout,
             mode,
@@ -674,9 +626,7 @@ impl<
         AutoCommitBuilder {
             session,
             query,
-            _kp,
             param,
-            _km,
             meta,
             timeout,
             mode,
@@ -689,13 +639,11 @@ impl<
     #[inline]
     pub fn with_default_receiver(
         self,
-    ) -> AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, DefaultReceiver> {
+    ) -> AutoCommitBuilder<'driver, 'session, Q, P, M, DefaultReceiver> {
         let Self {
             session,
             query,
-            _kp,
             param,
-            _km,
             meta,
             timeout,
             mode,
@@ -704,9 +652,7 @@ impl<
         AutoCommitBuilder {
             session,
             query,
-            _kp,
             param,
-            _km,
             meta,
             timeout,
             mode,
@@ -721,16 +667,8 @@ impl<
     }
 }
 
-impl<
-        'driver,
-        'session,
-        Q: AsRef<str>,
-        KP: Borrow<str> + Debug,
-        P: Borrow<HashMap<KP, ValueSend>>,
-        KM: Borrow<str> + Debug,
-        M: Borrow<HashMap<KM, ValueSend>>,
-        FRes,
-    > Debug for AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>
+impl<'driver, 'session, Q: AsRef<str>, P: ValueMap, M: ValueMap, FRes> Debug
+    for AutoCommitBuilder<'driver, 'session, Q, P, M, FRes>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AutoCommitBuilder")
@@ -755,19 +693,17 @@ impl<
 ///
 /// Use [`Session::transaction()`] for creating one and call [`TransactionBuilder::run()`]
 /// to execute the transaction when you're done configuring it.
-pub struct TransactionBuilder<'driver, 'session, KM, M> {
+pub struct TransactionBuilder<'driver, 'session, M> {
     session: Option<&'session mut Session<'driver>>,
-    _km: PhantomData<KM>,
     meta: M,
     timeout: TransactionTimeout,
     mode: RoutingControl,
 }
 
-impl<'driver, 'session> TransactionBuilder<'driver, 'session, DefaultMetaKey, DefaultMeta> {
+impl<'driver, 'session> TransactionBuilder<'driver, 'session, DefaultMeta> {
     fn new(session: &'session mut Session<'driver>) -> Self {
         Self {
             session: Some(session),
-            _km: PhantomData,
             meta: Default::default(),
             timeout: Default::default(),
             mode: RoutingControl::Write,
@@ -775,9 +711,7 @@ impl<'driver, 'session> TransactionBuilder<'driver, 'session, DefaultMetaKey, De
     }
 }
 
-impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend>>>
-    TransactionBuilder<'driver, 'session, KM, M>
-{
+impl<'driver, 'session, M: ValueMap> TransactionBuilder<'driver, 'session, M> {
     /// Attach transaction metadata to the transaction.
     ///
     /// Transaction metadata will be logged in the server's `query.log` and is accessible through
@@ -805,20 +739,18 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     ///     .unwrap();
     /// ```
     #[inline]
-    pub fn with_transaction_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
+    pub fn with_transaction_meta<M_: ValueMap>(
         self,
         meta: M_,
-    ) -> TransactionBuilder<'driver, 'session, KM_, M_> {
+    ) -> TransactionBuilder<'driver, 'session, M_> {
         let Self {
             session,
-            _km: _,
             meta: _,
             timeout,
             mode,
         } = self;
         TransactionBuilder {
             session,
-            _km: PhantomData,
             meta,
             timeout,
             mode,
@@ -827,19 +759,15 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
 
     /// Configure the transaction to not use any transaction metadata (this is default).
     #[inline]
-    pub fn without_transaction_meta(
-        self,
-    ) -> TransactionBuilder<'driver, 'session, DefaultMetaKey, DefaultMeta> {
+    pub fn without_transaction_meta(self) -> TransactionBuilder<'driver, 'session, DefaultMeta> {
         let Self {
             session,
-            _km: _,
             meta: _,
             timeout,
             mode,
         } = self;
         TransactionBuilder {
             session,
-            _km: PhantomData,
             meta: Default::default(),
             timeout,
             mode,
@@ -962,7 +890,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     }
 }
 
-impl<'driver, 'session, KM, M: Debug> Debug for TransactionBuilder<'driver, 'session, KM, M> {
+impl<'driver, 'session, M: Debug> Debug for TransactionBuilder<'driver, 'session, M> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TransactionBuilder")
             .field(

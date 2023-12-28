@@ -49,7 +49,7 @@ use super::deadline::DeadlineIO;
 use crate::address_::Address;
 use crate::error_::{Neo4jError, Result, ServerError};
 use crate::time::Instant;
-use crate::value::{ValueReceive, ValueSend};
+use crate::value::{ValueMap, ValueReceive, ValueSend};
 use bolt4x4::{Bolt4x4, Bolt4x4StructTranslator};
 use bolt5x0::{Bolt5x0, Bolt5x0StructTranslator};
 use bolt5x1::{Bolt5x1, Bolt5x1StructTranslator};
@@ -251,9 +251,9 @@ impl<RW: Read + Write> Bolt<RW> {
         self.protocol.reset(&mut self.data, ResetParameters::new())
     }
 
-    pub(crate) fn run<KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
+    pub(crate) fn run<P: ValueMap, M: ValueMap>(
         &mut self,
-        parameters: RunParameters<KP, KM>,
+        parameters: RunParameters<P, M>,
         callbacks: ResponseCallbacks,
     ) -> Result<()> {
         self.protocol.run(&mut self.data, parameters, callbacks)
@@ -275,10 +275,7 @@ impl<RW: Read + Write> Bolt<RW> {
         self.protocol.pull(&mut self.data, parameters, callbacks)
     }
 
-    pub(crate) fn begin<K: Borrow<str> + Debug>(
-        &mut self,
-        parameters: BeginParameters<K>,
-    ) -> Result<()> {
+    pub(crate) fn begin<M: ValueMap>(&mut self, parameters: BeginParameters<M>) -> Result<()> {
         self.protocol.begin(&mut self.data, parameters)
     }
 
@@ -410,10 +407,10 @@ trait BoltProtocol: Debug {
         data: &mut BoltData<RW>,
         parameters: ResetParameters,
     ) -> Result<()>;
-    fn run<RW: Read + Write, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
+    fn run<RW: Read + Write, P: ValueMap, M: ValueMap>(
         &mut self,
         data: &mut BoltData<RW>,
-        parameters: RunParameters<KP, KM>,
+        parameters: RunParameters<P, M>,
         callbacks: ResponseCallbacks,
     ) -> Result<()>;
     fn discard<RW: Read + Write>(
@@ -428,10 +425,10 @@ trait BoltProtocol: Debug {
         parameters: PullParameters,
         callbacks: ResponseCallbacks,
     ) -> Result<()>;
-    fn begin<RW: Read + Write, K: Borrow<str> + Debug>(
+    fn begin<RW: Read + Write, M: ValueMap>(
         &mut self,
         data: &mut BoltData<RW>,
-        parameters: BeginParameters<K>,
+        parameters: BeginParameters<M>,
     ) -> Result<()>;
     fn commit<RW: Read + Write>(
         &mut self,
@@ -562,15 +559,15 @@ impl<RW: Read + Write> BoltData<RW> {
         qid == -1 || Some(qid) == *(self.last_qid.deref().borrow())
     }
 
-    fn serialize_dict<S: PackStreamSerializer, T: BoltStructTranslator, K: Borrow<str>>(
+    fn serialize_value_map<S: PackStreamSerializer, T: BoltStructTranslator, M: ValueMap>(
         &self,
         serializer: &mut S,
         translator: &T,
-        map: &HashMap<K, ValueSend>,
+        map: &M,
     ) -> result::Result<(), S::Error> {
-        serializer.write_dict_header(u64::from_usize(map.len()))?;
-        for (k, v) in map {
-            serializer.write_string(k.borrow())?;
+        serializer.write_dict_header(u64::from_usize(map.items_len()))?;
+        for (k, v) in map.items() {
+            serializer.write_string(k)?;
             self.serialize_value(serializer, translator, v)?;
         }
         Ok(())

@@ -15,6 +15,7 @@
 pub mod graph;
 pub mod spatial;
 pub mod time;
+mod value_map;
 mod value_receive;
 mod value_send;
 // mod de;
@@ -22,6 +23,7 @@ mod value_send;
 
 use thiserror::Error;
 
+pub use value_map::ValueMap;
 pub(crate) use value_receive::BrokenValueInner;
 pub use value_receive::{BrokenValue, ValueReceive};
 pub use value_send::ValueSend;

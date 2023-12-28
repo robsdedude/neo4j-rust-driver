@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Borrow;
 use std::fmt::Debug;
 use std::io::{Error as IoError, Read, Write};
 use std::mem;
@@ -41,7 +40,7 @@ use super::super::{
     ResponseMessage,
 };
 use crate::error_::Result;
-use crate::value::ValueReceive;
+use crate::value::{ValueMap, ValueReceive};
 
 const SERVER_AGENT_KEY: &str = "server";
 const PATCH_BOLT_KEY: &str = "patch_bolt";
@@ -266,10 +265,10 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
     }
 
     #[inline]
-    fn run<RW: Read + Write, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
+    fn run<RW: Read + Write, P: ValueMap, M: ValueMap>(
         &mut self,
         data: &mut BoltData<RW>,
-        parameters: RunParameters<KP, KM>,
+        parameters: RunParameters<P, M>,
         callbacks: ResponseCallbacks,
     ) -> Result<()> {
         self.bolt5x0.run(data, parameters, callbacks)
@@ -296,10 +295,10 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
     }
 
     #[inline]
-    fn begin<RW: Read + Write, K: Borrow<str> + Debug>(
+    fn begin<RW: Read + Write, M: ValueMap>(
         &mut self,
         data: &mut BoltData<RW>,
-        parameters: BeginParameters<K>,
+        parameters: BeginParameters<M>,
     ) -> Result<()> {
         self.bolt5x0.begin(data, parameters)
     }

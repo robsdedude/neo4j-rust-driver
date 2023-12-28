@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Borrow;
 use std::fmt::Debug;
 use std::io::{Error as IoError, Read, Write};
 use std::mem;
@@ -41,7 +40,7 @@ use super::super::{
 };
 use crate::driver::config::notification::NotificationFilter;
 use crate::error_::{Neo4jError, Result, ServerError};
-use crate::value::ValueReceive;
+use crate::value::{ValueMap, ValueReceive};
 
 const SERVER_AGENT_KEY: &str = "server";
 const HINTS_KEY: &str = "hints";
@@ -312,10 +311,10 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         Ok(())
     }
 
-    fn run<RW: Read + Write, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
+    fn run<RW: Read + Write, P: ValueMap, M: ValueMap>(
         &mut self,
         data: &mut BoltData<RW>,
-        parameters: RunParameters<KP, KM>,
+        parameters: RunParameters<P, M>,
         mut callbacks: ResponseCallbacks,
     ) -> Result<()> {
         let RunParameters {
@@ -345,9 +344,9 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
 
         match parameters {
             Some(parameters) => {
-                data.serialize_dict(&mut serializer, &self.translator, parameters)?;
+                data.serialize_value_map(&mut serializer, &self.translator, parameters)?;
                 debug_buf!(log_buf, " {}", {
-                    data.serialize_dict(&mut dbg_serializer, &self.translator, parameters)
+                    data.serialize_value_map(&mut dbg_serializer, &self.translator, parameters)
                         .unwrap();
                     dbg_serializer.flush()
                 });
@@ -364,7 +363,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         let extra_size = [
             bookmarks.is_some() && !bookmarks.unwrap().is_empty(),
             tx_timeout.is_some(),
-            tx_metadata.is_some() && !tx_metadata.unwrap().is_empty(),
+            tx_metadata.map(|m| m.items_len()).unwrap_or_default() > 0,
             mode.is_some() && mode.unwrap() != "w",
             db.is_some(),
             imp_user.is_some(),
@@ -403,12 +402,12 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         }
 
         if let Some(tx_metadata) = tx_metadata {
-            if !tx_metadata.is_empty() {
+            if !tx_metadata.items_len() > 0 {
                 serializer.write_string("tx_metadata")?;
-                data.serialize_dict(&mut serializer, &self.translator, tx_metadata)?;
+                data.serialize_value_map(&mut serializer, &self.translator, tx_metadata)?;
                 debug_buf!(log_buf, "{}", {
                     dbg_serializer.write_string("tx_metadata").unwrap();
-                    data.serialize_dict(&mut dbg_serializer, &self.translator, tx_metadata)
+                    data.serialize_value_map(&mut dbg_serializer, &self.translator, tx_metadata)
                         .unwrap();
                     dbg_serializer.flush()
                 });
@@ -512,10 +511,10 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         )
     }
 
-    fn begin<RW: Read + Write, K: Borrow<str> + Debug>(
+    fn begin<RW: Read + Write, M: ValueMap>(
         &mut self,
         data: &mut BoltData<RW>,
-        parameters: BeginParameters<K>,
+        parameters: BeginParameters<M>,
     ) -> Result<()> {
         let BeginParameters {
             bookmarks,
@@ -537,7 +536,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         let extra_size = [
             bookmarks.is_some() && !bookmarks.unwrap().is_empty(),
             tx_timeout.is_some(),
-            tx_metadata.map(|m| !m.is_empty()).unwrap_or_default(),
+            tx_metadata.map(|m| m.items_len()).unwrap_or_default() > 0,
             mode.is_some() && mode.unwrap() != "w",
             db.is_some(),
             imp_user.is_some(),
@@ -576,15 +575,15 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         }
 
         if let Some(tx_metadata) = tx_metadata {
-            if !tx_metadata.is_empty() {
+            if !tx_metadata.items_len() > 0 {
                 debug_buf!(log_buf, "{}", {
                     dbg_serializer.write_string("tx_metadata").unwrap();
-                    data.serialize_dict(&mut dbg_serializer, &self.translator, tx_metadata)
+                    data.serialize_value_map(&mut dbg_serializer, &self.translator, tx_metadata)
                         .unwrap();
                     dbg_serializer.flush()
                 });
                 serializer.write_string("tx_metadata")?;
-                data.serialize_dict(&mut serializer, &self.translator, tx_metadata)?;
+                data.serialize_value_map(&mut serializer, &self.translator, tx_metadata)?;
             }
         }
 

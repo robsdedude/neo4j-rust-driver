@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -20,7 +19,8 @@ use std::sync::Arc;
 use crate::bookmarks::Bookmarks;
 use crate::driver::config::auth::AuthToken;
 use crate::driver::config::notification::NotificationFilter;
-use crate::value::ValueSend;
+use crate::driver::session::DefaultMeta;
+use crate::value::{ValueMap, ValueSend};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct HelloParameters<'a> {
@@ -77,26 +77,26 @@ impl ResetParameters {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct RunParameters<'a, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug> {
+pub(crate) struct RunParameters<'a, P: ValueMap, M: ValueMap> {
     pub(super) query: &'a str,
-    pub(super) parameters: Option<&'a HashMap<KP, ValueSend>>,
+    pub(super) parameters: Option<&'a P>,
     pub(super) bookmarks: Option<&'a Bookmarks>,
     pub(super) tx_timeout: Option<i64>,
-    pub(super) tx_metadata: Option<&'a HashMap<KM, ValueSend>>,
+    pub(super) tx_metadata: Option<&'a M>,
     pub(super) mode: Option<&'a str>,
     pub(super) db: Option<&'a str>,
     pub(super) imp_user: Option<&'a str>,
     pub(super) notification_filter: Option<&'a NotificationFilter>,
 }
 
-impl<'a, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug> RunParameters<'a, KP, KM> {
+impl<'a, P: ValueMap, M: ValueMap> RunParameters<'a, P, M> {
     #[allow(clippy::too_many_arguments)] // builder pattern for internal API seems overkill
     pub(crate) fn new_auto_commit_run(
         query: &'a str,
-        parameters: Option<&'a HashMap<KP, ValueSend>>,
+        parameters: Option<&'a P>,
         bookmarks: Option<&'a Bookmarks>,
         tx_timeout: Option<i64>,
-        tx_metadata: Option<&'a HashMap<KM, ValueSend>>,
+        tx_metadata: Option<&'a M>,
         mode: Option<&'a str>,
         db: Option<&'a str>,
         imp_user: Option<&'a str>,
@@ -116,11 +116,8 @@ impl<'a, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug> RunParameters<'a, KP,
     }
 }
 
-impl<'a, KP: Borrow<str> + Debug> RunParameters<'a, KP, String> {
-    pub(crate) fn new_transaction_run(
-        query: &'a str,
-        parameters: Option<&'a HashMap<KP, ValueSend>>,
-    ) -> Self {
+impl<'a, P: ValueMap> RunParameters<'a, P, DefaultMeta> {
+    pub(crate) fn new_transaction_run(query: &'a str, parameters: Option<&'a P>) -> Self {
         Self {
             query,
             parameters,
@@ -160,21 +157,21 @@ impl PullParameters {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct BeginParameters<'a, K: Borrow<str> + Debug> {
+pub(crate) struct BeginParameters<'a, M: ValueMap> {
     pub(super) bookmarks: Option<&'a Bookmarks>,
     pub(super) tx_timeout: Option<i64>,
-    pub(super) tx_metadata: Option<&'a HashMap<K, ValueSend>>,
+    pub(super) tx_metadata: Option<&'a M>,
     pub(super) mode: Option<&'a str>,
     pub(super) db: Option<&'a str>,
     pub(super) imp_user: Option<&'a str>,
     pub(super) notification_filter: &'a NotificationFilter,
 }
 
-impl<'a, K: Borrow<str> + Debug> BeginParameters<'a, K> {
+impl<'a, M: ValueMap> BeginParameters<'a, M> {
     pub(crate) fn new(
         bookmarks: Option<&'a Bookmarks>,
         tx_timeout: Option<i64>,
-        tx_metadata: Option<&'a HashMap<K, ValueSend>>,
+        tx_metadata: Option<&'a M>,
         mode: Option<&'a str>,
         db: Option<&'a str>,
         imp_user: Option<&'a str>,

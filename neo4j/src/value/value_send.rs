@@ -219,9 +219,11 @@ impl TryFrom<ValueReceive> for ValueSend {
     /// #     let result = session
     /// #         .transaction()
     /// #         .run_with_retry(ExponentialBackoff::new(), |tx| {
-    /// #             tx.query("CREATE (n:Node {name: 'test'}) RETURN n")
+    /// #             let res = tx.query("CREATE (n:Node {name: 'test'}) RETURN n")
     /// #                 .run()?
-    /// #                 .try_as_eager_result()
+    /// #                 .try_as_eager_result()?;
+    /// #             tx.rollback()?;
+    /// #             Ok(res)
     /// #         });
     /// #     result.unwrap().unwrap().into_scalar().unwrap()
     /// # }

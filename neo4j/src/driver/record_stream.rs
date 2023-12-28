@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -33,7 +32,7 @@ use super::Record;
 use crate::driver::eager_result::EagerResult;
 use crate::driver::io::PooledBolt;
 use crate::error_::{Neo4jError, Result, ServerError};
-use crate::value::ValueReceive;
+use crate::value::{ValueMap, ValueReceive};
 
 #[derive(Debug)]
 pub struct RecordStream<'driver> {
@@ -67,9 +66,9 @@ impl<'driver> RecordStream<'driver> {
         }
     }
 
-    pub(crate) fn run<KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
+    pub(crate) fn run<P: ValueMap, M: ValueMap>(
         &mut self,
-        parameters: RunParameters<KP, KM>,
+        parameters: RunParameters<P, M>,
     ) -> Result<()> {
         if let RecordListenerState::ForeignError(e) = &(*self.listener).borrow().state {
             return Err(ServerError::new(String::from(e.code()), String::from(e.message())).into());

@@ -22,16 +22,14 @@ pub(crate) mod summary;
 pub mod transaction;
 
 use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::bookmarks::{bookmark_managers, BookmarkManager};
 use crate::error_::Result;
-use crate::value::ValueSend;
+use crate::value::ValueMap;
 use config::auth::AuthToken;
 pub use config::{
     ConfigureFetchSizeError, ConnectionConfig, ConnectionConfigParseError, DriverConfig,
@@ -45,8 +43,7 @@ use record_stream::RecordStream;
 use session::config::InternalSessionConfig;
 use session::retry::RetryPolicy;
 use session::{
-    default_receiver, DefaultMeta, DefaultMetaKey, DefaultParam, DefaultParamKey, DefaultReceiver,
-    Session, SessionConfig,
+    default_receiver, DefaultMeta, DefaultParam, DefaultReceiver, Session, SessionConfig,
 };
 use summary::ServerInfo;
 use transaction::TransactionTimeout;
@@ -237,14 +234,7 @@ impl Driver {
     pub fn execute_query<Q: AsRef<str>>(
         &self,
         query: Q,
-    ) -> ExecuteQueryBuilder<
-        Q,
-        DefaultParamKey,
-        DefaultParam,
-        DefaultMetaKey,
-        DefaultMeta,
-        DefaultReceiver,
-    > {
+    ) -> ExecuteQueryBuilder<Q, DefaultParam, DefaultMeta, DefaultReceiver> {
         ExecuteQueryBuilder::new(self, query)
     }
 
@@ -373,12 +363,10 @@ enum ExecuteQueryBookmarkManager {
 }
 
 /// Builder for [`Driver::execute_query()`].
-pub struct ExecuteQueryBuilder<'driver, Q, KP, P, KM, M, FRes> {
+pub struct ExecuteQueryBuilder<'driver, Q, P, M, FRes> {
     driver: &'driver Driver,
     query: Q,
-    _kp: PhantomData<KP>,
     param: P,
-    _km: PhantomData<KM>,
     meta: M,
     timeout: TransactionTimeout,
     mode: RoutingControl,
@@ -391,23 +379,13 @@ pub struct ExecuteQueryBuilder<'driver, Q, KP, P, KM, M, FRes> {
 }
 
 impl<'driver, Q: AsRef<str>>
-    ExecuteQueryBuilder<
-        'driver,
-        Q,
-        DefaultParamKey,
-        DefaultParam,
-        DefaultMetaKey,
-        DefaultMeta,
-        DefaultReceiver,
-    >
+    ExecuteQueryBuilder<'driver, Q, DefaultParam, DefaultMeta, DefaultReceiver>
 {
     fn new(driver: &'driver Driver, query: Q) -> Self {
         Self {
             driver,
             query,
-            _kp: PhantomData,
             param: Default::default(),
-            _km: PhantomData,
             meta: Default::default(),
             timeout: Default::default(),
             mode: RoutingControl::Write,
@@ -424,13 +402,11 @@ impl<'driver, Q: AsRef<str>>
 impl<
         'driver,
         Q: AsRef<str>,
-        KP: Borrow<str> + Debug,
-        P: Borrow<HashMap<KP, ValueSend>>,
-        KM: Borrow<str> + Debug,
-        M: Borrow<HashMap<KM, ValueSend>>,
+        P: ValueMap,
+        M: ValueMap,
         R,
         FRes: FnMut(&mut RecordStream) -> Result<R>,
-    > ExecuteQueryBuilder<'driver, Q, KP, P, KM, M, FRes>
+    > ExecuteQueryBuilder<'driver, Q, P, M, FRes>
 {
     /// Configure query parameters.
     ///
@@ -454,16 +430,14 @@ impl<
     /// Always prefer this over query string manipulation to avoid injection vulnerabilities and to
     /// allow the server to cache the query plan.
     #[inline]
-    pub fn with_parameters<KP_: Borrow<str> + Debug, P_: Borrow<HashMap<KP_, ValueSend>>>(
+    pub fn with_parameters<P_: ValueMap>(
         self,
         param: P_,
-    ) -> ExecuteQueryBuilder<'driver, Q, KP_, P_, KM, M, FRes> {
+    ) -> ExecuteQueryBuilder<'driver, Q, P_, M, FRes> {
         let Self {
             driver,
             query,
-            _kp: _,
             param: _,
-            _km,
             meta,
             timeout,
             mode,
@@ -477,9 +451,7 @@ impl<
         ExecuteQueryBuilder {
             driver,
             query,
-            _kp: PhantomData,
             param,
-            _km,
             meta,
             timeout,
             mode,
@@ -496,15 +468,11 @@ impl<
     ///
     /// This is the *default*.
     #[inline]
-    pub fn without_parameters(
-        self,
-    ) -> ExecuteQueryBuilder<'driver, Q, DefaultParamKey, DefaultParam, KM, M, FRes> {
+    pub fn without_parameters(self) -> ExecuteQueryBuilder<'driver, Q, DefaultParam, M, FRes> {
         let Self {
             driver,
             query,
-            _kp: _,
             param: _,
-            _km,
             meta,
             timeout,
             mode,
@@ -518,9 +486,7 @@ impl<
         ExecuteQueryBuilder {
             driver,
             query,
-            _kp: PhantomData,
             param: Default::default(),
-            _km,
             meta,
             timeout,
             mode,
@@ -549,16 +515,14 @@ impl<
     ///    .unwrap();
     /// ```
     #[inline]
-    pub fn with_transaction_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
+    pub fn with_transaction_meta<M_: ValueMap>(
         self,
         meta: M_,
-    ) -> ExecuteQueryBuilder<'driver, Q, KP, P, KM_, M_, FRes> {
+    ) -> ExecuteQueryBuilder<'driver, Q, P, M_, FRes> {
         let Self {
             driver,
             query,
-            _kp,
             param,
-            _km: _,
             meta: _,
             timeout,
             mode,
@@ -572,9 +536,7 @@ impl<
         ExecuteQueryBuilder {
             driver,
             query,
-            _kp,
             param,
-            _km: PhantomData,
             meta,
             timeout,
             mode,
@@ -591,15 +553,11 @@ impl<
     ///
     /// This is the *default*.
     #[inline]
-    pub fn without_transaction_meta(
-        self,
-    ) -> ExecuteQueryBuilder<'driver, Q, KP, P, DefaultMetaKey, DefaultMeta, FRes> {
+    pub fn without_transaction_meta(self) -> ExecuteQueryBuilder<'driver, Q, P, DefaultMeta, FRes> {
         let Self {
             driver,
             query,
-            _kp,
             param,
-            _km: _,
             meta: _,
             timeout,
             mode,
@@ -613,9 +571,7 @@ impl<
         ExecuteQueryBuilder {
             driver,
             query,
-            _kp,
             param,
-            _km: PhantomData,
             meta: Default::default(),
             timeout,
             mode,
@@ -723,7 +679,7 @@ impl<
     /// `with_default_bookmark_manager()` is equivalent to
     /// ```
     /// # let driver = doc_test_utils::get_driver();
-    /// driver
+    /// let builder = driver
     ///     .execute_query("...")
     ///     .with_bookmark_manager(driver.execute_query_bookmark_manager());
     /// ```
@@ -799,13 +755,11 @@ impl<
     pub fn with_receiver<R_, FRes_: FnMut(&mut RecordStream) -> Result<R_>>(
         self,
         receiver: FRes_,
-    ) -> ExecuteQueryBuilder<'driver, Q, KP, P, KM, M, FRes_> {
+    ) -> ExecuteQueryBuilder<'driver, Q, P, M, FRes_> {
         let Self {
             driver,
             query,
-            _kp,
             param,
-            _km,
             meta,
             timeout,
             mode,
@@ -819,9 +773,7 @@ impl<
         ExecuteQueryBuilder {
             driver,
             query,
-            _kp,
             param,
-            _km,
             meta,
             timeout,
             mode,
@@ -837,15 +789,11 @@ impl<
     /// Set the receiver back to the default, which will collect the result stream into memory and
     /// return it as [`EagerResult`].
     #[inline]
-    pub fn with_default_receiver(
-        self,
-    ) -> ExecuteQueryBuilder<'driver, Q, KP, P, KM, M, DefaultReceiver> {
+    pub fn with_default_receiver(self) -> ExecuteQueryBuilder<'driver, Q, P, M, DefaultReceiver> {
         let Self {
             driver,
             query,
-            _kp,
             param,
-            _km,
             meta,
             timeout,
             mode,
@@ -859,9 +807,7 @@ impl<
         ExecuteQueryBuilder {
             driver,
             query,
-            _kp,
             param,
-            _km,
             meta,
             timeout,
             mode,
@@ -879,9 +825,7 @@ impl<
         let Self {
             driver,
             query,
-            _kp: _,
             param,
-            _km: _,
             meta,
             timeout,
             mode,
@@ -901,7 +845,7 @@ impl<
         );
         let tx_builder = session
             .transaction()
-            .with_transaction_meta(meta.borrow())
+            .with_transaction_meta(meta)
             .with_transaction_timeout(timeout)
             .with_routing_control(mode);
         tx_builder.run(move |tx| {
@@ -924,9 +868,7 @@ impl<
         let Self {
             driver,
             query,
-            _kp: _,
             param,
-            _km: _,
             meta,
             timeout,
             mode,
@@ -946,14 +888,11 @@ impl<
         );
         let tx_builder = session
             .transaction()
-            .with_transaction_meta(meta.borrow())
+            .with_transaction_meta(meta)
             .with_transaction_timeout(timeout)
             .with_routing_control(mode);
         tx_builder.run_with_retry(retry_policy, move |tx| {
-            let mut result_stream = tx
-                .query(query.as_ref())
-                .with_parameters(param.borrow())
-                .run()?;
+            let mut result_stream = tx.query(query.as_ref()).with_parameters(&param).run()?;
             let res = receiver(result_stream.raw_stream_mut())?;
             result_stream.consume()?;
             tx.commit()?;
@@ -962,15 +901,8 @@ impl<
     }
 }
 
-impl<
-        'driver,
-        Q: AsRef<str>,
-        KP: Borrow<str> + Debug,
-        P: Borrow<HashMap<KP, ValueSend>>,
-        KM: Borrow<str> + Debug,
-        M: Borrow<HashMap<KM, ValueSend>>,
-        FRes,
-    > Debug for ExecuteQueryBuilder<'driver, Q, KP, P, KM, M, FRes>
+impl<'driver, Q: AsRef<str>, P: ValueMap, M: ValueMap, FRes> Debug
+    for ExecuteQueryBuilder<'driver, Q, P, M, FRes>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExecuteQueryBuilder")

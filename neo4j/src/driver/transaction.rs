@@ -16,7 +16,6 @@ use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::result;
@@ -32,7 +31,7 @@ use super::record_stream::{GetSingleRecordError, RecordStream, SharedErrorPropag
 use super::Record;
 use crate::error_::{Neo4jError, Result, ServerError};
 use crate::summary::Summary;
-use crate::value::{ValueReceive, ValueSend};
+use crate::value::{ValueMap, ValueReceive, ValueSend};
 
 #[derive(Debug)]
 pub struct Transaction<'driver: 'inner_tx, 'inner_tx> {
@@ -59,18 +58,17 @@ impl<'driver: 'inner_tx, 'inner_tx> Transaction<'driver, 'inner_tx> {
     pub fn query<'tx, Q: AsRef<str>>(
         &'tx self,
         query: Q,
-    ) -> TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, DefaultKey, DefaultParameters> {
+    ) -> TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, DefaultParameters> {
         TransactionQueryBuilder::new(self, query)
     }
 
-    fn run<'tx, Q: AsRef<str>, K: Borrow<str> + Debug, M: Borrow<HashMap<K, ValueSend>>>(
+    fn run<'tx, Q: AsRef<str>, P: ValueMap>(
         &'tx self,
-        builder: TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, K, M>,
+        builder: TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, P>,
     ) -> Result<TransactionRecordStream<'driver, 'tx, 'inner_tx>> {
         let query = builder.query.as_ref();
-        let parameters = builder.parameters.borrow();
         Ok(TransactionRecordStream(
-            self.inner_tx.run(query, parameters)?,
+            self.inner_tx.run(query, &builder.parameters)?,
             self,
         ))
     }
@@ -161,9 +159,9 @@ impl<'driver> InnerTransaction<'driver> {
         }
     }
 
-    pub(crate) fn begin<K: Borrow<str> + Debug>(
+    pub(crate) fn begin<M: ValueMap>(
         &mut self,
-        parameters: BeginParameters<K>,
+        parameters: BeginParameters<M>,
         eager: bool,
     ) -> Result<()> {
         let mut cx = self.connection.borrow_mut();
@@ -218,10 +216,10 @@ impl<'driver> InnerTransaction<'driver> {
         self.bookmark.borrow_mut().take()
     }
 
-    pub(crate) fn run<K: Borrow<str> + Debug>(
+    pub(crate) fn run(
         &self,
         query: &str,
-        parameters: &HashMap<K, ValueSend>,
+        parameters: &impl ValueMap,
     ) -> Result<RecordStream<'driver>> {
         let cx = Rc::clone(&self.connection);
 
@@ -248,44 +246,28 @@ impl<'driver> InnerTransaction<'driver> {
 /// A builder for queries to be executed in a transaction.
 ///
 /// See [`Transaction::query()`].
-pub struct TransactionQueryBuilder<
-    'driver,
-    'tx,
-    'inner_tx,
-    Q: AsRef<str>,
-    K: Borrow<str> + Debug,
-    M: Borrow<HashMap<K, ValueSend>>,
-> {
+pub struct TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q: AsRef<str>, M: ValueMap> {
     tx: &'tx Transaction<'driver, 'inner_tx>,
     query: Q,
-    _k: PhantomData<K>,
     parameters: M,
 }
 
-type DefaultKey = String;
-type DefaultParameters = HashMap<DefaultKey, ValueSend>;
+type DefaultParameters = HashMap<String, ValueSend>;
 
 impl<'driver, 'tx, 'inner_tx, Q: AsRef<str>>
-    TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, DefaultKey, DefaultParameters>
+    TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, DefaultParameters>
 {
     fn new(tx: &'tx Transaction<'driver, 'inner_tx>, query: Q) -> Self {
         Self {
             tx,
             query,
-            _k: PhantomData,
             parameters: Default::default(),
         }
     }
 }
 
-impl<
-        'driver,
-        'tx,
-        'inner_tx,
-        Q: AsRef<str>,
-        K: Borrow<str> + Debug,
-        M: Borrow<HashMap<K, ValueSend>>,
-    > TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, K, M>
+impl<'driver, 'tx, 'inner_tx, Q: AsRef<str>, P: ValueMap>
+    TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, P>
 {
     /// Configure query parameters.
     ///
@@ -307,20 +289,18 @@ impl<
     ///
     /// Always prefer this over query string manipulation to avoid injection vulnerabilities and to
     /// allow the server to cache the query plan.
-    pub fn with_parameters<K_: Borrow<str> + Debug, M_: Borrow<HashMap<K_, ValueSend>>>(
+    pub fn with_parameters<P_: ValueMap>(
         self,
-        parameters: M_,
-    ) -> TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, K_, M_> {
+        parameters: P_,
+    ) -> TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, P_> {
         let Self {
             tx,
             query,
-            _k: _,
             parameters: _,
         } = self;
         TransactionQueryBuilder {
             tx,
             query,
-            _k: PhantomData,
             parameters,
         }
     }
@@ -330,17 +310,15 @@ impl<
     /// This is the *default*.
     pub fn without_parameters(
         self,
-    ) -> TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, DefaultKey, DefaultParameters> {
+    ) -> TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, DefaultParameters> {
         let Self {
             tx,
             query,
-            _k: _,
             parameters: _,
         } = self;
         TransactionQueryBuilder {
             tx,
             query,
-            _k: PhantomData,
             parameters: Default::default(),
         }
     }
@@ -351,14 +329,8 @@ impl<
     }
 }
 
-impl<
-        'driver,
-        'tx,
-        'inner_tx,
-        Q: AsRef<str>,
-        K: Borrow<str> + Debug,
-        M: Borrow<HashMap<K, ValueSend>>,
-    > Debug for TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, K, M>
+impl<'driver, 'tx, 'inner_tx, Q: AsRef<str>, P: ValueMap> Debug
+    for TransactionQueryBuilder<'driver, 'tx, 'inner_tx, Q, P>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TransactionQueryBuilder")
