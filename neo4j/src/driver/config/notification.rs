@@ -83,8 +83,6 @@ pub enum DisabledCategory {
     Performance,
     Deprecation,
     Generic,
-    /// This requires Neo4j 5.13 or newer.
-    /// For older versions, this will result in a [`Neo4jError::ServerError`].
     Security,
     /// This requires Neo4j 5.13 or newer.
     /// For older versions, this will result in a [`Neo4jError::ServerError`].
