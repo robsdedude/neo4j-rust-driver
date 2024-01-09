@@ -97,8 +97,7 @@ impl<'a, R: Read + 'a> PackStreamDeserializerImpl<'a, R> {
         reader: &mut impl Read,
         size: usize,
     ) -> Result<Vec<u8>, PackStreamDeserializeError> {
-        let mut bytes = Vec::new();
-        bytes.resize(size, 0);
+        let mut bytes = vec![0; size];
         reader.read_exact(bytes.as_mut_slice())?;
         Ok(bytes)
     }
