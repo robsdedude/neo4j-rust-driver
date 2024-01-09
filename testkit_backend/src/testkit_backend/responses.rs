@@ -18,7 +18,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
-use lazy_regex::{regex, Regex};
+use lazy_regex::Regex;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
@@ -124,10 +124,8 @@ fn get_plain_skipped_tests() -> &'static HashMap<&'static str, &'static str> {
 fn get_regex_skipped_tests() -> &'static [(&'static Regex, &'static str)] {
     REGEX_SKIPPED_TESTS.get_or_init(|| {
         vec![
-            (
-                regex!(r"^.*\.routing\..*\.test_should_drop_connections_failing_liveness_check$"),
-                "requires support for GetConnectionPoolMetrics TestKit message",
-            ), // (regex!(r"^test_.*$"), "reason"),
+            // use lazy_regex::regex;
+            // (regex!(r"^test_.*$"), "reason"),
         ]
     })
 }
@@ -254,6 +252,7 @@ pub(super) enum Response {
         readers: Vec<String>,
         writers: Vec<String>,
     },
+    #[serde(rename_all = "camelCase")]
     ConnectionPoolMetrics {
         in_use: usize,
         idle: usize,

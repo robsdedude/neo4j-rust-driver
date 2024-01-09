@@ -148,6 +148,11 @@ impl InnerPool {
         }
         last_err.expect("resolve_address_fully returned empty iterator")
     }
+
+    #[cfg(feature = "_internal_testkit_backend")]
+    pub(crate) fn address(&self) -> &Arc<Address> {
+        &self.address
+    }
 }
 
 #[derive(Debug)]
@@ -275,6 +280,15 @@ impl SimplePool {
             lock.raw_pool.push_back(connection);
         }
         inner_pool.made_room_condition.notify_one();
+    }
+
+    #[cfg(feature = "_internal_testkit_backend")]
+    pub(crate) fn get_metrics(&self) -> ConnectionPoolMetrics {
+        let lock = self.synced.lock();
+        ConnectionPoolMetrics {
+            in_use: lock.borrowed + lock.reservations,
+            idle: lock.raw_pool.len(),
+        }
     }
 }
 
@@ -465,4 +479,11 @@ impl DerefMut for SinglePooledBolt {
             .as_mut()
             .expect("bolt option should be Some from init to drop")
     }
+}
+
+#[cfg(feature = "_internal_testkit_backend")]
+#[derive(Debug, Copy, Clone)]
+pub struct ConnectionPoolMetrics {
+    pub in_use: usize,
+    pub idle: usize,
 }

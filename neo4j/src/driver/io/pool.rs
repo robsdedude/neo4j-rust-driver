@@ -43,6 +43,8 @@ use crate::sync::MostlyRLock;
 use crate::time::Instant;
 use crate::value::ValueSend;
 use routing::RoutingTable;
+#[cfg(feature = "_internal_testkit_backend")]
+pub use single_pool::ConnectionPoolMetrics;
 pub(crate) use single_pool::SessionAuth;
 use single_pool::{SimplePool, SinglePooledBolt, UnpreparedSinglePooledBolt};
 
@@ -197,6 +199,12 @@ impl Pool {
         self.config.tls_config.is_some()
     }
 
+    #[cfg(feature = "_internal_testkit_backend")]
+    #[inline]
+    pub(crate) fn get_metrics(&self, address: Arc<Address>) -> Option<ConnectionPoolMetrics> {
+        self.pools.get_metrics(address)
+    }
+
     pub(crate) fn default_acquisition_deadline(&self) -> Option<Instant> {
         self.config
             .connection_acquisition_timeout
@@ -300,6 +308,20 @@ impl Pools {
 
     pub(crate) fn is_direct(&self) -> bool {
         matches!(self, Pools::Direct(_))
+    }
+
+    #[cfg(feature = "_internal_testkit_backend")]
+    fn get_metrics(&self, address: Arc<Address>) -> Option<ConnectionPoolMetrics> {
+        match self {
+            Pools::Direct(pool) => {
+                if pool.address() == &address {
+                    Some(pool.get_metrics())
+                } else {
+                    None
+                }
+            }
+            Pools::Routing(pools) => pools.get_metrics(address),
+        }
     }
 }
 
@@ -775,6 +797,11 @@ impl RoutingPool {
                 }
             }
         }
+    }
+
+    #[cfg(feature = "_internal_testkit_backend")]
+    fn get_metrics(&self, address: Arc<Address>) -> Option<ConnectionPoolMetrics> {
+        self.pools.read().get(&address).map(SimplePool::get_metrics)
     }
 }
 

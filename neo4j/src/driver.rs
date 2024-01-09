@@ -29,6 +29,8 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "_internal_testkit_backend")]
+use crate::address_::Address;
 use crate::bookmarks::{bookmark_managers, BookmarkManager};
 use crate::error_::Result;
 use crate::value::ValueSend;
@@ -38,6 +40,8 @@ pub use config::{
     InvalidRoutingContextError, TlsConfigError,
 };
 pub use eager_result::{EagerResult, ScalarError};
+#[cfg(feature = "_internal_testkit_backend")]
+pub use io::ConnectionPoolMetrics;
 use io::{AcquireConfig, Pool, PoolConfig, PooledBolt, SessionAuth, UpdateRtArgs};
 use notification::NotificationFilter;
 pub use record::Record;
@@ -358,6 +362,15 @@ impl Driver {
     #[inline]
     pub fn is_encrypted(&self) -> bool {
         self.pool.is_encrypted()
+    }
+
+    #[cfg(feature = "_internal_testkit_backend")]
+    #[inline]
+    pub fn get_connection_pool_metrics(
+        &self,
+        address: Arc<Address>,
+    ) -> Option<ConnectionPoolMetrics> {
+        self.pool.get_metrics(address)
     }
 
     fn acquire_capability_check_connection(&self) -> Result<PooledBolt> {

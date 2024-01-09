@@ -16,4 +16,6 @@ pub(crate) mod bolt;
 pub(crate) mod deadline;
 mod pool;
 
+#[cfg(feature = "_internal_testkit_backend")]
+pub use pool::ConnectionPoolMetrics;
 pub(crate) use pool::{AcquireConfig, Pool, PoolConfig, PooledBolt, SessionAuth, UpdateRtArgs};

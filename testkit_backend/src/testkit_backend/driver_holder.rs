@@ -20,9 +20,12 @@ use std::time::Duration;
 use flume::{Receiver, Sender};
 use log::warn;
 
+use neo4j::address::Address;
 use neo4j::bookmarks::BookmarkManager;
 use neo4j::driver::auth::AuthToken;
-use neo4j::driver::{ConnectionConfig, Driver, DriverConfig, EagerResult, RoutingControl};
+use neo4j::driver::{
+    ConnectionConfig, ConnectionPoolMetrics, Driver, DriverConfig, EagerResult, RoutingControl,
+};
 use neo4j::retry::ExponentialBackoff;
 use neo4j::session::SessionConfig;
 use neo4j::summary::ServerInfo;
@@ -275,6 +278,17 @@ impl DriverHolder {
         match self.rx_res.recv().unwrap() {
             CommandResult::LastBookmarks(result) => result,
             res => panic!("expected CommandResult::LastBookmarks, found {res:?}"),
+        }
+    }
+
+    pub(super) fn get_connection_pool_metrics(
+        &self,
+        args: GetConnectionPoolMetrics,
+    ) -> GetConnectionPoolMetricsResult {
+        self.tx_req.send(args.into()).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::GetConnectionPoolMetrics(result) => result,
+            res => panic!("expected CommandResult::GetConnectionPoolMetrics, found {res:?}"),
         }
     }
 
@@ -570,6 +584,20 @@ impl DriverHolderRunner {
                     Some(session_holder.last_bookmarks(args).into())
                 }
 
+                Command::GetConnectionPoolMetrics(args) => {
+                    let address = Arc::new(Address::from(args.address.as_str()));
+                    let result = self
+                        .driver
+                        .get_connection_pool_metrics(Arc::clone(&address))
+                        .ok_or_else(|| {
+                            TestKitError::backend_err(format!(
+                                "Connection pool metrics not found for address {}",
+                                args.address
+                            ))
+                        });
+                    Some(GetConnectionPoolMetricsResult { result }.into())
+                }
+
                 Command::CloseSession(CloseSession { session_id }) => 'arm: {
                     let Some(mut session) = sessions.remove(&session_id) else {
                         break 'arm Some(
@@ -695,6 +723,7 @@ enum Command {
     ResultSingle(ResultSingle),
     ResultConsume(ResultConsume),
     LastBookmarks(LastBookmarks),
+    GetConnectionPoolMetrics(GetConnectionPoolMetrics),
     VerifyConnectivity,
     GetServerInfo,
     SupportsMultiDb,
@@ -722,6 +751,7 @@ enum CommandResult {
     ResultSingle(ResultSingleResult),
     ResultConsume(ResultConsumeResult),
     LastBookmarks(LastBookmarksResult),
+    GetConnectionPoolMetrics(GetConnectionPoolMetricsResult),
     VerifyConnectivity(VerifyConnectivityResult),
     GetServerInfo(GetServerInfoResult),
     SupportsMultiDb(SupportsMultiDbResult),
@@ -926,6 +956,29 @@ impl From<LastBookmarksResult> for CommandResult {
 impl From<ResultConsumeResult> for CommandResult {
     fn from(r: ResultConsumeResult) -> Self {
         CommandResult::ResultConsume(r)
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct GetConnectionPoolMetrics {
+    pub(super) address: String,
+}
+
+impl From<GetConnectionPoolMetrics> for Command {
+    fn from(c: GetConnectionPoolMetrics) -> Self {
+        Command::GetConnectionPoolMetrics(c)
+    }
+}
+
+#[must_use]
+#[derive(Debug)]
+pub(super) struct GetConnectionPoolMetricsResult {
+    pub(super) result: Result<ConnectionPoolMetrics, TestKitError>,
+}
+
+impl From<GetConnectionPoolMetricsResult> for CommandResult {
+    fn from(r: GetConnectionPoolMetricsResult) -> Self {
+        CommandResult::GetConnectionPoolMetrics(r)
     }
 }
 

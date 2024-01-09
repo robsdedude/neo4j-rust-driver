@@ -32,7 +32,7 @@ use super::bookmarks::new_bookmark_manager;
 use super::cypher_value::{ConvertableJsonValue, ConvertableValueSend, CypherValue, CypherValues};
 use super::driver_holder::{
     CloseSession, DriverHolder, EmulatedDriverConfig, ExecuteQuery, ExecuteQueryBookmarkManager,
-    NewSession, VerifyAuthentication,
+    GetConnectionPoolMetrics, NewSession, VerifyAuthentication,
 };
 use super::errors::TestKitError;
 use super::resolver::TestKitResolver;
@@ -715,7 +715,9 @@ impl Request {
             Request::RetryableNegative { .. } => self.retryable_negative(backend)?,
             // Request::ForcedRoutingTableUpdate { .. } => {},
             // Request::GetRoutingTable { .. } => {},
-            // Request::GetConnectionPoolMetrics { .. } => {},
+            Request::GetConnectionPoolMetrics { .. } => {
+                self.get_connection_pool_metrics(backend)?
+            }
             Request::ExecuteQuery { .. } => self.execute_query(backend)?,
             Request::FakeTimeInstall { .. } => self.fake_time_install(backend)?,
             Request::FakeTimeTick { .. } => self.fake_time_tick(backend)?,
@@ -1403,6 +1405,21 @@ impl Request {
             .result?;
         let msg = handle_retry_outcome(&mut data, retry_outcome, driver_id);
         backend.send(&msg)
+    }
+
+    fn get_connection_pool_metrics(self, backend: &Backend) -> TestKitResult {
+        let Request::GetConnectionPoolMetrics { driver_id, address } = self else {
+            panic!("expected Request::GetConnectionPoolMetrics");
+        };
+        let data = backend.data.borrow();
+        let driver_holder = get_driver(&data, &driver_id)?;
+        let metrics = driver_holder
+            .get_connection_pool_metrics(GetConnectionPoolMetrics { address })
+            .result?;
+        backend.send(&Response::ConnectionPoolMetrics {
+            in_use: metrics.in_use,
+            idle: metrics.idle,
+        })
     }
 
     fn execute_query(self, backend: &Backend) -> TestKitResult {
