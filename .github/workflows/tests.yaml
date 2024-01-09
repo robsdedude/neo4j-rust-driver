@@ -38,6 +38,8 @@ jobs:
         run: cargo check
       - name: cargo fmt
         run: cargo +nightly fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --all -- -D warnings
       - name: docs build
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
       - name: tests

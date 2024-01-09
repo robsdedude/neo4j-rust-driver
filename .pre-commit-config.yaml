@@ -15,7 +15,7 @@ repos:
         types: [rust]
       - id: clippy
         name: cargo clippy
-        entry: cargo clippy -- -D warnings
+        entry: cargo clippy --all -- -D warnings
         language: system
         types: [rust]
         pass_filenames: false
