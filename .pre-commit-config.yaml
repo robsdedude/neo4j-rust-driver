@@ -13,9 +13,15 @@ repos:
         entry: rustfmt +nightly --
         language: system
         types: [rust]
-      - id: clippy
-        name: cargo clippy
-        entry: cargo clippy --all -- -D warnings
+      - id: clippy driver
+        name: cargo clippy (driver)
+        entry: cargo clippy -p neo4j -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: clippy all
+        name: cargo clippy (all)
+        entry: cargo clippy --all --all-features -- -D warnings
         language: system
         types: [rust]
         pass_filenames: false
