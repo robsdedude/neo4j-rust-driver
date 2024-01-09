@@ -36,7 +36,7 @@ use super::session_holder::SummaryWithQuery;
 use super::BackendId;
 
 // https://github.com/rust-lang/rust/issues/85077
-const FEATURE_LIST: [&str; 41] = [
+const FEATURE_LIST: [&str; 42] = [
     // === FUNCTIONAL FEATURES ===
     "Feature:API:BookmarkManager",
     "Feature:API:ConnectionAcquisitionTimeout",
@@ -86,7 +86,7 @@ const FEATURE_LIST: [&str; 41] = [
     "Optimization:AuthPipelining",
     "Optimization:ConnectionReuse",
     "Optimization:EagerTransactionBegin",
-    // "Optimization:ExecuteQueryPipelining",
+    "Optimization:ExecuteQueryPipelining",
     "Optimization:ImplicitDefaultArguments",
     "Optimization:MinimalBookmarksSet",
     "Optimization:MinimalResets",
