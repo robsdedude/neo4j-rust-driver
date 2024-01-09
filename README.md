@@ -40,7 +40,7 @@ A bump in MSRV is considered a minor breaking change.
    * [x] `.verify_connectivity`
    * [x] `.verify_authentication`
    * [x] `.get_server_info`
-   * [ ] `.encrypted` (not sure if needed?)
+   * [x] `.is_encrypted`
  * [x] Session
    * [x] Config
      * [x] database

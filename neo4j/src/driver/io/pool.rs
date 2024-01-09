@@ -187,8 +187,14 @@ impl Pool {
         }
     }
 
+    #[inline]
     pub(crate) fn is_routing(&self) -> bool {
         self.config.routing_context.is_some()
+    }
+
+    #[inline]
+    pub(crate) fn is_encrypted(&self) -> bool {
+        self.config.tls_config.is_some()
     }
 
     pub(crate) fn default_acquisition_deadline(&self) -> Option<Instant> {

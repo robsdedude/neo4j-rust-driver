@@ -338,7 +338,7 @@ impl Driver {
     /// **Note:**  
     /// The protocol supporting multi-database does not necessarily mean that the DBMS supports it
     /// as well.
-    /// For example, community edition Neo4j does not support multi-database.
+    /// For example, Neo4j community edition does not support multi-database.
     pub fn supports_multi_db(&self) -> Result<bool> {
         self.acquire_capability_check_connection()
             .map(|connection| connection.protocol_version() >= (4, 0))
@@ -350,6 +350,14 @@ impl Driver {
     pub fn supports_session_auth(&self) -> Result<bool> {
         self.acquire_capability_check_connection()
             .map(|connection| connection.protocol_version() >= (5, 1))
+    }
+
+    /// Check whether the driver was configured with TLS.
+    ///
+    /// See also [`ConnectionConfig::with_encryption_disabled()`] and similar.
+    #[inline]
+    pub fn is_encrypted(&self) -> bool {
+        self.pool.is_encrypted()
     }
 
     fn acquire_capability_check_connection(&self) -> Result<PooledBolt> {

@@ -686,7 +686,7 @@ impl Request {
             Request::CheckMultiDBSupport { .. } => self.check_multi_db_support(backend)?,
             Request::VerifyAuthentication { .. } => self.verify_authentication(backend)?,
             Request::CheckSessionAuthSupport { .. } => self.check_session_auth_support(backend)?,
-            // Request::CheckDriverIsEncrypted { .. } => {},
+            Request::CheckDriverIsEncrypted { .. } => self.check_driver_is_encrypted(backend)?,
             Request::ResolverResolutionCompleted { .. } => return self.unexpected_resolution(),
             Request::BookmarksSupplierCompleted { .. } => return self.unexpected_resolution(),
             Request::BookmarksConsumerCompleted { .. } => return self.unexpected_resolution(),
@@ -968,6 +968,16 @@ impl Request {
         let available = driver_holder.supports_session_auth().result?;
         let id = backend.next_id();
         backend.send(&Response::SessionAuthSupport { id, available })
+    }
+
+    fn check_driver_is_encrypted(self, backend: &Backend) -> TestKitResult {
+        let Request::CheckDriverIsEncrypted { driver_id } = self else {
+            panic!("expected Request::CheckDriverIsEncrypted");
+        };
+        let data = backend.data.borrow();
+        let driver_holder = get_driver(&data, &driver_id)?;
+        let encrypted = driver_holder.is_encrypted().result;
+        backend.send(&Response::DriverIsEncrypted { encrypted })
     }
 
     fn new_bookmark_manager(self, backend: &Backend) -> TestKitResult {

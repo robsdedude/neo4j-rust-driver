@@ -133,6 +133,14 @@ impl DriverHolder {
         }
     }
 
+    pub(super) fn is_encrypted(&self) -> IsEncryptedResult {
+        self.tx_req.send(Command::IsEncrypted).unwrap();
+        match self.rx_res.recv().unwrap() {
+            CommandResult::IsEncrypted(result) => result,
+            res => panic!("expected CommandResult::IsEncrypted, found {res:?}"),
+        }
+    }
+
     pub(super) fn execute_query(&self, args: ExecuteQuery) -> ExecuteQueryResult {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
@@ -597,6 +605,11 @@ impl DriverHolderRunner {
                     Some(SupportsSessionAuthResult { result }.into())
                 }
 
+                Command::IsEncrypted => {
+                    let result = self.driver.is_encrypted();
+                    Some(IsEncryptedResult { result }.into())
+                }
+
                 Command::VerifyAuthentication(VerifyAuthentication { auth }) => {
                     let result = self
                         .driver
@@ -686,6 +699,7 @@ enum Command {
     GetServerInfo,
     SupportsMultiDb,
     SupportsSessionAuth,
+    IsEncrypted,
     VerifyAuthentication(VerifyAuthentication),
     ExecuteQuery(ExecuteQuery),
     Close,
@@ -712,6 +726,7 @@ enum CommandResult {
     GetServerInfo(GetServerInfoResult),
     SupportsMultiDb(SupportsMultiDbResult),
     SupportsSessionAuth(SupportsSessionAuthResult),
+    IsEncrypted(IsEncryptedResult),
     VerifyAuthentication(VerifyAuthenticationResult),
     ExecuteQuery(ExecuteQueryResult),
     Close(CloseResult),
@@ -1019,6 +1034,18 @@ pub(super) struct SupportsSessionAuthResult {
 impl From<SupportsSessionAuthResult> for CommandResult {
     fn from(r: SupportsSessionAuthResult) -> Self {
         CommandResult::SupportsSessionAuth(r)
+    }
+}
+
+#[must_use]
+#[derive(Debug)]
+pub(super) struct IsEncryptedResult {
+    pub(super) result: bool,
+}
+
+impl From<IsEncryptedResult> for CommandResult {
+    fn from(r: IsEncryptedResult) -> Self {
+        CommandResult::IsEncrypted(r)
     }
 }
 

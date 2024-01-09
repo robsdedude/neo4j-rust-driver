@@ -35,6 +35,78 @@ use super::requests::TestKitAuth;
 use super::session_holder::SummaryWithQuery;
 use super::BackendId;
 
+// https://github.com/rust-lang/rust/issues/85077
+const FEATURE_LIST: [&str; 41] = [
+    // === FUNCTIONAL FEATURES ===
+    "Feature:API:BookmarkManager",
+    "Feature:API:ConnectionAcquisitionTimeout",
+    "Feature:API:Driver.ExecuteQuery",
+    "Feature:API:Driver:GetServerInfo",
+    "Feature:API:Driver.IsEncrypted",
+    // Even tough the driver does not support notification config,
+    // TestKit uses this flag to change assertions on the notification objects
+    "Feature:API:Driver:NotificationsConfig",
+    "Feature:API:Driver.VerifyAuthentication",
+    "Feature:API:Driver.VerifyConnectivity",
+    "Feature:API:Driver.SupportsSessionAuth",
+    "Feature:API:Liveness.Check",
+    // "Feature:API:Result.List",
+    // "Feature:API:Result.Peek",
+    "Feature:API:Result.Single",
+    // "Feature:API:Result.SingleOptional",
+    "Feature:API:RetryableExceptions",
+    "Feature:API:Session:AuthConfig",
+    "Feature:API:Session:NotificationsConfig",
+    "Feature:API:SSLConfig",
+    "Feature:API:SSLSchemes",
+    "Feature:API:Type.Spatial",
+    "Feature:API:Type.Temporal",
+    "Feature:Auth:Bearer",
+    "Feature:Auth:Custom",
+    "Feature:Auth:Kerberos",
+    "Feature:Auth:Managed",
+    // "Feature:Bolt:3.0",
+    // "Feature:Bolt:4.1",
+    // "Feature:Bolt:4.2",
+    // "Feature:Bolt:4.3",
+    "Feature:Bolt:4.4",
+    "Feature:Bolt:5.0",
+    "Feature:Bolt:5.1",
+    "Feature:Bolt:5.2",
+    // "Feature:Bolt:5.3",
+    // "Feature:Bolt:5.4",
+    "Feature:Bolt:Patch:UTC",
+    "Feature:Impersonation",
+    // "Feature:TLS:1.1",  // rustls says no! For a good reason.
+    "Feature:TLS:1.2",
+    "Feature:TLS:1.3",
+    //
+    // === OPTIMIZATIONS ===
+    "AuthorizationExpiredTreatment",
+    "Optimization:AuthPipelining",
+    "Optimization:ConnectionReuse",
+    "Optimization:EagerTransactionBegin",
+    // "Optimization:ExecuteQueryPipelining",
+    "Optimization:ImplicitDefaultArguments",
+    "Optimization:MinimalBookmarksSet",
+    "Optimization:MinimalResets",
+    "Optimization:MinimalVerifyAuthentication",
+    "Optimization:PullPipelining",
+    // "Optimization:ResultListFetchAll",
+    //
+    // === IMPLEMENTATION DETAILS ===
+    // "Detail:ClosedDriverIsEncrypted",
+    // "Detail:DefaultSecurityConfigValueEquality",
+    //
+    // === CONFIGURATION HINTS (BOLT 4.3+) ===
+    "ConfHint:connection.recv_timeout_seconds",
+    //
+    // === BACKEND FEATURES FOR TESTING ===
+    "Backend:MockTime",
+    // "Backend:RTFetch",
+    // "Backend:RTForceUpdate",
+];
+
 static PLAIN_SKIPPED_TESTS: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 static REGEX_SKIPPED_TESTS: OnceLock<Vec<(&'static Regex, &'static str)>> = OnceLock::new();
 
@@ -141,7 +213,6 @@ pub(super) enum Response {
         available: bool,
     },
     DriverIsEncrypted {
-        id: BackendId,
         encrypted: bool,
     },
     Session {
@@ -616,79 +687,7 @@ impl TryFrom<EagerResult> for Response {
 impl Response {
     pub(super) fn feature_list() -> Self {
         Self::FeatureList {
-            features: [
-                // === FUNCTIONAL FEATURES ===
-                "Feature:API:BookmarkManager",
-                "Feature:API:ConnectionAcquisitionTimeout",
-                "Feature:API:Driver.ExecuteQuery",
-                "Feature:API:Driver:GetServerInfo",
-                // "Feature:API:Driver.IsEncrypted" ,
-                // Even tough the driver does not support notification config,
-                // TestKit uses this flag to change assertions on the notification objects
-                "Feature:API:Driver:NotificationsConfig",
-                "Feature:API:Driver.VerifyAuthentication",
-                "Feature:API:Driver.VerifyConnectivity",
-                "Feature:API:Driver.SupportsSessionAuth",
-                "Feature:API:Liveness.Check",
-                // "Feature:API:Result.List",
-                // "Feature:API:Result.Peek",
-                "Feature:API:Result.Single",
-                // "Feature:API:Result.SingleOptional",
-                "Feature:API:RetryableExceptions",
-                "Feature:API:Session:AuthConfig",
-                "Feature:API:Session:NotificationsConfig",
-                "Feature:API:SSLConfig",
-                "Feature:API:SSLSchemes",
-                "Feature:API:Type.Spatial",
-                "Feature:API:Type.Temporal",
-                "Feature:Auth:Bearer",
-                "Feature:Auth:Custom",
-                "Feature:Auth:Kerberos",
-                "Feature:Auth:Managed",
-                // "Feature:Bolt:3.0",
-                // "Feature:Bolt:4.1",
-                // "Feature:Bolt:4.2",
-                // "Feature:Bolt:4.3",
-                "Feature:Bolt:4.4",
-                "Feature:Bolt:5.0",
-                "Feature:Bolt:5.1",
-                "Feature:Bolt:5.2",
-                // "Feature:Bolt:5.3",
-                // "Feature:Bolt:5.4",
-                "Feature:Bolt:Patch:UTC",
-                "Feature:Impersonation",
-                // "Feature:TLS:1.1",  // rustls says no! For a good reason.
-                "Feature:TLS:1.2",
-                "Feature:TLS:1.3",
-                //
-                // === OPTIMIZATIONS ===
-                "AuthorizationExpiredTreatment",
-                "Optimization:AuthPipelining",
-                "Optimization:ConnectionReuse",
-                "Optimization:EagerTransactionBegin",
-                // "Optimization:ExecuteQueryPipelining",
-                "Optimization:ImplicitDefaultArguments",
-                "Optimization:MinimalBookmarksSet",
-                "Optimization:MinimalResets",
-                "Optimization:MinimalVerifyAuthentication",
-                "Optimization:PullPipelining",
-                // "Optimization:ResultListFetchAll",
-                //
-                // === IMPLEMENTATION DETAILS ===
-                // "Detail:ClosedDriverIsEncrypted",
-                // "Detail:DefaultSecurityConfigValueEquality",
-                //
-                // === CONFIGURATION HINTS (BOLT 4.3+) ===
-                "ConfHint:connection.recv_timeout_seconds",
-                //
-                // === BACKEND FEATURES FOR TESTING ===
-                "Backend:MockTime",
-                // "Backend:RTFetch",
-                // "Backend:RTForceUpdate",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
+            features: FEATURE_LIST.into_iter().map(String::from).collect(),
         }
     }
 

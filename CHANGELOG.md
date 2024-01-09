@@ -4,6 +4,7 @@
  - Removed useless lifetime parameter from `SessionConfig::with_database()`.
  - Changed return type of `ConnectionConfig::with_encryption_trust_any_certificate() ` from `Result<Self, Error>` to `Self`.
  - Add support for Bolt 5.2, which adds notification filtering.
+ - Add `Driver::is_encrypted()`.
 
 ## 0.0.2
  - Update dependencies.  
@@ -20,7 +21,7 @@
    Same for `TransactionBuilder`.
  - Move `neo4j::Address` to `neo4j::address::Address`
  - Impl `FromStr` for `neo4j::driver::ConnectionConfig` (besides `TryFrom<&str>`).
- - Much more documentation
+ - Much more documentation.
 
 ## 0.0.1
 Initial release
