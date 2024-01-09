@@ -61,7 +61,7 @@
 //! );
 //!
 //! // Driver::execute_query() is the easiest way to run a query.
-//! // It will be sufficient for most use cases and allows the driver to apply some optimizations.
+//! // It will be sufficient for most use-cases and allows the driver to apply some optimizations.
 //! // So it's recommended to use it whenever possible.
 //! // For more control, see sessions and transactions.
 //! let result = driver
@@ -71,13 +71,15 @@
 //!     // This will let the driver work more efficiently.
 //!     .with_database(database)
 //!     // Tell the driver to send the query to a read server.
-//!     // In a clustered environment, this will allow make sure that read queries don't overload
-//!     // the write single server.
+//!     // In a clustered environment, this will make sure that read queries don't overload
+//!     // the single write server.
 //!     .with_routing_control(RoutingControl::Read)
 //!     // Use query parameters (instead of string interpolation) to avoid injection attacks and
 //!     // improve performance.
 //!     .with_parameters(value_map!({"x": 123}))
 //!     // For more resilience, use retry policies.
+//!     // Especially in a clustered environment, this will help to recover from transient errors
+//!     // like those caused by leader elections, which are to be expected.
 //!     .run_with_retry(ExponentialBackoff::default());
 //! println!("{:?}", result);
 //!
