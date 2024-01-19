@@ -161,7 +161,7 @@ impl<'driver> RecordStream<'driver> {
     ///
     /// Returns [`None`] if
     ///  * [`RecordStream::consume()`] has been called before or
-    ///  * there was an error (earlier) other than `GetSingleRecordError`
+    ///  * there was an error (earlier) other than [`Neo4jError`]
     ///    while processing the [`RecordStream`].
     pub fn consume(&mut self) -> Result<Option<Summary>> {
         self.exhaust()?;
