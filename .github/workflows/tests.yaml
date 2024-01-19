@@ -12,7 +12,7 @@ jobs:
     runs-on: "ubuntu-latest"
     strategy:
       matrix:
-        rust-version: ["1.65", "stable"]
+        rust-version: ["1.70", "stable"]
     steps:
       - name: Pull Neo4j Docker Image
         run: docker pull neo4j:5.6-enterprise
@@ -25,13 +25,17 @@ jobs:
           -e NEO4J_dbms_security_auth__minimum__password__length=1
           neo4j:5.6-enterprise &
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ matrix.rust-version }}
           components: clippy
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rustfmt
+      - name: versions
+        run: cargo --version && cargo clippy --version
+      - name: versions nightly
+        run: cargo +nightly --version && cargo +nightly fmt --version
       - name: cargo check
         env:
           RUSTFLAGS: -D warnings
