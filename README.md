@@ -10,7 +10,7 @@ Disclaimer:
 
 
 ## MSRV
-Currently, this crate's minimum supported Rust version is `1.65`.
+Currently, this crate's minimum supported Rust version is `1.70`.
 A bump in MSRV is considered a minor breaking change.
 
 
