@@ -222,7 +222,7 @@ impl Pool {
         {
             let resolved_db = &mut resolved_db;
             drop(pools.routing_tables.update(move |mut rts| {
-                *resolved_db = pools.update_rts(args, &mut rts)?.clone();
+                *resolved_db = pools.update_rts(args, &mut rts)?;
                 Ok(())
             })?);
         }

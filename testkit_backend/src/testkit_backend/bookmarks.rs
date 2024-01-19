@@ -47,11 +47,7 @@ pub(super) fn new_bookmark_manager(
         None
     };
     let consumer = if with_consumer {
-        Some(make_consumer_fn(
-            manager_id,
-            backend_io.clone(),
-            id_generator.clone(),
-        ))
+        Some(make_consumer_fn(manager_id, backend_io, id_generator))
     } else {
         None
     };
