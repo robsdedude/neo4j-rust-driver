@@ -6,6 +6,7 @@
  - Add support for Bolt 5.2, which adds notification filtering.
  - Add `Driver::is_encrypted()`.
  - Reduce the number of lifetime generic parameters in `TransactionQueryBuilder` and `TransactionRecordStream`.
+ - Fix `Transaction::rolblack()` failing if a result stream failed before.
 
 ## 0.0.2
  - Update dependencies.  

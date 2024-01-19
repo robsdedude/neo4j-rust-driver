@@ -112,12 +112,9 @@ static REGEX_SKIPPED_TESTS: OnceLock<Vec<(&'static Regex, &'static str)>> = Once
 
 fn get_plain_skipped_tests() -> &'static HashMap<&'static str, &'static str> {
     PLAIN_SKIPPED_TESTS.get_or_init(|| {
-        let mut map = HashMap::new();
-        map.insert(
-            "neo4j.test_tx_run.TestTxRun.test_tx_res_fails_whole_tx",
-            "backend (SessionHolder) doesn't keep result buffers around after error",
-        );
-        map
+        HashMap::from([
+            // ("path.to.skipped_test", "reason"),
+        ])
     })
 }
 

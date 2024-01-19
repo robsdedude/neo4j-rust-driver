@@ -470,15 +470,10 @@ impl SessionHolderRunner {
                                             }
                                             Err(err) => {
                                                 known_transactions.insert(id, TxFailState::Failed);
-                                                // outside the receiver, we'll just reply with an
-                                                // error to the command. So query and parameters
-                                                // don't matter.
-                                                _ = buffered_command.insert(TransactionRun {
-                                                    transaction_id: command.transaction_id,
-                                                    query: String::from(""),
-                                                    params: None,
-                                                }.into());
-                                                break Err(err);
+                                                let msg = TransactionRunResult {
+                                                    result: Err(err.into()),
+                                                };
+                                                tx_res.send(msg.into()).unwrap();
                                             }
                                         }
                                     }
