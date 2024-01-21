@@ -77,9 +77,9 @@ impl<T: BoltStructTranslator> Bolt5x2<T> {
         }
     }
 
-    pub(in super::super) fn write_notification_filter<W: Write>(
+    pub(in super::super) fn write_notification_filter(
         mut log_buf: Option<&mut String>,
-        serializer: &mut PackStreamSerializerImpl<W>,
+        serializer: &mut PackStreamSerializerImpl<impl Write>,
         dbg_serializer: &mut PackStreamSerializerDebugImpl,
         notification_filter: Option<&NotificationFilter>,
     ) -> Result<()> {

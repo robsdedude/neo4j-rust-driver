@@ -2,7 +2,7 @@
 name = "neo4j"
 version = "0.0.2"
 edition = "2021"
-rust-version = "1.65"
+rust-version = "1.70"
 readme = "../README.md"
 description = "Bolt driver for Neo4j."
 license = "Apache-2.0"

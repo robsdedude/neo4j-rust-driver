@@ -18,6 +18,7 @@ mod bolt4x4;
 mod bolt5x0;
 mod bolt5x1;
 mod bolt5x2;
+mod bolt5x3;
 mod bolt_state;
 mod chunk;
 mod message;
@@ -58,6 +59,7 @@ use bolt4x4::{Bolt4x4, Bolt4x4StructTranslator};
 use bolt5x0::{Bolt5x0, Bolt5x0StructTranslator};
 use bolt5x1::{Bolt5x1, Bolt5x1StructTranslator};
 use bolt5x2::{Bolt5x2, Bolt5x2StructTranslator};
+use bolt5x3::{Bolt5x3, Bolt5x3StructTranslator};
 use bolt_state::{BoltState, BoltStateTracker};
 use chunk::{Chunker, Dechunker};
 use message::BoltMessage;
@@ -172,6 +174,7 @@ impl<RW: Read + Write> Bolt<RW> {
             data: BoltData::new(version, stream, socket, local_port, address),
             // [bolt-version-bump] search tag when changing bolt version support
             protocol: match version {
+                (5, 3) => Bolt5x3::<Bolt5x3StructTranslator>::default().into(),
                 (5, 2) => Bolt5x2::<Bolt5x2StructTranslator>::default().into(),
                 (5, 1) => Bolt5x1::<Bolt5x1StructTranslator>::default().into(),
                 (5, 0) => Bolt5x0::<Bolt5x0StructTranslator>::default().into(),
@@ -472,6 +475,7 @@ enum BoltProtocolVersion {
     V5x0(Bolt5x0<Bolt5x0StructTranslator>),
     V5x1(Bolt5x1<Bolt5x1StructTranslator>),
     V5x2(Bolt5x2<Bolt5x2StructTranslator>),
+    V5x3(Bolt5x3<Bolt5x3StructTranslator>),
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -807,7 +811,7 @@ fn assert_response_field_count<T>(name: &str, fields: &[T], expected_count: usiz
 const BOLT_MAGIC_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
 // [bolt-version-bump] search tag when changing bolt version support
 const BOLT_VERSION_OFFER: [u8; 16] = [
-    0, 2, 2, 5, // BOLT 5.2 - 5.0
+    0, 3, 3, 5, // BOLT 5.3 - 5.0
     0, 0, 4, 4, // BOLT 4.4
     0, 0, 0, 0, // -
     0, 0, 0, 0, // -
@@ -885,6 +889,7 @@ pub(crate) fn open(
         [0, 0, 0, 0] => Err(Neo4jError::InvalidConfig {
             message: String::from("server version not supported"),
         }),
+        [0, 0, 3, 5] => Ok((5, 3)),
         [0, 0, 2, 5] => Ok((5, 2)),
         [0, 0, 1, 5] => Ok((5, 1)),
         [0, 0, 0, 5] => Ok((5, 0)),
