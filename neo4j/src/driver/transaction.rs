@@ -86,14 +86,26 @@ impl<'driver, 'tx> Transaction<'driver, 'tx> {
     /// This is the default behavior when the transaction is dropped.
     /// However, when dropping the transaction, potential errors will be swallowed.
     pub fn rollback(self) -> Result<()> {
-        self.drop_result.into_inner()?;
-        self.inner_tx.rollback()
+        match self.drop_result.into_inner() {
+            Ok(_) => self.inner_tx.rollback(),
+            Err(_) => {
+                // Nothing to do here.
+                // The transaction already failed and doesn't need to be rolled back.
+                Ok(())
+            }
+        }
     }
 }
 
 /// A result cursor as returned by [`TransactionQueryBuilder::run()`].
 ///
 /// It implements [`Iterator`] and can be used to iterate over the [`Record`]s.
+///
+/// Before ending the transaction ([`Transaction::commit()`] or [`Transaction::rollback()`]), all
+/// record streams spawned from it must be dropped.
+/// While calling [`drop(stream)`] works fine for this purpose, it will swallow any outstanding
+/// errors.
+/// Therefore, it is recommended to use [`TransactionRecordStream::consume()`] instead.
 #[derive(Debug)]
 pub struct TransactionRecordStream<'driver, 'tx>(
     RecordStream<'driver>,

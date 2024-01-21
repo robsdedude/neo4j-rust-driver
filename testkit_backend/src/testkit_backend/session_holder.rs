@@ -470,15 +470,10 @@ impl SessionHolderRunner {
                                             }
                                             Err(err) => {
                                                 known_transactions.insert(id, TxFailState::Failed);
-                                                // outside the receiver, we'll just reply with an
-                                                // error to the command. So query and parameters
-                                                // don't matter.
-                                                _ = buffered_command.insert(TransactionRun {
-                                                    transaction_id: command.transaction_id,
-                                                    query: String::from(""),
-                                                    params: None,
-                                                }.into());
-                                                break Err(err);
+                                                let msg = TransactionRunResult {
+                                                    result: Err(err.into()),
+                                                };
+                                                tx_res.send(msg.into()).unwrap();
                                             }
                                         }
                                     }
@@ -636,9 +631,19 @@ impl SessionHolderRunner {
                                     }
 
                                     command @ (Command::BeginTransaction(_)
-                                    | Command::TransactionFunction(_)|Command::AutoCommit(_)) => command.reply_error(
-                                        tx_res, session_already_executing_tx_error()
-                                    ),
+                                    | Command::TransactionFunction(_)|Command::AutoCommit(_)) => {
+                                        if known_transactions
+                                            .get(&id)
+                                            .map(|tx| matches!(tx, TxFailState::Failed))
+                                            .unwrap_or(false) {
+                                            // transaction failed, therefore, we allow to start a new one
+                                            _ = buffered_command.insert(command);
+                                            return Ok(());
+                                        }
+                                        command.reply_error(
+                                            tx_res, session_already_executing_tx_error(),
+                                        )
+                                    }
                                     command @ (Command::RetryablePositive(_)
                                     | Command::RetryableNegative(_)) => {
                                         command.reply_error(
@@ -695,6 +700,11 @@ impl SessionHolderRunner {
                                     .send(CloseResult { result: res }.into())
                                     .unwrap();
                                 return;
+                            }
+                            command @ (Command::BeginTransaction(_)
+                                | Command::TransactionFunction(_)|Command::AutoCommit(_)) => {
+                                res.expect("expected failed transaction to not error");
+                                _ = buffered_command.insert(command);
                             }
                             _ => panic!(
                                 "left transaction function with unexpected buffered command {command:?}"
