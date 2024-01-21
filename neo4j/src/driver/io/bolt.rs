@@ -43,10 +43,14 @@ use enum_dispatch::enum_dispatch;
 use log::Level::Trace;
 use log::{debug, log_enabled, trace};
 use rustls::ClientConfig;
+use socket2::{Socket as Socket2, TcpKeepalive};
 use usize_cast::FromUsize;
 
 use super::deadline::DeadlineIO;
 use crate::address_::Address;
+use crate::driver::auth::AuthToken;
+use crate::driver::config::KeepAliveConfig;
+use crate::driver::io::bolt::message_parameters::ResetParameters;
 use crate::error_::{Neo4jError, Result, ServerError};
 use crate::time::Instant;
 use crate::value::{ValueReceive, ValueSend};
@@ -134,8 +138,6 @@ macro_rules! socket_debug {
         );
     };
 }
-use crate::driver::auth::AuthToken;
-use crate::driver::io::bolt::message_parameters::ResetParameters;
 pub(crate) use socket_debug;
 
 pub(crate) fn dbg_extra(port: Option<u16>, bolt_id: Option<&str>) -> String {
@@ -815,6 +817,7 @@ pub(crate) fn open(
     address: Arc<Address>,
     deadline: Option<Instant>,
     mut connect_timeout: Option<Duration>,
+    keep_alive: Option<KeepAliveConfig>,
     tls_config: Option<Arc<ClientConfig>>,
 ) -> Result<TcpBolt> {
     if log_enabled!(Trace) {
@@ -844,6 +847,7 @@ pub(crate) fn open(
         None => TcpStream::connect(&*address),
         Some(timeout) => each_addr(&*address, |addr| TcpStream::connect_timeout(addr?, timeout)),
     })?;
+    let raw_socket = set_tcp_keepalive(raw_socket, keep_alive)?;
     let local_port = raw_socket
         .local_addr()
         .map(|addr| addr.port())
@@ -933,6 +937,21 @@ where
             "could not resolve to any addresses",
         )
     }))
+}
+
+fn set_tcp_keepalive(socket: TcpStream, keep_alive: Option<KeepAliveConfig>) -> Result<TcpStream> {
+    let keep_alive = match keep_alive {
+        None => return Ok(socket),
+        Some(KeepAliveConfig::Default) => TcpKeepalive::new(),
+        Some(KeepAliveConfig::CustomTime(time)) => TcpKeepalive::new().with_time(time),
+    };
+    let socket = Socket2::from(socket);
+    socket
+        .set_tcp_keepalive(&keep_alive)
+        .map_err(|err| Neo4jError::InvalidConfig {
+            message: format!("failed to set tcp keepalive: {}", err),
+        })?;
+    Ok(socket.into())
 }
 
 fn wrap_write_socket<T>(stream: &TcpStream, local_port: u16, res: io::Result<T>) -> Result<T> {

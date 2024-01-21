@@ -37,7 +37,7 @@ use crate::value::ValueSend;
 use config::auth::AuthToken;
 pub use config::{
     ConfigureFetchSizeError, ConnectionConfig, ConnectionConfigParseError, DriverConfig,
-    InvalidRoutingContextError, TlsConfigError,
+    InvalidRoutingContextError, KeepAliveConfig, TlsConfigError,
 };
 pub use eager_result::{EagerResult, ScalarError};
 #[cfg(feature = "_internal_testkit_backend")]
@@ -107,6 +107,7 @@ impl Driver {
             max_connection_lifetime: config.max_connection_lifetime,
             max_connection_pool_size: config.max_connection_pool_size,
             connection_timeout: config.connection_timeout,
+            keep_alive: config.keep_alive,
             connection_acquisition_timeout: config.connection_acquisition_timeout,
             resolver: config.resolver,
             notification_filters: Arc::new(config.notification_filter),

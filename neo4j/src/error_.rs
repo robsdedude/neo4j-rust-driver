@@ -41,6 +41,16 @@ type BoxError = Box<dyn StdError + Send + Sync>;
 
 #[derive(Error, Debug)]
 // #[non_exhaustive]
+/// Errors that can occur while using the driver.
+///
+/// **Important Notes on Usage:**
+///  * Error messages are *not* considered part of the driver's API.
+///    They may change at any time and don't follow semantic versioning.
+///  * The only string in errors that can be (somewhat<sup>1</sup>) reliably used is
+///    [`ServerError::code()`].
+///
+/// <sup>1</sup>The code is received from the server and therefore might still change depending on
+/// the server version.
 pub enum Neo4jError {
     /// used when
     ///  * experiencing a connectivity error.  
@@ -77,6 +87,10 @@ pub enum Neo4jError {
     ///    (the driver itself won't perform this conversion)
     ///  * Trying to use a address resolver ([`DriverConfig::with_resolver()`]) that returns no
     ///    addresses.
+    ///  * Configuring the driver's sockets according to [`DriverConfig`] failed.
+    ///    * TLS is enabled, but establishing a TLS connection failed.
+    ///    * Socket timeouts cannot be set/read.
+    ///    * Socket keepalive cannot be set.
     #[error("invalid configuration: {message}")]
     #[non_exhaustive]
     InvalidConfig {

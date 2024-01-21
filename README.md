@@ -16,8 +16,8 @@ A bump in MSRV is considered a minor breaking change.
 
 ## Feature Progress
  * [x] (Well-Written) Docs and Examples
- * [ ] Driver
-   * [ ] Config
+ * [x] Driver
+   * [x] Config
      * [x] `user_agent`
      * [x] `auth`
        * [x] basic
@@ -31,7 +31,7 @@ A bump in MSRV is considered a minor breaking change.
      * [x] `resolver`
      * [x] `max_connection_lifetime`
      * [x] routing and direct connections
-     * [ ] `keep_alive` (not supported by `std` https://github.com/rust-lang/rust/issues/69774)
+     * [x] `keep_alive`
      * [x] `TLS`
    * [x] `.session`
    * [x] `.supports_multi_db`

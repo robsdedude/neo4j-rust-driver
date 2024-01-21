@@ -36,7 +36,7 @@ use crate::address_::Address;
 use crate::bookmarks::Bookmarks;
 use crate::driver::config::auth::{auth_managers, AuthToken};
 use crate::driver::config::notification::NotificationFilter;
-use crate::driver::config::AuthConfig;
+use crate::driver::config::{AuthConfig, KeepAliveConfig};
 use crate::driver::RoutingControl;
 use crate::error_::{Neo4jError, Result, ServerError};
 use crate::sync::MostlyRLock;
@@ -155,6 +155,7 @@ pub(crate) struct PoolConfig {
     pub(crate) max_connection_lifetime: Option<Duration>,
     pub(crate) max_connection_pool_size: usize,
     pub(crate) connection_timeout: Option<Duration>,
+    pub(crate) keep_alive: Option<KeepAliveConfig>,
     pub(crate) connection_acquisition_timeout: Option<Duration>,
     pub(crate) resolver: Option<Box<dyn AddressResolver>>,
     pub(crate) notification_filters: Arc<NotificationFilter>,

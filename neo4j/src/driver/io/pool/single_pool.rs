@@ -131,6 +131,7 @@ impl InnerPool {
                         address,
                         deadline,
                         self.config.connection_timeout,
+                        self.config.keep_alive,
                         self.config.tls_config.as_ref().map(Arc::clone),
                     ) {
                         Ok(connection) => return Ok(connection),

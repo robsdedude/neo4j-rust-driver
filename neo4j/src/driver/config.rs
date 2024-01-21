@@ -62,14 +62,26 @@ pub struct DriverConfig {
     pub(crate) connection_acquisition_timeout: Option<Duration>,
     pub(crate) resolver: Option<Box<dyn AddressResolver>>,
     pub(crate) notification_filter: NotificationFilter,
-    // not supported by std https://github.com/rust-lang/rust/issues/69774
-    // keep_alive
+    pub(crate) keep_alive: Option<KeepAliveConfig>,
 }
 
 #[derive(Debug)]
 pub(crate) enum AuthConfig {
     Static(Arc<AuthToken>),
     Manager(Arc<dyn AuthManager>),
+}
+
+/// Options to configure the TCP keep alive of the driver's sockets.
+///
+/// See also [`DriverConfig::with_keep_alive()`]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeepAliveConfig {
+    /// Enable TCP keep alive with the default settings of the OS.
+    Default,
+    /// Enable TCP keep alive, setting the time to `Duration`.
+    ///
+    /// See also [`socket2::TcpKeepalive::with_time()`].
+    CustomTime(Duration),
 }
 
 /// Tell the driver where the DBMS it be found and how to connect to it.
@@ -142,6 +154,7 @@ impl Default for DriverConfig {
             connection_acquisition_timeout: Some(DEFAULT_CONNECTION_ACQUISITION_TIMEOUT),
             resolver: None,
             notification_filter: Default::default(),
+            keep_alive: None,
         }
     }
 }
@@ -493,6 +506,30 @@ impl DriverConfig {
     #[inline]
     pub fn with_default_notification_filter(mut self) -> Self {
         self.notification_filter = Default::default();
+        self
+    }
+
+    /// Configure the TCP keep alive of the driver's sockets.
+    ///
+    /// # Example
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use neo4j::driver::{DriverConfig, KeepAliveConfig};
+    ///
+    /// let config =
+    ///     DriverConfig::new().with_keep_alive(KeepAliveConfig::CustomTime(Duration::from_secs(10)));
+    /// ```
+    #[inline]
+    pub fn with_keep_alive(mut self, keep_alive: KeepAliveConfig) -> Self {
+        self.keep_alive = Some(keep_alive);
+        self
+    }
+
+    /// Disable TCP keep alive.
+    #[inline]
+    pub fn without_keep_alive(mut self) -> Self {
+        self.keep_alive = None;
         self
     }
 }
