@@ -36,7 +36,7 @@ use super::session_holder::SummaryWithQuery;
 use super::BackendId;
 
 // https://github.com/rust-lang/rust/issues/85077
-const FEATURE_LIST: [&str; 42] = [
+const FEATURE_LIST: [&str; 43] = [
     // === FUNCTIONAL FEATURES ===
     "Feature:API:BookmarkManager",
     "Feature:API:ConnectionAcquisitionTimeout",
@@ -73,7 +73,7 @@ const FEATURE_LIST: [&str; 42] = [
     "Feature:Bolt:5.0",
     "Feature:Bolt:5.1",
     "Feature:Bolt:5.2",
-    // "Feature:Bolt:5.3",
+    "Feature:Bolt:5.3",
     // "Feature:Bolt:5.4",
     "Feature:Bolt:Patch:UTC",
     "Feature:Impersonation",

@@ -8,6 +8,7 @@
  - Reduce the number of lifetime generic parameters in `TransactionQueryBuilder` and `TransactionRecordStream`.
  - Fix `Transaction::rolblack()` failing if a result stream failed before.
  - Introduce `neo4j::driver::Conifg::with_keep_alive()` and `without_keep_alive()`.
+ - Add support for Bolt 5.3 (bolt agent).
 
 ## 0.0.2
  - Update dependencies.  

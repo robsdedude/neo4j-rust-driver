@@ -15,6 +15,11 @@
 use crate::error_::Neo4jError;
 use crate::value::{BrokenValueInner, ValueReceive};
 
+pub(super) const BOLT_AGENT_PRODUCT: &str = env!("NEO4J_BOLT_AGENT_PRODUCT");
+pub(super) const BOLT_AGENT_PLATFORM: &str = env!("NEO4J_BOLT_AGENT_PLATFORM");
+pub(super) const BOLT_AGENT_LANGUAGE: &str = env!("NEO4J_BOLT_AGENT_LANGUAGE");
+pub(super) const BOLT_AGENT_LANGUAGE_DETAILS: &str = env!("NEO4J_BOLT_AGENT_LANGUAGE_DETAILS");
+
 pub(super) const TAG_2D_POINT: u8 = b'X';
 pub(super) const TAG_3D_POINT: u8 = b'Y';
 pub(super) const TAG_NODE: u8 = b'N';

@@ -83,7 +83,7 @@ A bump in MSRV is considered a minor breaking change.
    * [x] 5.0 (utc fix)
    * [x] 5.1 (re-auth)
    * [x] 5.2 (notification filtering)
-   * [ ] 5.3 (bolt agent)
+   * [x] 5.3 (bolt agent)
    * [ ] 5.4 (telemetry)
  * [x] Types
    * [x] `Null`
