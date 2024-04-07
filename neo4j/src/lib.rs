@@ -116,12 +116,12 @@
 //!   transactions, such as `CALL {...} IN TRANSACTION`.
 //!
 //! ### Causal Consistency
-//! By default, Noe4j clusters are eventually consistent:
+//! By default, Neo4j clusters are eventually consistent:
 //! a write transaction executed on the leader (write node) will sooner or later be visible to read
 //! transactions on all followers (read nodes).
 //! To provide stronger guarantees, the server sends a bookmark to the client after every
 //! successful transaction that applies a write.
-//! These bookmarks are abstract tokens represent some state of the database.
+//! These bookmarks are abstract tokens that represent some state of the database.
 //! By passing them back to the server along with a transaction, the client requests the server to
 //! wait until the state(s) represented by the bookmark(s) have been established before executing
 //! the transaction.
