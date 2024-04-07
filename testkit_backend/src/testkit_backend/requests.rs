@@ -532,6 +532,7 @@ pub(super) enum AuthTokenAndExpiration {
 
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
+#[allow(dead_code)] // reflects TestKit protocol
 pub(super) enum RequestTrustedCertificates {
     Const(String),
     Paths(Vec<String>),

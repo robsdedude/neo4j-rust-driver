@@ -1501,6 +1501,7 @@ pub(super) enum Command {
     AutoCommit(AutoCommit),
     BeginTransaction(BeginTransaction),
     TransactionFunction(TransactionFunction),
+    #[allow(dead_code)] // for symmetry with driver holder
     RetryablePositive(RetryablePositive),
     RetryableNegative(RetryableNegative),
     TransactionRun(TransactionRun),
