@@ -433,9 +433,7 @@ impl RoutingPool {
         args: AcquireConfig,
     ) -> Result<(Addresses, Option<Arc<String>>)> {
         let (lock, db) = self.get_fresh_rt(args)?;
-        let rt = lock
-            .get(&db.as_ref().map(Arc::clone))
-            .expect("created above");
+        let rt = lock.get(&db).expect("created above");
         Ok((self.servers_by_usage(rt.servers_for_mode(args.mode))?, db))
     }
 
@@ -507,7 +505,7 @@ impl RoutingPool {
         args: AcquireConfig,
     ) -> Result<(RwLockReadGuard<RoutingTables>, Option<Arc<String>>)> {
         let rt_args = args.update_rt_args;
-        let db_name = RefCell::new(rt_args.db.map(Arc::clone));
+        let db_name = RefCell::new(rt_args.db.cloned());
         let db_name_ref = &db_name;
         let lock = self.routing_tables.maybe_write(
             |rts| {
@@ -516,7 +514,7 @@ impl RoutingPool {
                     .unwrap_or(true)
             },
             |mut rts| {
-                let key = rt_args.db.map(Arc::clone);
+                let key = rt_args.db.cloned();
                 let rt = rts.entry(key).or_insert_with(|| self.empty_rt());
                 if !rt.is_fresh(args.mode) {
                     let mut new_db = self.update_rts(rt_args, &mut rts)?;
@@ -553,7 +551,7 @@ impl RoutingPool {
         args: UpdateRtArgs,
         rts: &mut RoutingTables,
     ) -> Result<Option<Arc<String>>> {
-        let rt_key = args.db.map(Arc::clone);
+        let rt_key = args.db.cloned();
         let rt = rts.entry(rt_key).or_insert_with(|| self.empty_rt());
         let pref_init_router = rt.initialized_without_writers;
         let mut new_rt: Result<RoutingTable>;
@@ -581,14 +579,14 @@ impl RoutingPool {
             ))),
             Ok(mut new_rt) => {
                 if args.db.is_some() {
-                    let db = args.db.map(Arc::clone);
-                    new_rt.database = db.as_ref().map(Arc::clone);
-                    rts.insert(db.as_ref().map(Arc::clone), new_rt);
+                    let db = args.db.cloned();
+                    new_rt.database = db.clone();
+                    rts.insert(db.clone(), new_rt);
                     self.clean_up_pools(rts);
                     Ok(db)
                 } else {
-                    let db = new_rt.database.as_ref().map(Arc::clone);
-                    rts.insert(db.as_ref().map(Arc::clone), new_rt);
+                    let db = new_rt.database.clone();
+                    rts.insert(db.clone(), new_rt);
                     self.clean_up_pools(rts);
                     Ok(db)
                 }

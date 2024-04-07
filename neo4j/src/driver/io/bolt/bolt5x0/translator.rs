@@ -26,7 +26,9 @@ use crate::value::spatial::{
     Cartesian2D, Cartesian3D, SRID_CARTESIAN_2D, SRID_CARTESIAN_3D, SRID_WGS84_2D, SRID_WGS84_3D,
     WGS84_2D, WGS84_3D,
 };
-use crate::value::time::{Date, Duration, FixedOffset, LocalDateTime, LocalTime, Time, Tz};
+use crate::value::time::{
+    local_date_time_from_timestamp, Date, Duration, FixedOffset, LocalTime, Time, Tz,
+};
 use crate::value::{BrokenValue, BrokenValueInner, ValueReceive, ValueSend};
 
 #[derive(Debug, Default)]
@@ -148,7 +150,7 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                 Ok(())
             }
             ValueSend::LocalDateTime(dt) => {
-                let seconds = dt.timestamp();
+                let seconds = dt.and_utc().timestamp();
                 let nanoseconds = dt.nanosecond();
                 if nanoseconds >= 1_000_000_000 {
                     return Err(
@@ -462,7 +464,7 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                     Some(tz) => tz,
                     None => return failed_struct("DateTime tz_offset out of bounds"),
                 };
-                let utc_dt = match LocalDateTime::from_timestamp_opt(seconds, nanoseconds) {
+                let utc_dt = match local_date_time_from_timestamp(seconds, nanoseconds) {
                     Some(dt) => dt,
                     None => return failed_struct("DateTime out of bounds"),
                 };
@@ -496,7 +498,7 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                         ));
                     }
                 };
-                let utc_dt = match LocalDateTime::from_timestamp_opt(seconds, nanoseconds) {
+                let utc_dt = match local_date_time_from_timestamp(seconds, nanoseconds) {
                     Some(dt) => dt,
                     None => return failed_struct("DateTimeZoneId out of bounds"),
                 };
@@ -518,7 +520,7 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                 };
                 nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
                 let nanoseconds = nanoseconds as u32;
-                let dt = match LocalDateTime::from_timestamp_opt(seconds, nanoseconds) {
+                let dt = match local_date_time_from_timestamp(seconds, nanoseconds) {
                     Some(dt) => dt,
                     None => return failed_struct("LocalDateTime out of bounds"),
                 };

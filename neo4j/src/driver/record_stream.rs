@@ -52,7 +52,7 @@ impl<'driver> RecordStream<'driver> {
     ) -> Self {
         let listener = Arc::new(AtomicRefCell::new(RecordListener::new(
             &(*connection).borrow(),
-            error_propagator.as_ref().map(Arc::clone),
+            error_propagator.clone(),
         )));
         if let Some(error_propagator) = error_propagator {
             error_propagator
