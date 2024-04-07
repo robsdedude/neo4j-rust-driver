@@ -70,3 +70,7 @@ impl Duration {
         self.name
     }
 }
+
+pub(crate) fn local_date_time_from_timestamp(secs: i64, nsecs: u32) -> Option<LocalDateTime> {
+    chrono::DateTime::from_timestamp(secs, nsecs).map(|dt| dt.naive_utc())
+}
