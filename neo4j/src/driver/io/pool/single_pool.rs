@@ -132,7 +132,7 @@ impl InnerPool {
                         deadline,
                         self.config.connection_timeout,
                         self.config.keep_alive,
-                        self.config.tls_config.as_ref().map(Arc::clone),
+                        self.config.tls_config.clone(),
                     ) {
                         Ok(connection) => return Ok(connection),
                         Err(err) => {

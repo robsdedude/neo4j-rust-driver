@@ -1587,7 +1587,7 @@ fn get_bookmark_manager(
         .bookmark_managers
         .get(bookmark_manager_id)
         .ok_or_else(|| missing_bookmark_manager_error(bookmark_manager_id))
-        .map(Arc::clone)
+        .cloned()
 }
 
 fn missing_session_error(session_id: &BackendId) -> TestKitError {
