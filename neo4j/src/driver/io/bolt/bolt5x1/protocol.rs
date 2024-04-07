@@ -14,13 +14,10 @@
 
 use std::borrow::Borrow;
 use std::fmt::Debug;
-use std::io::{Error as IoError, Read, Write};
-use std::mem;
-use std::ops::Deref;
+use std::io::{Read, Write};
 use std::sync::Arc;
-use std::time::Duration;
 
-use log::{debug, log_enabled, warn, Level};
+use log::{debug, log_enabled, Level};
 use usize_cast::FromUsize;
 
 use super::super::bolt5x0::Bolt5x0;
@@ -39,6 +36,7 @@ use super::super::{
     BoltProtocol, BoltResponse, BoltStructTranslator, OnServerErrorCb, ResponseCallbacks,
     ResponseMessage,
 };
+use crate::driver::config::auth::AuthToken;
 use crate::error_::Result;
 use crate::value::ValueReceive;
 
@@ -49,7 +47,7 @@ const RECV_TIMEOUT_KEY: &str = "connection.recv_timeout_seconds";
 #[derive(Debug)]
 pub(crate) struct Bolt5x1<T: BoltStructTranslator> {
     translator: T,
-    bolt5x0: Bolt5x0<T>,
+    pub(in super::super) bolt5x0: Bolt5x0<T>,
     protocol_version: ServerAwareBoltVersion,
 }
 
@@ -93,27 +91,13 @@ impl<T: BoltStructTranslator> Bolt5x1<T> {
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(0x6A, 1)?;
 
-        let auth_size = u64::from_usize(auth.data.len());
-        serializer.write_dict_header(auth_size)?;
-        debug_buf!(log_buf, " {}", {
-            dbg_serializer.write_dict_header(auth_size).unwrap();
-            dbg_serializer.flush()
-        });
-
-        for (k, v) in &auth.data {
-            serializer.write_string(k)?;
-            data.serialize_value(&mut serializer, &self.translator, v)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string(k).unwrap();
-                if k == "credentials" {
-                    dbg_serializer.write_string("**********").unwrap();
-                } else {
-                    data.serialize_value(&mut dbg_serializer, &self.translator, v)
-                        .unwrap();
-                }
-                dbg_serializer.flush()
-            });
-        }
+        self.write_auth_dict(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            data,
+            auth,
+        )?;
 
         data.message_buff.push_back(vec![message_buff]);
         data.responses
@@ -133,6 +117,25 @@ impl<T: BoltStructTranslator> Bolt5x1<T> {
         data.responses
             .push_back(BoltResponse::from_message(ResponseMessage::Logoff));
         bolt_debug!(data, "C: LOGOFF");
+        Ok(())
+    }
+
+    pub(in super::super) fn write_auth_dict(
+        &self,
+        mut log_buf: Option<&mut String>,
+        serializer: &mut PackStreamSerializerImpl<impl Write>,
+        dbg_serializer: &mut PackStreamSerializerDebugImpl,
+        data: &BoltData<impl Read + Write>,
+        auth: &Arc<AuthToken>,
+    ) -> Result<()> {
+        let auth_size = u64::from_usize(auth.data.len());
+        serializer.write_dict_header(auth_size)?;
+        debug_buf!(log_buf, " {}", {
+            dbg_serializer.write_dict_header(auth_size).unwrap();
+            dbg_serializer.flush()
+        });
+        self.bolt5x0
+            .write_auth_entries(log_buf, serializer, dbg_serializer, data, auth)?;
         Ok(())
     }
 }
@@ -165,90 +168,30 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x1<T> {
 
         let extra_size = 1 + <bool as Into<u64>>::into(routing_context.is_some());
         serializer.write_dict_header(extra_size)?;
-        serializer.write_string("user_agent")?;
-        serializer.write_string(user_agent)?;
         debug_buf!(log_buf, " {}", {
             dbg_serializer.write_dict_header(extra_size).unwrap();
-            dbg_serializer.write_string("user_agent").unwrap();
-            dbg_serializer.write_string(user_agent).unwrap();
             dbg_serializer.flush()
         });
 
-        if let Some(routing_context) = routing_context {
-            serializer.write_string("routing")?;
-            data.serialize_routing_context(&mut serializer, &self.translator, routing_context)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("routing").unwrap();
-                data.serialize_routing_context(
-                    &mut dbg_serializer,
-                    &self.translator,
-                    routing_context,
-                )
-                .unwrap();
-                dbg_serializer.flush()
-            });
-        }
+        Bolt5x0::<T>::write_user_agent_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            user_agent,
+        )?;
+
+        self.bolt5x0.write_routing_context_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            data,
+            routing_context,
+        )?;
 
         data.message_buff.push_back(vec![message_buff]);
         debug_buf_end!(data, log_buf);
 
-        let bolt_meta = Arc::clone(&data.meta);
-        let bolt_server_agent = Arc::clone(&data.server_agent);
-        let socket = Arc::clone(&data.socket);
-        data.responses.push_back(BoltResponse::new(
-            ResponseMessage::Hello,
-            ResponseCallbacks::new().with_on_success(move |mut meta| {
-                if let Some((key, value)) = meta.remove_entry(SERVER_AGENT_KEY) {
-                    match value {
-                        ValueReceive::String(value) => {
-                            mem::swap(&mut *bolt_server_agent.borrow_mut(), &mut Arc::new(value));
-                        }
-                        _ => {
-                            warn!("Server sent unexpected server_agent type {:?}", &value);
-                            meta.insert(key, value);
-                        }
-                    }
-                }
-                if let Some(value) = meta.get(HINTS_KEY) {
-                    match value {
-                        ValueReceive::Map(value) => {
-                            if let Some(timeout) = value.get(RECV_TIMEOUT_KEY) {
-                                match timeout {
-                                    ValueReceive::Integer(timeout) if timeout > &0 => {
-                                        socket.deref().as_ref().map(|socket| {
-                                            let timeout = Some(Duration::from_secs(*timeout as u64));
-                                            socket.set_read_timeout(timeout)?;
-                                            socket.set_write_timeout(timeout)?;
-                                            Ok(())
-                                        }).transpose().unwrap_or_else(|err: IoError| {
-                                            warn!("Failed to set socket timeout as hinted by the server: {err}");
-                                            None
-                                        });
-                                    }
-                                    ValueReceive::Integer(_) => {
-                                        warn!(
-                                            "Server sent unexpected {RECV_TIMEOUT_KEY} value {:?}",
-                                            timeout
-                                        );
-                                    }
-                                    _ => {
-                                        warn!(
-                                            "Server sent unexpected {RECV_TIMEOUT_KEY} type {:?}",
-                                            timeout
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        _ => {
-                            warn!("Server sent unexpected {HINTS_KEY} type {:?}", value);
-                        }
-                    }
-                }
-                mem::swap(&mut *bolt_meta.borrow_mut(), &mut meta);
-                Ok(())
-            }),
-        ));
+        Bolt5x0::<T>::enqueue_hello_response(data);
         Ok(())
     }
 

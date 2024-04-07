@@ -14,14 +14,11 @@
 
 use std::borrow::Borrow;
 use std::fmt::Debug;
-use std::io::{Error as IoError, Read, Write};
-use std::mem;
-use std::ops::Deref;
-use std::sync::Arc;
-use std::time::Duration;
+use std::io::{Read, Write};
 
-use log::{debug, log_enabled, warn, Level};
+use log::{debug, log_enabled, Level};
 
+use super::super::bolt5x0::Bolt5x0;
 use super::super::bolt5x2::Bolt5x2;
 use super::super::bolt_common::{
     ServerAwareBoltVersion, BOLT_AGENT_LANGUAGE, BOLT_AGENT_LANGUAGE_DETAILS, BOLT_AGENT_PLATFORM,
@@ -38,7 +35,7 @@ use super::super::packstream::{
 };
 use super::super::{
     bolt_debug_extra, dbg_extra, debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltProtocol,
-    BoltResponse, BoltStructTranslator, OnServerErrorCb, ResponseCallbacks, ResponseMessage,
+    BoltStructTranslator, OnServerErrorCb, ResponseCallbacks,
 };
 use crate::error_::Result;
 use crate::value::ValueReceive;
@@ -50,7 +47,7 @@ const RECV_TIMEOUT_KEY: &str = "connection.recv_timeout_seconds";
 #[derive(Debug)]
 pub(crate) struct Bolt5x3<T: BoltStructTranslator> {
     translator: T,
-    bolt5x2: Bolt5x2<T>,
+    pub(in super::super) bolt5x2: Bolt5x2<T>,
     protocol_version: ServerAwareBoltVersion,
 }
 
@@ -63,7 +60,7 @@ impl<T: BoltStructTranslator> Bolt5x3<T> {
         }
     }
 
-    pub(in super::super) fn write_bolt_agent(
+    pub(in super::super) fn write_bolt_agent_entry(
         mut log_buf: Option<&mut String>,
         serializer: &mut PackStreamSerializerImpl<impl Write>,
         dbg_serializer: &mut PackStreamSerializerDebugImpl,
@@ -123,36 +120,33 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x3<T> {
         serializer.write_struct_header(0x01, 1)?;
 
         let extra_size = 2
-            + Bolt5x2::<T>::notification_filter_size(Some(notification_filter))
+            + Bolt5x2::<T>::notification_filter_entries_count(Some(notification_filter))
             + <bool as Into<u64>>::into(routing_context.is_some());
+
         serializer.write_dict_header(extra_size)?;
-        serializer.write_string("user_agent")?;
-        serializer.write_string(user_agent)?;
         debug_buf!(log_buf, " {}", {
             dbg_serializer.write_dict_header(extra_size).unwrap();
-            dbg_serializer.write_string("user_agent").unwrap();
-            dbg_serializer.write_string(user_agent).unwrap();
             dbg_serializer.flush()
         });
 
-        Self::write_bolt_agent(log_buf.as_mut(), &mut serializer, &mut dbg_serializer)?;
+        Bolt5x0::<T>::write_user_agent_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            user_agent,
+        )?;
 
-        if let Some(routing_context) = routing_context {
-            serializer.write_string("routing")?;
-            data.serialize_routing_context(&mut serializer, &self.translator, routing_context)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("routing").unwrap();
-                data.serialize_routing_context(
-                    &mut dbg_serializer,
-                    &self.translator,
-                    routing_context,
-                )
-                .unwrap();
-                dbg_serializer.flush()
-            });
-        }
+        Self::write_bolt_agent_entry(log_buf.as_mut(), &mut serializer, &mut dbg_serializer)?;
 
-        Bolt5x2::<T>::write_notification_filter(
+        self.bolt5x2.bolt5x1.bolt5x0.write_routing_context_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            data,
+            routing_context,
+        )?;
+
+        Bolt5x2::<T>::write_notification_filter_entries(
             log_buf.as_mut(),
             &mut serializer,
             &mut dbg_serializer,
@@ -162,63 +156,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x3<T> {
         data.message_buff.push_back(vec![message_buff]);
         debug_buf_end!(data, log_buf);
 
-        let bolt_meta = Arc::clone(&data.meta);
-        let bolt_server_agent = Arc::clone(&data.server_agent);
-        let socket = Arc::clone(&data.socket);
-        data.responses.push_back(BoltResponse::new(
-            ResponseMessage::Hello,
-            ResponseCallbacks::new().with_on_success(move |mut meta| {
-                if let Some((key, value)) = meta.remove_entry(SERVER_AGENT_KEY) {
-                    match value {
-                        ValueReceive::String(value) => {
-                            mem::swap(&mut *bolt_server_agent.borrow_mut(), &mut Arc::new(value));
-                        }
-                        _ => {
-                            warn!("Server sent unexpected server_agent type {:?}", &value);
-                            meta.insert(key, value);
-                        }
-                    }
-                }
-                if let Some(value) = meta.get(HINTS_KEY) {
-                    match value {
-                        ValueReceive::Map(value) => {
-                            if let Some(timeout) = value.get(RECV_TIMEOUT_KEY) {
-                                match timeout {
-                                    ValueReceive::Integer(timeout) if timeout > &0 => {
-                                        socket.deref().as_ref().map(|socket| {
-                                            let timeout = Some(Duration::from_secs(*timeout as u64));
-                                            socket.set_read_timeout(timeout)?;
-                                            socket.set_write_timeout(timeout)?;
-                                            Ok(())
-                                        }).transpose().unwrap_or_else(|err: IoError| {
-                                            warn!("Failed to set socket timeout as hinted by the server: {err}");
-                                            None
-                                        });
-                                    }
-                                    ValueReceive::Integer(_) => {
-                                        warn!(
-                                            "Server sent unexpected {RECV_TIMEOUT_KEY} value {:?}",
-                                            timeout
-                                        );
-                                    }
-                                    _ => {
-                                        warn!(
-                                            "Server sent unexpected {RECV_TIMEOUT_KEY} type {:?}",
-                                            timeout
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        _ => {
-                            warn!("Server sent unexpected {HINTS_KEY} type {:?}", value);
-                        }
-                    }
-                }
-                mem::swap(&mut *bolt_meta.borrow_mut(), &mut meta);
-                Ok(())
-            }),
-        ));
+        Bolt5x0::<T>::enqueue_hello_response(data);
         Ok(())
     }
 

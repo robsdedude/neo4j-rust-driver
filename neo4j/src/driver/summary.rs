@@ -279,8 +279,8 @@ impl SummaryQueryType {
 }
 
 /// See [`Summary::notifications`].
-#[non_exhaustive]
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Notification {
     pub description: String,
     pub code: String,

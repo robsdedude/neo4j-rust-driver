@@ -25,6 +25,10 @@ use std::vec::IntoIter;
 use crate::error_::Result;
 use resolution::{AddressResolver, CustomResolution, DnsResolution};
 
+// imports for docs
+#[allow(unused)]
+use crate::driver::DriverConfig;
+
 pub(crate) const DEFAULT_PORT: u16 = 7687;
 const COLON_BYTES: usize = ':'.len_utf8();
 
@@ -72,6 +76,10 @@ pub struct Address {
     pub(crate) is_dns_resolved: bool,
 }
 
+/// Note that equality of addresses is defined as equality of its [`Address::unresolved_host()`]
+/// and [`Address::port()`] only.
+/// Therefore, resolved to different IP addresses coming from the same host are considered equal
+/// if their port is equal as well.
 impl PartialEq for Address {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -128,6 +136,41 @@ impl Address {
     }
 
     /// Return the host name or IP address.
+    ///
+    /// For addresses that have been resolved by the driver, this will be the final IP address after
+    /// all resolutions.
+    /// This includes:
+    ///  * potential custom address resolver, see [`DriverConfig::with_resolver`]
+    ///  * DNS resolution, see [`ToSocketAddrs`].
+    ///
+    /// # Example
+    /// ```
+    /// use neo4j::address::Address;
+    ///
+    /// let addr = Address::from(("localhost", 1234));
+    /// assert_eq!(addr.host(), "localhost");
+    /// ```
+    ///
+    /// # Example (after resolution)
+    /// ```
+    /// use neo4j::address::Address;
+    /// use neo4j::driver::Driver;
+    ///
+    /// use std::net::ToSocketAddrs;
+    /// # use doc_test_utils::get_address;
+    ///
+    /// let address: Address = get_address();
+    /// # fn get_driver(_: &Address) -> Driver {
+    /// #     doc_test_utils::get_driver()
+    /// # }
+    /// let driver: Driver = get_driver(&address);
+    /// let resolved_address = driver.get_server_info().unwrap().address;
+    ///
+    /// assert!(address
+    ///     .to_socket_addrs()
+    ///     .unwrap()
+    ///     .any(|sock_addr| { &sock_addr.ip().to_string() == resolved_address.host() }));
+    /// ```
     pub fn host(&self) -> &str {
         self.host.as_str()
     }
@@ -137,7 +180,31 @@ impl Address {
         self.port
     }
 
-    pub(crate) fn unresolved_host(&self) -> &str {
+    /// Return the host name (before a potential DNS resolution).
+    ///
+    /// When a custom address resolver is registered with the driver (see
+    /// [`DriverConfig::with_resolver`]), `unresolved_host` will return the host name
+    /// from after the custom address resolver.
+    ///
+    /// # Example
+    /// ```
+    /// use neo4j::address::Address;
+    /// use neo4j::driver::Driver;
+    /// # use doc_test_utils::get_address;
+    ///
+    /// let address: Address = get_address();
+    /// # fn get_driver(_: &Address) -> Driver {
+    /// #     doc_test_utils::get_driver()
+    /// # }
+    /// let driver: Driver = get_driver(&address);
+    /// let resolved_address = driver.get_server_info().unwrap().address;
+    ///
+    /// assert_eq!(address.host(), resolved_address.unresolved_host());
+    /// // but not necessarily
+    /// // assert_eq!(address.host(), resolved_address.host());
+    /// // because resolved_address.host() will be DNS resolved.
+    /// ```
+    pub fn unresolved_host(&self) -> &str {
         &self.key
     }
 }

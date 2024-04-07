@@ -65,3 +65,13 @@ fn main() {
         assert_eq!(record.take_value("x"), Some(ValueReceive::Integer(123)));
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_main() {
+        main();
+    }
+}

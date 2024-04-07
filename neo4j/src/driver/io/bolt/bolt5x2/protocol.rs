@@ -14,16 +14,13 @@
 
 use std::borrow::Borrow;
 use std::fmt::Debug;
-use std::io::{Error as IoError, Read, Write};
-use std::mem;
-use std::ops::Deref;
-use std::sync::Arc;
-use std::time::Duration;
+use std::io::{Read, Write};
 
 use crate::driver::notification::NotificationFilter;
-use log::{debug, log_enabled, warn, Level};
+use log::{debug, log_enabled, Level};
 use usize_cast::FromUsize;
 
+use super::super::bolt5x0::Bolt5x0;
 use super::super::bolt5x1::Bolt5x1;
 use super::super::bolt_common::ServerAwareBoltVersion;
 use super::super::message::BoltMessage;
@@ -39,7 +36,7 @@ use super::super::{
     bolt_debug_extra, dbg_extra, debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltProtocol,
     BoltResponse, BoltStructTranslator, OnServerErrorCb, ResponseCallbacks, ResponseMessage,
 };
-use crate::error_::{Neo4jError, Result};
+use crate::error_::Result;
 use crate::value::ValueReceive;
 
 const SERVER_AGENT_KEY: &str = "server";
@@ -49,7 +46,7 @@ const RECV_TIMEOUT_KEY: &str = "connection.recv_timeout_seconds";
 #[derive(Debug)]
 pub(crate) struct Bolt5x2<T: BoltStructTranslator> {
     translator: T,
-    bolt5x1: Bolt5x1<T>,
+    pub(in super::super) bolt5x1: Bolt5x1<T>,
     protocol_version: ServerAwareBoltVersion,
 }
 
@@ -62,7 +59,7 @@ impl<T: BoltStructTranslator> Bolt5x2<T> {
         }
     }
 
-    pub(in super::super) fn notification_filter_size(
+    pub(in super::super) fn notification_filter_entries_count(
         notification_filter: Option<&NotificationFilter>,
     ) -> u64 {
         match notification_filter {
@@ -77,7 +74,7 @@ impl<T: BoltStructTranslator> Bolt5x2<T> {
         }
     }
 
-    pub(in super::super) fn write_notification_filter(
+    pub(in super::super) fn write_notification_filter_entries(
         mut log_buf: Option<&mut String>,
         serializer: &mut PackStreamSerializerImpl<impl Write>,
         dbg_serializer: &mut PackStreamSerializerDebugImpl,
@@ -154,34 +151,30 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x2<T> {
         serializer.write_struct_header(0x01, 1)?;
 
         let extra_size = 1
-            + Self::notification_filter_size(Some(notification_filter))
+            + Self::notification_filter_entries_count(Some(notification_filter))
             + <bool as Into<u64>>::into(routing_context.is_some());
         serializer.write_dict_header(extra_size)?;
-        serializer.write_string("user_agent")?;
-        serializer.write_string(user_agent)?;
         debug_buf!(log_buf, " {}", {
             dbg_serializer.write_dict_header(extra_size).unwrap();
-            dbg_serializer.write_string("user_agent").unwrap();
-            dbg_serializer.write_string(user_agent).unwrap();
             dbg_serializer.flush()
         });
 
-        if let Some(routing_context) = routing_context {
-            serializer.write_string("routing")?;
-            data.serialize_routing_context(&mut serializer, &self.translator, routing_context)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("routing").unwrap();
-                data.serialize_routing_context(
-                    &mut dbg_serializer,
-                    &self.translator,
-                    routing_context,
-                )
-                .unwrap();
-                dbg_serializer.flush()
-            });
-        }
+        Bolt5x0::<T>::write_user_agent_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            user_agent,
+        )?;
 
-        Self::write_notification_filter(
+        self.bolt5x1.bolt5x0.write_routing_context_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            data,
+            routing_context,
+        )?;
+
+        Self::write_notification_filter_entries(
             log_buf.as_mut(),
             &mut serializer,
             &mut dbg_serializer,
@@ -191,63 +184,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x2<T> {
         data.message_buff.push_back(vec![message_buff]);
         debug_buf_end!(data, log_buf);
 
-        let bolt_meta = Arc::clone(&data.meta);
-        let bolt_server_agent = Arc::clone(&data.server_agent);
-        let socket = Arc::clone(&data.socket);
-        data.responses.push_back(BoltResponse::new(
-            ResponseMessage::Hello,
-            ResponseCallbacks::new().with_on_success(move |mut meta| {
-                if let Some((key, value)) = meta.remove_entry(SERVER_AGENT_KEY) {
-                    match value {
-                        ValueReceive::String(value) => {
-                            mem::swap(&mut *bolt_server_agent.borrow_mut(), &mut Arc::new(value));
-                        }
-                        _ => {
-                            warn!("Server sent unexpected server_agent type {:?}", &value);
-                            meta.insert(key, value);
-                        }
-                    }
-                }
-                if let Some(value) = meta.get(HINTS_KEY) {
-                    match value {
-                        ValueReceive::Map(value) => {
-                            if let Some(timeout) = value.get(RECV_TIMEOUT_KEY) {
-                                match timeout {
-                                    ValueReceive::Integer(timeout) if timeout > &0 => {
-                                        socket.deref().as_ref().map(|socket| {
-                                            let timeout = Some(Duration::from_secs(*timeout as u64));
-                                            socket.set_read_timeout(timeout)?;
-                                            socket.set_write_timeout(timeout)?;
-                                            Ok(())
-                                        }).transpose().unwrap_or_else(|err: IoError| {
-                                            warn!("Failed to set socket timeout as hinted by the server: {err}");
-                                            None
-                                        });
-                                    }
-                                    ValueReceive::Integer(_) => {
-                                        warn!(
-                                            "Server sent unexpected {RECV_TIMEOUT_KEY} value {:?}",
-                                            timeout
-                                        );
-                                    }
-                                    _ => {
-                                        warn!(
-                                            "Server sent unexpected {RECV_TIMEOUT_KEY} type {:?}",
-                                            timeout
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        _ => {
-                            warn!("Server sent unexpected {HINTS_KEY} type {:?}", value);
-                        }
-                    }
-                }
-                mem::swap(&mut *bolt_meta.borrow_mut(), &mut meta);
-                Ok(())
-            }),
-        ));
+        Bolt5x0::<T>::enqueue_hello_response(data);
         Ok(())
     }
 
@@ -313,25 +250,15 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x2<T> {
             dbg_serializer.flush()
         });
 
-        match parameters {
-            Some(parameters) => {
-                data.serialize_dict(&mut serializer, &self.translator, parameters)?;
-                debug_buf!(log_buf, " {}", {
-                    data.serialize_dict(&mut dbg_serializer, &self.translator, parameters)
-                        .unwrap();
-                    dbg_serializer.flush()
-                });
-            }
-            None => {
-                serializer.write_dict_header(0)?;
-                debug_buf!(log_buf, " {}", {
-                    dbg_serializer.write_dict_header(0).unwrap();
-                    dbg_serializer.flush()
-                });
-            }
-        }
+        self.bolt5x1.bolt5x0.write_parameter_dict(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            data,
+            parameters,
+        )?;
 
-        let extra_size = Self::notification_filter_size(notification_filter)
+        let extra_size = Self::notification_filter_entries_count(notification_filter)
             + [
                 bookmarks.is_some() && !bookmarks.unwrap().is_empty(),
                 tx_timeout.is_some(),
@@ -350,98 +277,53 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x2<T> {
             dbg_serializer.flush()
         });
 
-        if let Some(bookmarks) = bookmarks {
-            if !bookmarks.is_empty() {
-                serializer.write_string("bookmarks")?;
-                data.serialize_str_iter(&mut serializer, bookmarks.raw())?;
-                debug_buf!(log_buf, "{}", {
-                    dbg_serializer.write_string("bookmarks").unwrap();
-                    data.serialize_str_iter(&mut dbg_serializer, bookmarks.raw())
-                        .unwrap();
-                    dbg_serializer.flush()
-                });
-            }
-        }
+        Bolt5x0::<T>::write_bookmarks_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            data,
+            bookmarks,
+        )?;
 
-        if let Some(tx_timeout) = tx_timeout {
-            serializer.write_string("tx_timeout")?;
-            serializer.write_int(tx_timeout)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("tx_timeout").unwrap();
-                dbg_serializer.write_int(tx_timeout).unwrap();
-                dbg_serializer.flush()
-            });
-        }
+        Bolt5x0::<T>::write_tx_timeout_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            tx_timeout,
+        )?;
 
-        if let Some(tx_metadata) = tx_metadata {
-            if !tx_metadata.is_empty() {
-                serializer.write_string("tx_metadata")?;
-                data.serialize_dict(&mut serializer, &self.translator, tx_metadata)?;
-                debug_buf!(log_buf, "{}", {
-                    dbg_serializer.write_string("tx_metadata").unwrap();
-                    data.serialize_dict(&mut dbg_serializer, &self.translator, tx_metadata)
-                        .unwrap();
-                    dbg_serializer.flush()
-                });
-            }
-        }
+        self.bolt5x1.bolt5x0.write_tx_metadata_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            data,
+            tx_metadata,
+        )?;
 
-        if let Some(mode) = mode {
-            if mode != "w" {
-                serializer.write_string("mode")?;
-                serializer.write_string(mode)?;
-                debug_buf!(log_buf, "{}", {
-                    dbg_serializer.write_string("mode").unwrap();
-                    dbg_serializer.write_string(mode).unwrap();
-                    dbg_serializer.flush()
-                });
-            }
-        }
+        Bolt5x0::<T>::write_mode_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            mode,
+        )?;
 
-        if let Some(db) = db {
-            serializer.write_string("db")?;
-            serializer.write_string(db)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("db").unwrap();
-                dbg_serializer.write_string(db).unwrap();
-                dbg_serializer.flush()
-            });
-        }
+        Bolt5x0::<T>::write_db_entry(log_buf.as_mut(), &mut serializer, &mut dbg_serializer, db)?;
 
-        if let Some(imp_user) = imp_user {
-            serializer.write_string("imp_user")?;
-            serializer.write_string(imp_user)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("imp_user").unwrap();
-                dbg_serializer.write_string(imp_user).unwrap();
-                dbg_serializer.flush()
-            });
-        }
+        Bolt5x0::<T>::write_imp_user_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            imp_user,
+        )?;
 
-        Self::write_notification_filter(
+        Self::write_notification_filter_entries(
             log_buf.as_mut(),
             &mut serializer,
             &mut dbg_serializer,
             notification_filter,
         )?;
 
-        callbacks = callbacks.with_on_success_pre_hook({
-            let last_qid = Arc::clone(&data.last_qid);
-            move |meta| match meta.get("qid") {
-                Some(ValueReceive::Integer(qid)) => {
-                    *last_qid.borrow_mut() = Some(*qid);
-                    Ok(())
-                }
-                None => {
-                    *last_qid.borrow_mut() = None;
-                    Ok(())
-                }
-                Some(v) => Err(Neo4jError::protocol_error(format!(
-                    "server send non-int qid: {:?}",
-                    v
-                ))),
-            }
-        });
+        callbacks = Bolt5x0::<T>::install_qid_hook(data, callbacks);
 
         data.message_buff.push_back(vec![message_buff]);
         data.responses
@@ -491,7 +373,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x2<T> {
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
         serializer.write_struct_header(0x11, 1)?;
 
-        let extra_size = Self::notification_filter_size(Some(notification_filter))
+        let extra_size = Self::notification_filter_entries_count(Some(notification_filter))
             + [
                 bookmarks.is_some() && !bookmarks.unwrap().is_empty(),
                 tx_timeout.is_some(),
@@ -576,7 +458,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x2<T> {
             serializer.write_string(imp_user)?;
         }
 
-        Self::write_notification_filter(
+        Self::write_notification_filter_entries(
             log_buf.as_mut(),
             &mut serializer,
             &mut dbg_serializer,
