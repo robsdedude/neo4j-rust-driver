@@ -15,7 +15,7 @@
 use std::collections::VecDeque;
 use std::str::FromStr;
 
-use chrono::{LocalResult, NaiveDateTime, Offset, TimeZone};
+use chrono::{LocalResult, Offset, TimeZone};
 use usize_cast::IntoIsize;
 
 use super::super::bolt5x0::Bolt5x0StructTranslator;
@@ -23,7 +23,7 @@ use super::super::bolt_common::*;
 use super::super::{BoltStructTranslator, BoltStructTranslatorWithUtcPatch};
 use crate::driver::io::bolt::PackStreamSerializer;
 use crate::value::graph::{Node, Path, Relationship, UnboundRelationship};
-use crate::value::time::{FixedOffset, Tz};
+use crate::value::time::{local_date_time_from_timestamp, FixedOffset, Tz};
 use crate::value::{BrokenValue, BrokenValueInner, ValueReceive, ValueSend};
 
 const TAG_NODE: u8 = b'N';
@@ -247,7 +247,7 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                 };
                 nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
                 let nanoseconds = nanoseconds as u32;
-                let dt = match NaiveDateTime::from_timestamp_opt(seconds, nanoseconds) {
+                let dt = match local_date_time_from_timestamp(seconds, nanoseconds) {
                     Some(dt) => dt,
                     None => return failed_struct("DateTime out of bounds"),
                 };
@@ -290,7 +290,7 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                 };
                 nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
                 let nanoseconds = nanoseconds as u32;
-                let dt = match NaiveDateTime::from_timestamp_opt(seconds, nanoseconds) {
+                let dt = match local_date_time_from_timestamp(seconds, nanoseconds) {
                     Some(dt) => dt,
                     None => return failed_struct("DateTimeZoneId out of bounds"),
                 };
