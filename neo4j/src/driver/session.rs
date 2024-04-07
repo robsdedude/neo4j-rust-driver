@@ -81,13 +81,8 @@ impl<'driver> Session<'driver> {
         pool: &'driver Pool,
         driver_config: &'driver ReducedDriverConfig,
     ) -> Self {
-        let bookmarks = config.config.bookmarks.as_ref().map(Arc::clone);
-        let manager = config
-            .config
-            .as_ref()
-            .bookmark_manager
-            .as_ref()
-            .map(Arc::clone);
+        let bookmarks = config.config.bookmarks.clone();
+        let manager = config.config.as_ref().bookmark_manager.clone();
         Session {
             config,
             pool,

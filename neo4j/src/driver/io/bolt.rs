@@ -239,7 +239,7 @@ impl<RW: Read + Write> Bolt<RW> {
     }
 
     pub(crate) fn current_auth(&self) -> Option<Arc<AuthToken>> {
-        self.data.auth.as_ref().map(Arc::clone)
+        self.data.auth.clone()
     }
 
     #[inline]
