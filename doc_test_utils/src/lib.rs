@@ -63,7 +63,7 @@ pub fn get_driver() -> Driver {
         .is_test(true)
         .try_init();
 
-    let driver = neo4j::driver::Driver::new(
+    let driver = Driver::new(
         ConnectionConfig::new(get_address()),
         DriverConfig::new().with_auth(Arc::new(get_auth_token())),
     );

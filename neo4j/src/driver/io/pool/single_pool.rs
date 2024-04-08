@@ -128,6 +128,7 @@ impl InnerPool {
             last_err = match address {
                 Ok(address) => {
                     match bolt::open(
+                        bolt::TcpConnector,
                         address,
                         deadline,
                         self.config.connection_timeout,

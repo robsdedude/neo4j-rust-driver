@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use std::borrow::Borrow;
+use std::collections::HashMap;
 use std::fmt::Debug;
-use std::io::{Error as IoError, Read, Write};
+use std::io::{Read, Write};
 use std::mem;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::time::Duration;
 
 use atomic_refcell::AtomicRefCell;
 use log::{debug, log_enabled, warn, Level};
@@ -65,6 +65,66 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> Bolt4x4<T> {
             protocol_version,
         }
     }
+
+    pub(in super::super) fn write_utc_patch_entry(
+        mut log_buf: Option<&mut String>,
+        serializer: &mut PackStreamSerializerImpl<impl Write>,
+        dbg_serializer: &mut PackStreamSerializerDebugImpl,
+        data: &BoltData<impl Read + Write>,
+    ) -> Result<()> {
+        serializer.write_string("patch_bolt")?;
+        data.serialize_str_slice(serializer, &["utc"])?;
+        debug_buf!(log_buf, "{}", {
+            dbg_serializer.write_string("patch_bolt").unwrap();
+            data.serialize_str_slice(dbg_serializer, &["utc"]).unwrap();
+            dbg_serializer.flush()
+        });
+        Ok(())
+    }
+
+    pub(in super::super) fn hello_response_handle_utc_patch(
+        hints: &HashMap<String, ValueReceive>,
+        translator: &AtomicRefCell<T>,
+    ) {
+        if let Some(value) = hints.get(PATCH_BOLT_KEY) {
+            match value {
+                ValueReceive::List(value) => {
+                    for entry in value {
+                        match entry {
+                            ValueReceive::String(s) if s == "utc" => {
+                                translator.borrow_mut().enable_utc_patch();
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {
+                    warn!("Server sent unexpected {PATCH_BOLT_KEY} type {:?}", value);
+                }
+            }
+        }
+    }
+
+    pub(in super::super) fn enqueue_hello_response(&self, data: &mut BoltData<impl Read + Write>) {
+        let bolt_meta = Arc::clone(&data.meta);
+        let bolt_server_agent = Arc::clone(&data.server_agent);
+        let socket = Arc::clone(&data.socket);
+        let translator = Arc::clone(&self.translator);
+
+        data.responses.push_back(BoltResponse::new(
+            ResponseMessage::Hello,
+            ResponseCallbacks::new().with_on_success(move |mut meta| {
+                Bolt5x0::<T>::hello_response_handle_agent(&mut meta, &bolt_server_agent);
+                Self::hello_response_handle_utc_patch(&meta, &translator);
+                Bolt5x0::<T>::hello_response_handle_connection_hints(
+                    &meta,
+                    socket.deref().as_ref(),
+                );
+                mem::swap(&mut *bolt_meta.borrow_mut(), &mut meta);
+                Ok(())
+            }),
+        ));
+    }
 }
 
 impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> Default for Bolt4x4<T> {
@@ -89,7 +149,6 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
             .check_no_notification_filter(Some(notification_filter))?;
         debug_buf_start!(log_buf);
         debug_buf!(log_buf, "C: HELLO");
-        let translator = &*(*self.translator).borrow();
         let mut dbg_serializer = PackStreamSerializerDebugImpl::new();
         let mut message_buff = Vec::new();
         let mut serializer = PackStreamSerializerImpl::new(&mut message_buff);
@@ -99,133 +158,41 @@ impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> BoltProtocol f
             + <bool as Into<u64>>::into(routing_context.is_some())
             + u64::from_usize(auth.data.len());
         serializer.write_dict_header(extra_size)?;
-        serializer.write_string("user_agent")?;
-        serializer.write_string(user_agent)?;
         debug_buf!(log_buf, " {}", {
             dbg_serializer.write_dict_header(extra_size).unwrap();
-            dbg_serializer.write_string("user_agent").unwrap();
-            dbg_serializer.write_string(user_agent).unwrap();
             dbg_serializer.flush()
         });
 
-        serializer.write_string("patch_bolt")?;
-        data.serialize_str_slice(&mut serializer, &["utc"])?;
-        debug_buf!(log_buf, "{}", {
-            dbg_serializer.write_string("patch_bolt").unwrap();
-            data.serialize_str_slice(&mut dbg_serializer, &["utc"])
-                .unwrap();
-            dbg_serializer.flush()
-        });
+        Bolt5x0::<T>::write_user_agent_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            user_agent,
+        )?;
 
-        if let Some(routing_context) = routing_context {
-            serializer.write_string("routing")?;
-            data.serialize_routing_context(&mut serializer, translator, routing_context)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("routing").unwrap();
-                data.serialize_routing_context(&mut dbg_serializer, translator, routing_context)
-                    .unwrap();
-                dbg_serializer.flush()
-            });
-        }
+        Self::write_utc_patch_entry(log_buf.as_mut(), &mut serializer, &mut dbg_serializer, data)?;
 
-        for (k, v) in &auth.data {
-            serializer.write_string(k)?;
-            data.serialize_value(&mut serializer, translator, v)?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string(k).unwrap();
-                if k == "credentials" {
-                    dbg_serializer.write_string("**********").unwrap();
-                } else {
-                    data.serialize_value(&mut dbg_serializer, translator, v)
-                        .unwrap();
-                }
-                dbg_serializer.flush()
-            });
-        }
+        self.bolt5x0.write_routing_context_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            data,
+            routing_context,
+        )?;
+
+        self.bolt5x0.write_auth_entries(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            data,
+            auth,
+        )?;
         data.auth = Some(Arc::clone(auth));
 
         data.message_buff.push_back(vec![message_buff]);
         debug_buf_end!(data, log_buf);
 
-        let bolt_meta = Arc::clone(&data.meta);
-        let translator = Arc::clone(&self.translator);
-        let bolt_server_agent = Arc::clone(&data.server_agent);
-        let socket = Arc::clone(&data.socket);
-        data.responses.push_back(BoltResponse::new(
-            ResponseMessage::Hello,
-            ResponseCallbacks::new().with_on_success(move |mut meta| {
-                if let Some((key, value)) = meta.remove_entry(SERVER_AGENT_KEY) {
-                    match value {
-                        ValueReceive::String(value) => {
-                            mem::swap(&mut *bolt_server_agent.borrow_mut(), &mut Arc::new(value));
-                        }
-                        _ => {
-                            warn!(
-                                "Server sent unexpected {SERVER_AGENT_KEY} type {:?}",
-                                &value
-                            );
-                            meta.insert(key, value);
-                        }
-                    }
-                }
-                if let Some(value) = meta.get(PATCH_BOLT_KEY) {
-                    match value {
-                        ValueReceive::List(value) => {
-                            for entry in value {
-                                match entry {
-                                    ValueReceive::String(s) if s == "utc" => {
-                                        translator.borrow_mut().enable_utc_patch();
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                        _ => {
-                            warn!("Server sent unexpected {PATCH_BOLT_KEY} type {:?}", value);
-
-                        }
-                    }
-                }
-                if let Some(value) = meta.get(HINTS_KEY) {
-                    match value {
-                        ValueReceive::Map(value) => {
-                            if let Some(timeout) = value.get(RECV_TIMEOUT_KEY) {
-                                match timeout {
-                                    ValueReceive::Integer(timeout) if timeout > &0 => {
-                                        socket.deref().as_ref().map(|socket| {
-                                            let timeout = Some(Duration::from_secs(*timeout as u64));
-                                            socket.set_read_timeout(timeout)?;
-                                            socket.set_write_timeout(timeout)?;
-                                            Ok(())
-                                        }).transpose().unwrap_or_else(|err: IoError| {
-                                            warn!("Failed to set socket timeout as hinted by the server: {err}");
-                                            None
-                                        });
-                                    }
-                                    ValueReceive::Integer(_) => {
-                                        warn!(
-                                            "Server sent unexpected {RECV_TIMEOUT_KEY} value {:?}",
-                                            timeout
-                                        );
-                                    }
-                                    _ => {
-                                        warn!(
-                                            "Server sent unexpected {RECV_TIMEOUT_KEY} type {:?}",
-                                            timeout
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        _ => {
-                            warn!("Server sent unexpected {HINTS_KEY} type {:?}", value);
-                        }
-                    }
-                }
-                mem::swap(&mut *bolt_meta.borrow_mut(), &mut meta);
-                Ok(())
-            }),
-        ));
+        self.enqueue_hello_response(data);
         Ok(())
     }
 

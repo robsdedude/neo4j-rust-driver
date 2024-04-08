@@ -21,6 +21,7 @@ mod bolt5x2;
 mod bolt5x3;
 mod bolt_state;
 mod chunk;
+mod handshake;
 mod message;
 pub(crate) mod message_parameters;
 mod packstream;
@@ -31,8 +32,8 @@ use std::borrow::Borrow;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
-use std::io::{self, Read, Write};
-use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
+use std::io::{Read, Write};
+use std::net::{Shutdown, TcpStream};
 use std::ops::Deref;
 use std::result;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -41,16 +42,12 @@ use std::time::Duration;
 
 use atomic_refcell::AtomicRefCell;
 use enum_dispatch::enum_dispatch;
-use log::Level::Trace;
-use log::{debug, log_enabled, trace};
-use rustls::ClientConfig;
-use socket2::{Socket as Socket2, TcpKeepalive};
+use log::debug;
 use usize_cast::FromUsize;
 
 use super::deadline::DeadlineIO;
 use crate::address_::Address;
 use crate::driver::auth::AuthToken;
-use crate::driver::config::KeepAliveConfig;
 use crate::driver::io::bolt::message_parameters::ResetParameters;
 use crate::error_::{Neo4jError, Result, ServerError};
 use crate::time::Instant;
@@ -62,6 +59,7 @@ use bolt5x2::{Bolt5x2, Bolt5x2StructTranslator};
 use bolt5x3::{Bolt5x3, Bolt5x3StructTranslator};
 use bolt_state::{BoltState, BoltStateTracker};
 use chunk::{Chunker, Dechunker};
+pub(crate) use handshake::{open, TcpConnector};
 use message::BoltMessage;
 use message_parameters::{
     BeginParameters, CommitParameters, DiscardParameters, GoodbyeParameters, HelloParameters,
@@ -574,11 +572,11 @@ impl<RW: Read + Write> BoltData<RW> {
         qid == -1 || Some(qid) == *(self.last_qid.deref().borrow())
     }
 
-    fn serialize_dict<S: PackStreamSerializer, T: BoltStructTranslator, K: Borrow<str>>(
+    fn serialize_dict<S: PackStreamSerializer>(
         &self,
         serializer: &mut S,
-        translator: &T,
-        map: &HashMap<K, ValueSend>,
+        translator: &impl BoltStructTranslator,
+        map: &HashMap<impl Borrow<str>, ValueSend>,
     ) -> result::Result<(), S::Error> {
         serializer.write_dict_header(u64::from_usize(map.len()))?;
         for (k, v) in map {
@@ -588,10 +586,10 @@ impl<RW: Read + Write> BoltData<RW> {
         Ok(())
     }
 
-    fn serialize_str_slice<S: PackStreamSerializer, V: Borrow<str>>(
+    fn serialize_str_slice<S: PackStreamSerializer>(
         &self,
         serializer: &mut S,
-        slice: &[V],
+        slice: &[impl Borrow<str>],
     ) -> result::Result<(), S::Error> {
         serializer.write_list_header(u64::from_usize(slice.len()))?;
         for v in slice {
@@ -600,35 +598,23 @@ impl<RW: Read + Write> BoltData<RW> {
         Ok(())
     }
 
-    fn serialize_str_iter<S: PackStreamSerializer, V: Borrow<str>, I: Iterator<Item = V>>(
+    #[inline]
+    fn serialize_str_iter<S: PackStreamSerializer>(
         &self,
         serializer: &mut S,
-        iter: I,
+        iter: impl Iterator<Item = impl Borrow<str>>,
     ) -> result::Result<(), S::Error> {
         self.serialize_str_slice(serializer, &iter.collect::<Vec<_>>())
     }
 
-    fn serialize_value<S: PackStreamSerializer, T: BoltStructTranslator>(
+    #[inline]
+    fn serialize_value<S: PackStreamSerializer>(
         &self,
         serializer: &mut S,
-        translator: &T,
+        translator: &impl BoltStructTranslator,
         v: &ValueSend,
     ) -> result::Result<(), S::Error> {
-        translator.serialize(serializer, v).map_err(Into::into)
-    }
-
-    fn serialize_routing_context<S: PackStreamSerializer, T: BoltStructTranslator>(
-        &self,
-        serializer: &mut S,
-        translator: &T,
-        routing_context: &HashMap<String, ValueSend>,
-    ) -> result::Result<(), S::Error> {
-        serializer.write_dict_header(u64::from_usize(routing_context.len()))?;
-        for (k, v) in routing_context {
-            serializer.write_string(k.borrow())?;
-            self.serialize_value(serializer, translator, v)?;
-        }
-        Ok(())
+        translator.serialize(serializer, v)
     }
 
     fn write_all(&mut self, deadline: Option<Instant>) -> Result<()> {
@@ -805,178 +791,5 @@ fn assert_response_field_count<T>(name: &str, fields: &[T], expected_count: usiz
             expected_count,
             fields.len()
         )))
-    }
-}
-
-const BOLT_MAGIC_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
-// [bolt-version-bump] search tag when changing bolt version support
-const BOLT_VERSION_OFFER: [u8; 16] = [
-    0, 3, 3, 5, // BOLT 5.3 - 5.0
-    0, 0, 4, 4, // BOLT 4.4
-    0, 0, 0, 0, // -
-    0, 0, 0, 0, // -
-];
-
-pub(crate) fn open(
-    address: Arc<Address>,
-    deadline: Option<Instant>,
-    mut connect_timeout: Option<Duration>,
-    keep_alive: Option<KeepAliveConfig>,
-    tls_config: Option<Arc<ClientConfig>>,
-) -> Result<TcpBolt> {
-    if log_enabled!(Trace) {
-        trace!(
-            "{}{}",
-            dbg_extra(None, None),
-            format!("C: <OPEN> {address:?}")
-        );
-    } else {
-        debug!(
-            "{}{}",
-            dbg_extra(None, None),
-            format!("C: <OPEN> {address}")
-        );
-    }
-    if let Some(deadline) = deadline {
-        let mut time_left = deadline.saturating_duration_since(Instant::now());
-        if time_left == Duration::from_secs(0) {
-            time_left = Duration::from_nanos(1);
-        }
-        match connect_timeout {
-            None => connect_timeout = Some(time_left),
-            Some(timeout) => connect_timeout = Some(timeout.min(time_left)),
-        }
-    }
-    let raw_socket = Neo4jError::wrap_connect(match connect_timeout {
-        None => TcpStream::connect(&*address),
-        Some(timeout) => each_addr(&*address, |addr| TcpStream::connect_timeout(addr?, timeout)),
-    })?;
-    let raw_socket = set_tcp_keepalive(raw_socket, keep_alive)?;
-    let local_port = raw_socket
-        .local_addr()
-        .map(|addr| addr.port())
-        .unwrap_or_default();
-
-    let buffered_socket = BufTcpStream::new(&raw_socket, true)?;
-    let mut socket = Socket::new(buffered_socket, address.unresolved_host(), tls_config)?;
-
-    let mut deadline_io = DeadlineIO::new(&mut socket, deadline, Some(&raw_socket));
-
-    socket_debug!(local_port, "C: <HANDSHAKE> {:02X?}", BOLT_MAGIC_PREAMBLE);
-    wrap_write_socket(
-        &raw_socket,
-        local_port,
-        deadline_io.write_all(&BOLT_MAGIC_PREAMBLE),
-    )?;
-    socket_debug!(local_port, "C: <BOLT> {:02X?}", BOLT_VERSION_OFFER);
-    wrap_write_socket(
-        &raw_socket,
-        local_port,
-        deadline_io.write_all(&BOLT_VERSION_OFFER),
-    )?;
-    wrap_write_socket(&raw_socket, local_port, deadline_io.flush())?;
-
-    let mut negotiated_version = [0u8; 4];
-    wrap_read_socket(
-        &raw_socket,
-        local_port,
-        deadline_io.read_exact(&mut negotiated_version),
-    )?;
-    socket_debug!(local_port, "S: <BOLT> {:02X?}", negotiated_version);
-
-    // [bolt-version-bump] search tag when changing bolt version support
-    let version = match negotiated_version {
-        [0, 0, 0, 0] => Err(Neo4jError::InvalidConfig {
-            message: String::from("server version not supported"),
-        }),
-        [0, 0, 3, 5] => Ok((5, 3)),
-        [0, 0, 2, 5] => Ok((5, 2)),
-        [0, 0, 1, 5] => Ok((5, 1)),
-        [0, 0, 0, 5] => Ok((5, 0)),
-        [0, 0, 4, 4] => Ok((4, 4)),
-        [72, 84, 84, 80] => {
-            // "HTTP"
-            Err(Neo4jError::InvalidConfig {
-                message: format!(
-                    "unexpected server handshake response {:?} (looks like HTTP)",
-                    &negotiated_version
-                ),
-            })
-        }
-        _ => Err(Neo4jError::InvalidConfig {
-            message: format!(
-                "unexpected server handshake response {:?}",
-                &negotiated_version
-            ),
-        }),
-    }?;
-
-    Ok(Bolt::new(
-        version,
-        socket,
-        Arc::new(Some(raw_socket)),
-        Some(local_port),
-        address,
-    ))
-}
-
-// copied from std::net
-fn each_addr<A: ToSocketAddrs, F, T>(addr: A, mut f: F) -> io::Result<T>
-where
-    F: FnMut(io::Result<&SocketAddr>) -> io::Result<T>,
-{
-    let addrs = match addr.to_socket_addrs() {
-        Ok(addrs) => addrs,
-        Err(e) => return f(Err(e)),
-    };
-    let mut last_err = None;
-    for addr in addrs {
-        match f(Ok(&addr)) {
-            Ok(l) => return Ok(l),
-            Err(e) => last_err = Some(e),
-        }
-    }
-    Err(last_err.unwrap_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "could not resolve to any addresses",
-        )
-    }))
-}
-
-fn set_tcp_keepalive(socket: TcpStream, keep_alive: Option<KeepAliveConfig>) -> Result<TcpStream> {
-    let keep_alive = match keep_alive {
-        None => return Ok(socket),
-        Some(KeepAliveConfig::Default) => TcpKeepalive::new(),
-        Some(KeepAliveConfig::CustomTime(time)) => TcpKeepalive::new().with_time(time),
-    };
-    let socket = Socket2::from(socket);
-    socket
-        .set_tcp_keepalive(&keep_alive)
-        .map_err(|err| Neo4jError::InvalidConfig {
-            message: format!("failed to set tcp keepalive: {}", err),
-        })?;
-    Ok(socket.into())
-}
-
-fn wrap_write_socket<T>(stream: &TcpStream, local_port: u16, res: io::Result<T>) -> Result<T> {
-    match res {
-        Ok(res) => Ok(res),
-        Err(err) => {
-            socket_debug!(local_port, "   write error: {}", err);
-            let _ = stream.shutdown(Shutdown::Both);
-            Neo4jError::wrap_write(Err(err))
-        }
-    }
-}
-
-fn wrap_read_socket<T>(stream: &TcpStream, local_port: u16, res: io::Result<T>) -> Result<T> {
-    match res {
-        Ok(res) => Ok(res),
-        Err(err) => {
-            socket_debug!(local_port, "   read error: {}", err);
-            let _ = stream.shutdown(Shutdown::Both);
-            Neo4jError::wrap_read(Err(err))
-        }
     }
 }

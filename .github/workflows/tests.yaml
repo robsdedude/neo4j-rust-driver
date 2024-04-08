@@ -12,7 +12,7 @@ jobs:
     runs-on: "ubuntu-latest"
     strategy:
       matrix:
-        rust-version: ["1.70", "stable"]
+        rust-version: [ "1.70", "stable" ]
     steps:
       - name: Pull Neo4j Docker Image
         run: docker pull neo4j:5.6-enterprise
@@ -57,14 +57,24 @@ jobs:
           TEST_NEO4J_PASS: pass
           TEST_NEO4J_EDITION: enterprise
           TEST_NEO4J_VERSION: 5.6
-        run: cargo test --all
+        run: cargo test --workspace --all-targets
+      - name: doc tests
+        env:
+          TEST_NEO4J_SCHEME: neo4j
+          TEST_NEO4J_HOST: localhost
+          TEST_NEO4J_PORT: 7687
+          TEST_NEO4J_USER: neo4j
+          TEST_NEO4J_PASS: pass
+          TEST_NEO4J_EDITION: enterprise
+          TEST_NEO4J_VERSION: 5.6
+        run: cargo test --workspace --doc
   testkit:
     name: TestKit
-    needs: [tests]
+    needs: [ tests ]
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        tests: [TESTKIT_TESTS]
+        tests: [ TESTKIT_TESTS ]
         config:
           - 4.4-community-bolt
           - 4.4-community-neo4j

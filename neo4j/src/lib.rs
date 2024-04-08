@@ -105,7 +105,7 @@
 //! See [`Driver::session()`].
 //! Session creation is cheap, it's recommended to create a new session for each piece of work
 //! (unless when using [`Driver::execute_query()`]).
-//! Sessions will borrows connections from the driver's pool as needed.
+//! Sessions will borrow connections from the driver's pool as needed.
 //!
 //! ### Main Mechanisms for Query Execution
 //! There are three main ways to execute queries:

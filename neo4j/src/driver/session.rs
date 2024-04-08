@@ -915,7 +915,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     ///                 .run()?;
     ///             // ...
     ///             // NOTE: this is just for demonstration purposes, in reality you would
-    ///             //       do this in a single query and save many round trips to the server.:
+    ///             //       do this in a single query and save many round trips to the server:
     ///             //       MATCH (n:Actor) SET n.fame = n.fame * 2
     ///         }
     ///         // now attempt commit the whole transaction
