@@ -45,6 +45,7 @@ impl AddAssign<Duration> for Instant {
     }
 }
 
+#[allow(dead_code)] // make API more consistent between feature flags
 impl Instant {
     #[inline]
     pub fn new(inner: StdInstant) -> Self {

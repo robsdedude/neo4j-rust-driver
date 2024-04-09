@@ -27,6 +27,7 @@ pub(crate) struct MostlyRLock<T: Debug> {
     updating: AtomicBool,
 }
 
+#[allow(dead_code)] // unused methods for symetry between read and write ops
 impl<T: Debug> MostlyRLock<T> {
     pub(crate) fn new(inner: T) -> Self {
         let inner = RwLock::new(inner);

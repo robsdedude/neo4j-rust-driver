@@ -30,8 +30,6 @@ use crate::driver::ExecuteQueryBuilder;
 use crate::session::SessionConfig;
 
 type BoxError = Box<dyn StdError + Send + Sync>;
-type SupplierFn = Box<dyn Fn() -> StdResult<Arc<Bookmarks>, BoxError> + Send + Sync>;
-type ConsumerFn = Box<dyn Fn(Arc<Bookmarks>) -> StdResult<(), BoxError> + Send + Sync>;
 
 /// Container for bookmarks that can be used to build a [causal chain](crate#causal-consistency).
 ///
@@ -74,14 +72,6 @@ impl Bookmarks {
         Bookmarks {
             bookmarks: raw.into_iter().map(Arc::new).collect(),
         }
-    }
-
-    /// Creates a new [`Bookmarks`] containing no bookmarks.
-    ///
-    /// This is equivalent to [`Bookmarks::default()`].
-    #[inline]
-    pub(crate) fn empty() -> Self {
-        Default::default()
     }
 
     /// Return the count of contained bookmarks.
@@ -433,46 +423,6 @@ pub mod bookmark_managers {
                 .field("supplier", &self.supplier.as_ref().map(|_| "..."))
                 .field("consumer", &self.consumer.as_ref().map(|_| "..."))
                 .finish()
-        }
-    }
-
-    impl<SF, CF> Neo4jBookmarkManager<SF, CF> {
-        pub fn new() -> Self {
-            Self {
-                bookmarks: Default::default(),
-                supplier: None,
-                consumer: None,
-            }
-        }
-
-        pub fn with_bookmarks(bookmarks: Arc<Bookmarks>) -> Self {
-            Neo4jBookmarkManager {
-                bookmarks: RwLock::new(bookmarks),
-                supplier: None,
-                consumer: None,
-            }
-        }
-
-        pub fn with_bookmark_supplier<SF2>(self, supplier: SF2) -> Neo4jBookmarkManager<SF2, CF>
-        where
-            SF2: Fn() -> StdResult<Arc<Bookmarks>, BoxError> + Send + Sync + 'static,
-        {
-            Neo4jBookmarkManager {
-                bookmarks: self.bookmarks,
-                supplier: Some(supplier),
-                consumer: self.consumer,
-            }
-        }
-
-        pub fn with_bookmark_consumer<CF2>(self, consumer: CF2) -> Neo4jBookmarkManager<SF, CF2>
-        where
-            CF2: Fn(Arc<Bookmarks>) -> StdResult<(), BoxError> + Send + Sync + 'static,
-        {
-            Neo4jBookmarkManager {
-                bookmarks: self.bookmarks,
-                supplier: self.supplier,
-                consumer: Some(consumer),
-            }
         }
     }
 

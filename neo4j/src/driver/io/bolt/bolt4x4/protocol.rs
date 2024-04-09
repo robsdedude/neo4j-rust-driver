@@ -43,10 +43,7 @@ use super::super::{
 use crate::error_::Result;
 use crate::value::ValueReceive;
 
-const SERVER_AGENT_KEY: &str = "server";
 const PATCH_BOLT_KEY: &str = "patch_bolt";
-const HINTS_KEY: &str = "hints";
-const RECV_TIMEOUT_KEY: &str = "connection.recv_timeout_seconds";
 
 #[derive(Debug)]
 pub(crate) struct Bolt4x4<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> {

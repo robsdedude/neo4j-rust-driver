@@ -226,12 +226,6 @@ impl SimplePool {
         Some(UnpreparedSinglePooledBolt::new(None, Arc::clone(&self.0)))
     }
 
-    pub(crate) fn acquire_idle(&self) -> Option<SinglePooledBolt> {
-        let mut synced = self.synced.lock();
-        self.acquire_existing(&mut synced)
-            .map(|connection| SinglePooledBolt::new(connection, Arc::clone(&self.0)))
-    }
-
     pub(crate) fn in_use(&self) -> usize {
         let synced = self.synced.lock();
         synced.borrowed + synced.reservations
@@ -330,7 +324,7 @@ impl UnpreparedSinglePooledBolt {
             Some(mut connection) => {
                 // room for health check etc. (return None on failed health check)
                 if let Some(max_lifetime) = self.pool.config.max_connection_lifetime {
-                    if connection.is_idle_for(max_lifetime) {
+                    if connection.is_older_than(max_lifetime) {
                         connection.debug_log(|| String::from("connection reached max lifetime"));
                         connection.close();
                         return Ok(None);

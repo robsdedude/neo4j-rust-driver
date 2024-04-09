@@ -233,13 +233,6 @@ impl Neo4jError {
             _ => false,
         }
     }
-
-    pub(crate) fn invalidates_writer(&self) -> bool {
-        match self {
-            Neo4jError::ServerError { error } => error.invalidates_writer(),
-            _ => false,
-        }
-    }
 }
 
 #[derive(Debug)]

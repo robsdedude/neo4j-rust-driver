@@ -12,14 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::any::type_name;
-
-/// until (type_name_of_val)[https://doc.rust-lang.org/std/any/fn.type_name_of_val.html]
-/// becomes stable, we'll do it on our own =)
-pub(crate) fn get_type_name<T>(_: T) -> &'static str {
-    type_name::<T>()
-}
-
 pub(crate) fn truncate_string(string: &str, start: usize, end: usize) -> &str {
     let mut chars = string.chars();
     for _ in 0..start {

@@ -111,6 +111,7 @@ pub(super) enum ServerAwareBoltVersion {
     V5x1,
     V5x2,
     V5x3,
+    #[allow(dead_code)] // bolt version exists, not yet implemented
     V5x4,
 }
 

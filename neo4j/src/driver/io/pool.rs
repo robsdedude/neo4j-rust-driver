@@ -101,11 +101,6 @@ impl<'pool> PooledBolt<'pool> {
     }
 
     #[inline]
-    pub(crate) fn write_one(&mut self, deadline: Option<Instant>) -> Result<()> {
-        self.wrap_io(|this| this.deref_mut().write_one(deadline))
-    }
-
-    #[inline]
     pub(crate) fn write_all(&mut self, deadline: Option<Instant>) -> Result<()> {
         self.wrap_io(|this| this.deref_mut().write_all(deadline))
     }
@@ -174,7 +169,6 @@ impl PoolConfig {
 
 #[derive(Debug)]
 pub(crate) struct Pool {
-    address: Arc<Address>,
     config: Arc<PoolConfig>,
     pools: Pools,
 }
@@ -182,12 +176,8 @@ pub(crate) struct Pool {
 impl Pool {
     pub(crate) fn new(address: Arc<Address>, config: PoolConfig) -> Self {
         let config = Arc::new(config);
-        let pools = Pools::new(Arc::clone(&address), Arc::clone(&config));
-        Self {
-            address,
-            config,
-            pools,
-        }
+        let pools = Pools::new(address, Arc::clone(&config));
+        Self { config, pools }
     }
 
     #[inline]
@@ -204,12 +194,6 @@ impl Pool {
     #[inline]
     pub(crate) fn get_metrics(&self, address: Arc<Address>) -> Option<ConnectionPoolMetrics> {
         self.pools.get_metrics(address)
-    }
-
-    pub(crate) fn default_acquisition_deadline(&self) -> Option<Instant> {
-        self.config
-            .connection_acquisition_timeout
-            .map(|t| Instant::now() + t)
     }
 
     pub(crate) fn resolve_home_db(&self, args: UpdateRtArgs) -> Result<Option<Arc<String>>> {
@@ -275,12 +259,6 @@ impl Pool {
             routing_pool.deactivate_server(addr)
         }
     }
-
-    fn deactivate_writer(&self, addr: &Address) {
-        if let Pools::Routing(routing_pool) = &self.pools {
-            routing_pool.deactivate_writer(addr)
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -301,14 +279,6 @@ impl Pools {
             None => Pools::Direct(SimplePool::new(address, config)),
             Some(_) => Pools::Routing(RoutingPool::new(address, config)),
         }
-    }
-
-    pub(crate) fn is_routing(&self) -> bool {
-        matches!(self, Pools::Routing(_))
-    }
-
-    pub(crate) fn is_direct(&self) -> bool {
-        matches!(self, Pools::Direct(_))
     }
 
     #[cfg(feature = "_internal_testkit_backend")]
@@ -866,29 +836,4 @@ pub(crate) struct UpdateRtArgs<'a> {
     pub(crate) imp_user: Option<&'a str>,
     pub(crate) session_auth: SessionAuth<'a>,
     pub(crate) idle_time_before_connection_test: Option<Duration>,
-}
-
-enum DbName<'a> {
-    Ref(&'a Option<String>),
-    Owned(Option<String>),
-}
-
-impl<'a> Deref for DbName<'a> {
-    type Target = Option<String>;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            DbName::Ref(s) => s,
-            DbName::Owned(s) => s,
-        }
-    }
-}
-
-impl<'a> DbName<'a> {
-    fn into_key(self) -> Option<String> {
-        match self {
-            DbName::Ref(s) => s.clone(),
-            DbName::Owned(s) => s,
-        }
-    }
 }

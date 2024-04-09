@@ -182,10 +182,6 @@ impl RoutingTable {
         true
     }
 
-    pub(crate) fn initialized_without_writers(&self) -> bool {
-        self.initialized_without_writers
-    }
-
     pub(crate) fn deactivate(&mut self, addr: &Address) {
         self.routers = mem::take(&mut self.routers)
             .into_iter()

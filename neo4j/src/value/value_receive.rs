@@ -794,12 +794,6 @@ impl From<BrokenValueInner> for BrokenValue {
     }
 }
 
-pub(crate) fn broken_value(reason: impl Into<String>) -> ValueReceive {
-    ValueReceive::BrokenValue(BrokenValue {
-        inner: BrokenValueInner::Reason(reason.into()),
-    })
-}
-
 impl ValueReceive {
     pub(crate) fn dbg_print(&self) -> String {
         match self {
