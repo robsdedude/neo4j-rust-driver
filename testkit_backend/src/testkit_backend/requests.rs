@@ -77,6 +77,8 @@ pub(super) enum Request {
         connection_acquisition_timeout_ms: Option<u64>,
         notifications_min_severity: Option<String>,
         notifications_disabled_categories: Option<Vec<String>>,
+        #[serde(rename = "telemetryDisabled")]
+        telemetry_disabled: Option<bool>,
         encrypted: Option<bool>,
         trusted_certificates: Option<Vec<String>>,
     },
@@ -756,6 +758,7 @@ impl Request {
             connection_acquisition_timeout_ms,
             notifications_min_severity,
             notifications_disabled_categories,
+            telemetry_disabled,
             encrypted,
             trusted_certificates,
         } = self
@@ -828,6 +831,9 @@ impl Request {
             notifications_disabled_categories,
         )? {
             driver_config = driver_config.with_notification_filter(filter);
+        }
+        if let Some(telemetry_disabled) = telemetry_disabled {
+            driver_config = driver_config.with_telemetry(!telemetry_disabled);
         }
         if let Some(encrypted) = encrypted {
             connection_config = match encrypted {

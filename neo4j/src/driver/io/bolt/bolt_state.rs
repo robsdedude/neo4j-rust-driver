@@ -81,6 +81,7 @@ impl BoltStateTracker {
             ResponseMessage::Commit => self.update_commit(),
             ResponseMessage::Rollback => self.update_rollback(),
             ResponseMessage::Route => self.update_route(),
+            ResponseMessage::Telemetry => {} // no state transition
         }
 
         if self.state != pre_state {

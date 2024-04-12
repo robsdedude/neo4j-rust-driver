@@ -31,6 +31,7 @@ pub(crate) enum ResponseMessage {
     Commit,
     Rollback,
     Route,
+    Telemetry,
 }
 
 #[derive(Debug)]

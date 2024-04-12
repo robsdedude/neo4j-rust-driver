@@ -31,7 +31,7 @@ use super::super::message::BoltMessage;
 use super::super::message_parameters::{
     BeginParameters, CommitParameters, DiscardParameters, GoodbyeParameters, HelloParameters,
     PullParameters, ReauthParameters, ResetParameters, RollbackParameters, RouteParameters,
-    RunParameters,
+    RunParameters, TelemetryParameters,
 };
 use super::super::packstream::{
     PackStreamDeserializer, PackStreamDeserializerImpl, PackStreamSerializer,
@@ -772,6 +772,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         &mut self,
         data: &mut BoltData<RW>,
         parameters: BeginParameters<K>,
+        callbacks: ResponseCallbacks,
     ) -> Result<()> {
         let BeginParameters {
             bookmarks,
@@ -844,7 +845,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
 
         data.message_buff.push_back(vec![message_buff]);
         data.responses
-            .push_back(BoltResponse::from_message(ResponseMessage::Begin));
+            .push_back(BoltResponse::new(ResponseMessage::Begin, callbacks));
         debug_buf_end!(data, log_buf);
         Ok(())
     }
@@ -939,6 +940,17 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
         data.responses
             .push_back(BoltResponse::new(ResponseMessage::Route, callbacks));
         debug_buf_end!(data, log_buf);
+        Ok(())
+    }
+
+    #[inline]
+    fn telemetry<RW: Read + Write>(
+        &mut self,
+        _data: &mut BoltData<RW>,
+        _parameters: TelemetryParameters,
+        _callbacks: ResponseCallbacks,
+    ) -> Result<()> {
+        // TELEMETRY not support by this protocol version, so we ignore it.
         Ok(())
     }
 

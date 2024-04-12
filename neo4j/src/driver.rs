@@ -40,6 +40,7 @@ pub use config::{
     InvalidRoutingContextError, KeepAliveConfig, TlsConfigError,
 };
 pub use eager_result::{EagerResult, ScalarError};
+use io::bolt::message_parameters::TelemetryAPI;
 #[cfg(feature = "_internal_testkit_backend")]
 pub use io::ConnectionPoolMetrics;
 use io::{AcquireConfig, Pool, PoolConfig, PooledBolt, SessionAuth, UpdateRtArgs};
@@ -111,6 +112,7 @@ impl Driver {
             connection_acquisition_timeout: config.connection_acquisition_timeout,
             resolver: config.resolver,
             notification_filters: Arc::new(config.notification_filter),
+            telemetry: config.telemetry,
         };
         Driver {
             config: ReducedDriverConfig {
@@ -926,7 +928,8 @@ impl<
             .transaction()
             .with_transaction_meta(meta.borrow())
             .with_transaction_timeout(timeout)
-            .with_routing_control(mode);
+            .with_routing_control(mode)
+            .with_api_overwrite(Some(TelemetryAPI::DriverLevel));
         tx_builder.run(move |tx| {
             let mut result_stream = tx.query(query).with_parameters(param).run()?;
             let res = receiver(result_stream.raw_stream_mut())?;
@@ -971,7 +974,8 @@ impl<
             .transaction()
             .with_transaction_meta(meta.borrow())
             .with_transaction_timeout(timeout)
-            .with_routing_control(mode);
+            .with_routing_control(mode)
+            .with_api_overwrite(Some(TelemetryAPI::DriverLevel));
         tx_builder.run_with_retry(retry_policy, move |tx| {
             let mut result_stream = tx
                 .query(query.as_ref())

@@ -26,7 +26,7 @@ use super::super::message::BoltMessage;
 use super::super::message_parameters::{
     BeginParameters, CommitParameters, DiscardParameters, GoodbyeParameters, HelloParameters,
     PullParameters, ReauthParameters, ResetParameters, RollbackParameters, RouteParameters,
-    RunParameters,
+    RunParameters, TelemetryParameters,
 };
 use super::super::packstream::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
@@ -266,8 +266,9 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x1<T> {
         &mut self,
         data: &mut BoltData<RW>,
         parameters: BeginParameters<K>,
+        callbacks: ResponseCallbacks,
     ) -> Result<()> {
-        self.bolt5x0.begin(data, parameters)
+        self.bolt5x0.begin(data, parameters, callbacks)
     }
 
     #[inline]
@@ -297,6 +298,16 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x1<T> {
         callbacks: ResponseCallbacks,
     ) -> Result<()> {
         self.bolt5x0.route(data, parameters, callbacks)
+    }
+
+    #[inline]
+    fn telemetry<RW: Read + Write>(
+        &mut self,
+        data: &mut BoltData<RW>,
+        parameters: TelemetryParameters,
+        callbacks: ResponseCallbacks,
+    ) -> Result<()> {
+        self.bolt5x0.telemetry(data, parameters, callbacks)
     }
 
     #[inline]

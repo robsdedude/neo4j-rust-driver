@@ -542,7 +542,9 @@ impl RecordListener {
 
     fn failure_cb(&mut self, me: Weak<AtomicRefCell<Self>>, error: ServerError) -> Result<()> {
         if let Some(error_propagator) = &self.error_propagator {
-            error_propagator.borrow_mut().propagate_error(me, &error);
+            error_propagator
+                .borrow_mut()
+                .propagate_error(Some(me), &error);
         }
         self.state = RecordListenerState::Error(error.into());
         self.summary = None;
@@ -604,6 +606,8 @@ pub(crate) struct ErrorPropagator {
     error: Option<Arc<ServerError>>,
 }
 
+pub(crate) type SharedErrorPropagator = Arc<AtomicRefCell<ErrorPropagator>>;
+
 impl ErrorPropagator {
     pub(crate) fn new() -> Self {
         Self::default()
@@ -623,7 +627,7 @@ impl ErrorPropagator {
 
     fn propagate_error(
         &mut self,
-        source: Weak<AtomicRefCell<RecordListener>>,
+        source: Option<Weak<AtomicRefCell<RecordListener>>>,
         error: &ServerError,
     ) {
         let error = Arc::new(ServerError::new(
@@ -634,8 +638,10 @@ impl ErrorPropagator {
             ),
         ));
         for listener in self.listeners.iter() {
-            if source.ptr_eq(listener) {
-                continue;
+            if let Some(source) = source.as_ref() {
+                if source.ptr_eq(listener) {
+                    continue;
+                }
             }
             if let Some(listener) = listener.upgrade() {
                 listener.borrow_mut().set_foreign_error(Arc::clone(&error));
@@ -647,9 +653,16 @@ impl ErrorPropagator {
     pub(crate) fn error(&self) -> &Option<Arc<ServerError>> {
         &self.error
     }
-}
 
-pub(crate) type SharedErrorPropagator = Arc<AtomicRefCell<ErrorPropagator>>;
+    pub(crate) fn make_on_error_cb(
+        this: SharedErrorPropagator,
+    ) -> impl FnMut(ServerError) -> Result<()> + Send + Sync + 'static {
+        move |err| {
+            this.borrow_mut().propagate_error(None, &err);
+            Ok(())
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum GetSingleRecordError {

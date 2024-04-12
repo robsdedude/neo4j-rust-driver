@@ -78,13 +78,13 @@ A bump in MSRV is considered a minor breaking change.
      * [x] most basic functionality
      * [ ] ergonomic way to access by key
  * [x] Bookmark Management
- * [ ] Protocol Versions
+ * [x] Protocol Versions
    * [x] 4.4
    * [x] 5.0 (utc fix)
    * [x] 5.1 (re-auth)
    * [x] 5.2 (notification filtering)
    * [x] 5.3 (bolt agent)
-   * [ ] 5.4 (telemetry)
+   * [x] 5.4 (telemetry)
  * [x] Types
    * [x] `Null`
    * [x] `Integer`

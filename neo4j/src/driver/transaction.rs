@@ -163,11 +163,15 @@ pub(crate) struct InnerTransaction<'driver> {
 }
 
 impl<'driver> InnerTransaction<'driver> {
-    pub(crate) fn new(connection: PooledBolt<'driver>, fetch_size: i64) -> Self {
+    pub(crate) fn new(
+        connection: PooledBolt<'driver>,
+        fetch_size: i64,
+        error_propagator: SharedErrorPropagator,
+    ) -> Self {
         Self {
             connection: Rc::new(RefCell::new(connection)),
             bookmark: Default::default(),
-            error_propagator: Default::default(),
+            error_propagator,
             fetch_size,
             closed: false,
         }
@@ -177,9 +181,10 @@ impl<'driver> InnerTransaction<'driver> {
         &mut self,
         parameters: BeginParameters<K>,
         eager: bool,
+        callbacks: ResponseCallbacks,
     ) -> Result<()> {
         let mut cx = self.connection.borrow_mut();
-        cx.begin(parameters)?;
+        cx.begin(parameters, callbacks)?;
         if eager {
             cx.write_all(None)?;
             cx.read_all(None)?;

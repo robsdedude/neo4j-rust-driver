@@ -16,11 +16,13 @@ pub(crate) mod bookmarks;
 pub(crate) mod config;
 pub(crate) mod retry;
 
+use atomic_refcell::AtomicRefCell;
 use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::rc::Rc;
 use std::result::Result as StdResult;
 use std::sync::Arc;
@@ -28,9 +30,12 @@ use std::sync::Arc;
 use log::{debug, info};
 
 use super::config::auth::AuthToken;
-use super::io::bolt::message_parameters::{BeginParameters, RunParameters};
+use super::io::bolt::message_parameters::{
+    BeginParameters, RunParameters, TelemetryAPI, TelemetryParameters,
+};
+use super::io::bolt::ResponseCallbacks;
 use super::io::{AcquireConfig, Pool, PooledBolt, UpdateRtArgs};
-use super::record_stream::RecordStream;
+use super::record_stream::{ErrorPropagator, RecordStream, SharedErrorPropagator};
 use super::transaction::{Transaction, TransactionTimeout};
 use super::{EagerResult, ReducedDriverConfig, RoutingControl};
 use crate::driver::io::SessionAuth;
@@ -131,9 +136,17 @@ impl<'driver> Session<'driver> {
         &'session mut self,
         builder: AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>,
     ) -> Result<R> {
-        let cx = self.acquire_connection(builder.mode)?;
-        let mut record_stream =
-            RecordStream::new(Rc::new(RefCell::new(cx)), self.fetch_size(), true, None);
+        let mut connection = self.acquire_connection(builder.mode)?;
+        connection.telemetry(
+            TelemetryParameters::new(TelemetryAPI::AutoCommit),
+            ResponseCallbacks::new(),
+        )?;
+        let mut record_stream = RecordStream::new(
+            Rc::new(RefCell::new(connection)),
+            self.fetch_size(),
+            true,
+            None,
+        );
         let res = record_stream
             .run(RunParameters::new_auto_commit_run(
                 builder.query.as_ref(),
@@ -189,8 +202,26 @@ impl<'driver> Session<'driver> {
         builder: &TransactionBuilder<'driver, 'session, KM, M>,
         receiver: FTx,
     ) -> Result<R> {
-        let connection = self.acquire_connection(builder.mode)?;
-        let mut tx = InnerTransaction::new(connection, self.fetch_size());
+        let mut connection = self.acquire_connection(builder.mode)?;
+        let error_propagator = SharedErrorPropagator::default();
+
+        if let Some(api) = *builder.api.deref().borrow() {
+            connection.telemetry(TelemetryParameters::new(api), {
+                let api = Arc::clone(&builder.api);
+                ResponseCallbacks::new()
+                    .with_on_success(move |_meta| {
+                        // Once a TELEMETRY message made it successfully to the server, we can
+                        // stop trying to send it again.
+                        api.borrow_mut().take();
+                        Ok(())
+                    })
+                    .with_on_failure(ErrorPropagator::make_on_error_cb(Arc::clone(
+                        &error_propagator,
+                    )))
+            })?;
+        }
+        let mut tx =
+            InnerTransaction::new(connection, self.fetch_size(), Arc::clone(&error_propagator));
         let bookmarks = &*self.session_bookmarks.get_bookmarks_for_work()?;
         let parameters = BeginParameters::new(
             Some(bookmarks),
@@ -205,7 +236,12 @@ impl<'driver> Session<'driver> {
                 .map(|imp| imp.as_str()),
             &self.config.config.notification_filter,
         );
-        tx.begin(parameters, self.config.eager_begin)?;
+        tx.begin(
+            parameters,
+            self.config.eager_begin,
+            ResponseCallbacks::new()
+                .with_on_failure(ErrorPropagator::make_on_error_cb(error_propagator)),
+        )?;
         let res = receiver(Transaction::new(&mut tx));
         let res = match res {
             Ok(_) => {
@@ -756,6 +792,7 @@ pub struct TransactionBuilder<'driver, 'session, KM, M> {
     meta: M,
     timeout: TransactionTimeout,
     mode: RoutingControl,
+    api: Arc<AtomicRefCell<Option<TelemetryAPI>>>,
 }
 
 impl<'driver, 'session> TransactionBuilder<'driver, 'session, DefaultMetaKey, DefaultMeta> {
@@ -766,6 +803,7 @@ impl<'driver, 'session> TransactionBuilder<'driver, 'session, DefaultMetaKey, De
             meta: Default::default(),
             timeout: Default::default(),
             mode: RoutingControl::Write,
+            api: Default::default(),
         }
     }
 }
@@ -810,6 +848,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
             meta: _,
             timeout,
             mode,
+            api,
         } = self;
         TransactionBuilder {
             session,
@@ -817,6 +856,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
             meta,
             timeout,
             mode,
+            api,
         }
     }
 
@@ -831,6 +871,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
             meta: _,
             timeout,
             mode,
+            api,
         } = self;
         TransactionBuilder {
             session,
@@ -838,6 +879,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
             meta: Default::default(),
             timeout,
             mode,
+            api,
         }
     }
 
@@ -862,6 +904,12 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     #[inline]
     pub fn with_routing_control(mut self, mode: RoutingControl) -> Self {
         self.mode = mode;
+        self
+    }
+
+    #[inline]
+    pub(crate) fn with_api_overwrite(mut self, api: Option<TelemetryAPI>) -> Self {
+        self.api = Arc::new(AtomicRefCell::new(api));
         self
     }
 
@@ -937,6 +985,9 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     /// # });
     /// ```
     pub fn run<R>(mut self, receiver: impl FnOnce(Transaction) -> Result<R>) -> Result<R> {
+        self.api
+            .borrow_mut()
+            .get_or_insert(TelemetryAPI::UnmanagedTx);
         let session = self.session.take().unwrap();
         session.transaction_run(&self, receiver)
     }
@@ -952,6 +1003,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
         retry_policy: P,
         mut receiver: impl FnMut(Transaction) -> Result<R>,
     ) -> StdResult<R, P::Error> {
+        self.api.borrow_mut().get_or_insert(TelemetryAPI::TxFunc);
         let session = self.session.take().unwrap();
         retry_policy.execute(|| session.transaction_run(&self, &mut receiver))
     }
