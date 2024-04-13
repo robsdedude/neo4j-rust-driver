@@ -188,6 +188,7 @@ impl<'driver> InnerTransaction<'driver> {
         if eager {
             cx.write_all(None)?;
             cx.read_all(None)?;
+            self.check_error()?;
         }
         Ok(())
     }

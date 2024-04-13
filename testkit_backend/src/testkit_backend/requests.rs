@@ -75,6 +75,10 @@ pub(super) enum Request {
         liveness_check_timeout_ms: Option<u64>,
         max_connection_pool_size: Option<usize>,
         connection_acquisition_timeout_ms: Option<u64>,
+        #[serde(rename = "clientCertificate")]
+        client_certificate: Option<ClientCertificate>,
+        #[serde(rename = "clientCertificateProviderId")]
+        client_certificate_provider_id: Option<BackendId>,
         notifications_min_severity: Option<String>,
         notifications_disabled_categories: Option<Vec<String>>,
         #[serde(rename = "telemetryDisabled")]
@@ -533,6 +537,17 @@ pub(super) enum AuthTokenAndExpiration {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(tag = "name", content = "data")]
+#[allow(dead_code)] // reflects TestKit protocol
+pub(super) enum ClientCertificate {
+    ClientCertificate {
+        certfile: String,
+        keyfile: String,
+        password: Option<String>,
+    },
+}
+
+#[derive(Deserialize, Debug)]
 #[serde(untagged)]
 #[allow(dead_code)] // reflects TestKit protocol
 pub(super) enum RequestTrustedCertificates {
@@ -756,6 +771,8 @@ impl Request {
             liveness_check_timeout_ms,
             max_connection_pool_size,
             connection_acquisition_timeout_ms,
+            client_certificate,
+            client_certificate_provider_id,
             notifications_min_severity,
             notifications_disabled_categories,
             telemetry_disabled,
@@ -825,6 +842,9 @@ impl Request {
             driver_config = driver_config.with_connection_acquisition_timeout(
                 Duration::from_millis(connection_acquisition_timeout_ms),
             );
+        }
+        if client_certificate.is_some() || client_certificate_provider_id.is_some() {
+            return Err(TestKitError::backend_err("mTLS not (yet) supported"));
         }
         if let Some(filter) = load_notification_filter(
             notifications_min_severity,
