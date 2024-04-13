@@ -74,16 +74,6 @@ impl ResponseCallbacks {
         .with_on_failure(|error| Err(error.into()))
     }
 
-    pub(crate) fn new_silent_error() -> Self {
-        Self {
-            on_success_cb: None,
-            on_failure_cb: None,
-            on_ignored_cb: None,
-            on_record_cb: None,
-            on_summary_cb: None,
-        }
-    }
-
     pub(crate) fn with_on_success<F: FnMut(BoltMeta) -> Result<()> + Send + Sync + 'static>(
         mut self,
         cb: F,
@@ -133,11 +123,6 @@ impl ResponseCallbacks {
         cb: F,
     ) -> Self {
         self.on_record_cb = Some(Box::new(cb));
-        self
-    }
-
-    pub(crate) fn with_on_summary<F: FnMut() + Send + Sync + 'static>(mut self, cb: F) -> Self {
-        self.on_summary_cb = Some(Box::new(cb));
         self
     }
 

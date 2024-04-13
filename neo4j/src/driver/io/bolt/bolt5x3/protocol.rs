@@ -40,23 +40,15 @@ use super::super::{
 use crate::error_::Result;
 use crate::value::ValueReceive;
 
-const SERVER_AGENT_KEY: &str = "server";
-const HINTS_KEY: &str = "hints";
-const RECV_TIMEOUT_KEY: &str = "connection.recv_timeout_seconds";
-
 #[derive(Debug)]
 pub(crate) struct Bolt5x3<T: BoltStructTranslator> {
-    translator: T,
     pub(in super::super) bolt5x2: Bolt5x2<T>,
-    protocol_version: ServerAwareBoltVersion,
 }
 
 impl<T: BoltStructTranslator> Bolt5x3<T> {
     pub(in super::super) fn new(protocol_version: ServerAwareBoltVersion) -> Self {
         Self {
-            translator: T::default(),
             bolt5x2: Bolt5x2::new(protocol_version),
-            protocol_version,
         }
     }
 

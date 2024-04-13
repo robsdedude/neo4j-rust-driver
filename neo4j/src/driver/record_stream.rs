@@ -454,6 +454,7 @@ enum RecordListenerState {
 }
 
 impl RecordListenerState {
+    #[allow(dead_code)] // cover all states
     #[duplicate_item(
         fn_name               variant;
         [ is_streaming ]      [ Streaming ];
@@ -604,10 +605,6 @@ pub(crate) struct ErrorPropagator {
 pub(crate) type SharedErrorPropagator = Arc<AtomicRefCell<ErrorPropagator>>;
 
 impl ErrorPropagator {
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
-
     fn add_listener(&mut self, listener: Weak<AtomicRefCell<RecordListener>>) {
         if let Some(error) = &self.error {
             if let Some(listener) = listener.upgrade() {

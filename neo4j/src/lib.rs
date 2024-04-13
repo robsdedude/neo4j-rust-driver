@@ -13,8 +13,6 @@
 // limitations under the License.
 
 #![allow(clippy::option_map_unit_fn)]
-// TODO: remove when prototyping phase is done
-#![allow(dead_code)]
 
 //! # Neo4j Bolt Driver
 //!
@@ -231,14 +229,6 @@ pub mod summary {
 /// Transactions and associated types.
 pub mod transaction {
     pub use super::driver::transaction::*;
-}
-
-// TODO: decide if this concept should remain
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
-enum Database<'a> {
-    Named(&'a str),
-    UnresolvedHome,
-    ResolvedHome,
 }
 
 mod private {

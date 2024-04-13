@@ -240,10 +240,6 @@ impl<RW: Read + Write> Bolt<RW> {
         self.data.needs_reauth(parameters)
     }
 
-    pub(crate) fn current_auth(&self) -> Option<Arc<AuthToken>> {
-        self.data.auth.clone()
-    }
-
     #[inline]
     pub(crate) fn auth_reset_handler(&self) -> AuthResetHandle {
         AuthResetHandle::clone(&self.data.auth_reset)
@@ -364,20 +360,12 @@ impl<RW: Read + Write> Bolt<RW> {
     }
 
     pub(crate) fn write_all(&mut self, deadline: Option<Instant>) -> Result<()> {
+        self.data.idle_since = Instant::now();
         self.data.write_all(deadline)?;
         self.data.flush(deadline)
     }
-    pub(crate) fn write_one(&mut self, deadline: Option<Instant>) -> Result<()> {
-        self.data.write_one(deadline)?;
-        self.data.flush(deadline)?;
-        self.data.idle_since = Instant::now();
-        Ok(())
-    }
     pub(crate) fn has_buffered_message(&self) -> bool {
         self.data.has_buffered_message()
-    }
-    pub(crate) fn buffered_messages_len(&self) -> usize {
-        self.data.buffered_messages_len()
     }
     pub(crate) fn expects_reply(&self) -> bool {
         self.data.expects_reply()
@@ -522,7 +510,6 @@ pub(crate) struct BoltData<RW: Read + Write> {
     server_agent: Arc<AtomicRefCell<Arc<String>>>,
     telemetry_enabled: Arc<AtomicRefCell<bool>>,
     address: Arc<Address>,
-    address_str: String,
     last_qid: Arc<AtomicRefCell<Option<i64>>>,
     auth: Option<Arc<AuthToken>>,
     session_auth: bool,
@@ -539,7 +526,6 @@ impl<RW: Read + Write> BoltData<RW> {
         local_port: Option<u16>,
         address: Arc<Address>,
     ) -> Self {
-        let address_str = address.to_string();
         let now = Instant::now();
         Self {
             message_buff: VecDeque::with_capacity(2048),
@@ -554,7 +540,6 @@ impl<RW: Read + Write> BoltData<RW> {
             server_agent: Default::default(),
             telemetry_enabled: Default::default(),
             address,
-            address_str,
             last_qid: Default::default(),
             auth: None,
             session_auth: false,
@@ -574,17 +559,6 @@ impl<RW: Read + Write> BoltData<RW> {
 
     pub(crate) fn session_auth(&self) -> bool {
         self.session_auth
-    }
-
-    fn dbg_extra(&self) -> String {
-        let meta = self.meta.try_borrow();
-        let Ok(meta) = meta else {
-            return dbg_extra(self.local_port, Some("!!!!"));
-        };
-        let Some(ValueReceive::String(id)) = meta.get("connection_id") else {
-            return dbg_extra(self.local_port, None);
-        };
-        dbg_extra(self.local_port, Some(id))
     }
 
     fn closed(&self) -> bool {
@@ -691,9 +665,6 @@ impl<RW: Read + Write> BoltData<RW> {
 
     fn has_buffered_message(&self) -> bool {
         !self.message_buff.is_empty()
-    }
-    fn buffered_messages_len(&self) -> usize {
-        self.message_buff.len()
     }
 
     fn expects_reply(&self) -> bool {

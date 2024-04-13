@@ -14,39 +14,12 @@
 
 use log::warn;
 use std::fmt::Debug;
-use std::io::{self, ErrorKind, Read, Write};
+use std::io::{self, Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
 use crate::error_::{Neo4jError, Result};
 use crate::time::Instant;
-
-pub(crate) fn rewrite_timeout<R, F: FnOnce() -> Result<R>>(f: F) -> Result<R> {
-    match f() {
-        Err(Neo4jError::Disconnect {
-            message,
-            source: Some(io_err),
-            during_commit,
-        }) => {
-            let kind = io_err.kind();
-            match kind {
-                ErrorKind::WouldBlock | ErrorKind::TimedOut => {
-                    assert!(
-                        !during_commit,
-                        "tried to rewrite io error to timeout error during commit"
-                    );
-                    Err(Neo4jError::Timeout { message })
-                }
-                _ => Err(Neo4jError::Disconnect {
-                    message,
-                    source: Some(io_err),
-                    during_commit,
-                }),
-            }
-        }
-        v => v,
-    }
-}
 
 fn wrap_set_timeout_error<T>(e: Result<T>) -> Result<T> {
     match e {

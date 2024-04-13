@@ -26,15 +26,6 @@ use crate::value::graph::{Node, Path, Relationship, UnboundRelationship};
 use crate::value::time::{local_date_time_from_timestamp, FixedOffset, Tz};
 use crate::value::{BrokenValue, BrokenValueInner, ValueReceive, ValueSend};
 
-const TAG_NODE: u8 = b'N';
-const TAG_RELATIONSHIP: u8 = b'R';
-const TAG_UNBOUND_RELATIONSHIP: u8 = b'r';
-const TAG_PATH: u8 = b'P';
-const TAG_DATE_TIME: u8 = b'I';
-const TAG_LEGACY_DATE_TIME: u8 = b'F';
-const TAG_DATE_TIME_ZONE_ID: u8 = b'i';
-const TAG_LEGACY_DATE_TIME_ZONE_ID: u8 = b'f';
-
 #[derive(Debug, Default)]
 pub(crate) struct Bolt4x4StructTranslator {
     utc_patch: bool,

@@ -151,20 +151,6 @@ impl<T: Read + Write> Socket<T> {
             }
         })
     }
-
-    pub(super) fn io_ref(&self) -> &T {
-        match self {
-            Socket::Plain(io) => io,
-            Socket::Tls(io) => io.get_ref(),
-        }
-    }
-
-    pub(super) fn io_mut(&mut self) -> &mut T {
-        match self {
-            Socket::Plain(io) => io,
-            Socket::Tls(io) => io.get_mut(),
-        }
-    }
 }
 
 impl<T: Read + Write> Read for Socket<T> {
