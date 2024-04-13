@@ -16,8 +16,8 @@ A bump in MSRV is considered a minor breaking change.
 
 ## Feature Progress
  * [x] (Well-Written) Docs and Examples
- * [x] Driver
-   * [x] Config
+ * [ ] Driver
+   * [ ] Config
      * [x] `user_agent`
      * [x] `auth`
        * [x] basic
@@ -33,6 +33,7 @@ A bump in MSRV is considered a minor breaking change.
      * [x] routing and direct connections
      * [x] `keep_alive`
      * [x] `TLS`
+     * [ ] mTLS for 2FA
    * [x] `.session`
    * [x] `.supports_multi_db`
    * [x] `.supports_session_auth`
