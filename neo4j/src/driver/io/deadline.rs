@@ -121,6 +121,12 @@ impl<'tcp, S: Read + Write> DeadlineIO<'tcp, S> {
             // deadline in the future
             Some(timeout) => timeout,
         };
+        if let Some(old_timeout) = old_timeout {
+            if timeout >= old_timeout {
+                let res = work(self);
+                return self.wrap_io_error(res, ReaderErrorDuring::IO);
+            }
+        }
         self.wrap_io_error(
             set_socket_timeout(socket, Some(timeout)),
             ReaderErrorDuring::SetTimeout,

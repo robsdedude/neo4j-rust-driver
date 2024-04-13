@@ -15,6 +15,7 @@
 - Fix `Transaction::rolblack()` failing if a result stream failed before.
 - Fix errors during transaction `BEGIN` not being properly propagated.
 - Fix propagation of `is_retryable()` of errors within transactions.
+- Fix connection hint `connection.recv_timeout_seconds` not always being respected leading to connections timeing out too late.
 
 **🧹Clean-up**
 - ⚠️ Removed useless lifetime parameter from `SessionConfig::with_database()`.
