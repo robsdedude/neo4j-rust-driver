@@ -27,9 +27,15 @@ repos:
         pass_filenames: false
       - id: unit
         name: unit tests
-        entry: cargo test --tests --benches
+        entry: cargo test --workspace --tests --benches --features _internal_public_api
         language: system
         types: [rust]
+        pass_filenames: false
+      - id: dependency type exports
+        name: check exported dependencies
+        entry: bash -ec "cd neo4j; cargo +nightly check-external-types"
+        language: system
+        types_or: [rust, toml]
         pass_filenames: false
       - id: docs
         name: cargo doc
