@@ -26,7 +26,7 @@ use std::time::Duration;
 use mockall_double::double;
 use rustls::ClientConfig;
 use thiserror::Error;
-use uriparse::{Query, URIError, URI};
+use uriparse::{Query, URI};
 
 use crate::address_::resolution::AddressResolver;
 use crate::address_::Address;
@@ -722,7 +722,7 @@ impl ConnectionConfig {
     }
 
     fn parse_uri(uri: &str) -> StdResult<ConnectionConfig, ConnectionConfigParseError> {
-        let uri = URI::try_from(uri)?;
+        let uri = URI::try_from(uri).map_err(URIError)?;
 
         let (routing, tls_config) = match uri.scheme().as_str() {
             "neo4j" => (true, None),
@@ -868,9 +868,12 @@ pub struct ConnectionConfigParseError(String);
 
 impl ConnectionConfigParseError {}
 
+#[derive(Debug)]
+struct URIError(uriparse::URIError);
+
 impl From<URIError> for ConnectionConfigParseError {
     fn from(e: URIError) -> Self {
-        ConnectionConfigParseError(format!("couldn't parse URI {e}"))
+        ConnectionConfigParseError(format!("couldn't parse URI {}", e.0))
     }
 }
 

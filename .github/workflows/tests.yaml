@@ -7,8 +7,48 @@ on:
     branches:
       - master
 jobs:
+  lints:
+    name: Linting
+    runs-on: "ubuntu-latest"
+    steps:
+      - uses: actions/checkout@v4
+      - name: install nightly toolchain for cargo-check-external-types
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: nightly-2024-02-07
+      - name: install latest nightly toolchain for rustfmt
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - name: install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: versions
+        run: |
+          set -x
+          rustup show
+          cargo --version 
+          cargo +nightly --version 
+          cargo clippy --version
+      - name: cargo fmt
+        run: cargo +nightly fmt --all -- --check
+      - name: clippy all
+        run: cargo clippy --all --all-features -- -D warnings
+      - name: clippy driver
+        run: cargo clippy -p neo4j -- -D warnings
+      - name:  check exported dependencies
+        run: |
+          set -x
+          pushd neo4j
+          cargo install --locked cargo-check-external-types
+          cargo +nightly-2024-02-07 check-external-types
+          popd
+      - name: API stability check
+        run: cargo test --workspace --features _internal_public_api public_api
+
   tests:
-    name: Linting and Testing
+    name: Testing
     runs-on: "ubuntu-latest"
     strategy:
       matrix:
@@ -25,27 +65,20 @@ jobs:
           -e NEO4J_dbms_security_auth__minimum__password__length=1
           neo4j:5.6-enterprise &
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rustfmt
-      - uses: dtolnay/rust-toolchain@v1
+      - name: install ${{ matrix.rust-version }} toolchain to test against
+        uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ matrix.rust-version }}
           components: clippy
       - name: versions
-        run: cargo --version && cargo clippy --version
-      - name: versions nightly
-        run: cargo +nightly --version && cargo +nightly fmt --version
+        run: | 
+          rustup show
+          cargo --version 
+          cargo clippy --version
       - name: cargo check
         env:
           RUSTFLAGS: -D warnings
         run: cargo check
-      - name: cargo fmt
-        run: cargo +nightly fmt --all -- --check
-      - name: clippy all
-        run: cargo clippy --all --all-features -- -D warnings
-      - name: clippy driver
-        run: cargo clippy -p neo4j -- -D warnings
       - name: docs build
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
       - name: tests
@@ -68,9 +101,10 @@ jobs:
           TEST_NEO4J_EDITION: enterprise
           TEST_NEO4J_VERSION: 5.6
         run: cargo test --workspace --doc
+
   testkit:
     name: TestKit
-    needs: [ tests ]
+    needs: [ tests, lints ]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -117,3 +151,11 @@ jobs:
           cd testkit
           python3 main.py --tests ${{ matrix.tests }} \
             ${{ matrix.config && format('--config {0}', matrix.config) || ''}}
+
+  ci-end:
+    name: CI End
+    needs: [ tests, lints, testkit ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All Done!
+        run: echo This is a single job to check all the other jobs have passed.

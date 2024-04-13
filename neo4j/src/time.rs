@@ -103,7 +103,7 @@ mod mockable_time {
 
     use parking_lot::RwLock;
 
-    pub static MOCKED_TIME: OnceLock<RwLock<Option<StdInstant>>> = OnceLock::new();
+    static MOCKED_TIME: OnceLock<RwLock<Option<StdInstant>>> = OnceLock::new();
 
     #[inline]
     fn mocked_time() -> &'static RwLock<Option<StdInstant>> {

@@ -105,10 +105,12 @@ A bump in MSRV is considered a minor breaking change.
    * [x] rustfmt
    * [x] clippy
    * [x] Unit Tests
-     * [ ] Public API SemVer Compatibility Tests ([cargo-public-api](https://github.com/enselic/cargo-public-api))
+     * [x] Public API SemVer Compatibility Tests ([cargo-public-api](https://github.com/enselic/cargo-public-api))
+   * [x] Exposed Dependency Types Check ([cargo-check-external-types](https://github.com/awslabs/cargo-check-external-types))
    * [x] TestKit
 
-## Note on async  
+
+## Note on async
 Currently, there are no plans to add async support until a proper abstraction over multiple runtimes is available so that users can choose their preferred runtime.
 As it stands, the async ecosystem would either force this crate to dictate a runtime or do an ugly dance to support multiple runtimes.
 Even then, the supported runtimes would be limited to the ones chosen by this crate.
