@@ -599,6 +599,8 @@ pub(super) struct ExecuteQueryConfig {
     bookmark_manager_id: Option<ExecuteQueryBmmId>,
     tx_meta: Option<HashMap<String, CypherValue>>,
     timeout: Option<i64>,
+    #[serde(rename = "authorizationToken")]
+    auth: MaybeTestKitAuth,
 }
 
 #[derive(Deserialize, Debug)]
@@ -1466,6 +1468,7 @@ impl Request {
             bookmark_manager_id,
             tx_meta,
             timeout,
+            auth,
         } = config;
         let data = backend.data.borrow_mut();
         let driver_holder = get_driver(&data, &driver_id)?;
@@ -1483,6 +1486,7 @@ impl Request {
             .map(cypher_value_map_to_value_send_map)
             .transpose()?;
         let timeout = read_transaction_timeout(timeout)?;
+        let auth = auth.0.map(|auth| Arc::new(auth.into()));
         let result = driver_holder
             .execute_query(ExecuteQuery {
                 query,
@@ -1493,6 +1497,7 @@ impl Request {
                 bookmark_manager,
                 tx_meta,
                 timeout,
+                auth,
             })
             .result?;
         let response: Response = result.try_into()?;
