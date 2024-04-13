@@ -655,6 +655,7 @@ impl DriverHolderRunner {
                     bookmark_manager,
                     tx_meta,
                     timeout,
+                    auth,
                 }) => {
                     let mut builder = self.driver.execute_query(query);
                     if let Some(params) = params {
@@ -683,6 +684,9 @@ impl DriverHolderRunner {
                     }
                     if let Some(timeout) = timeout {
                         builder = builder.with_transaction_timeout(timeout);
+                    }
+                    if let Some(auth) = auth {
+                        builder = builder.with_session_auth(auth);
                     }
                     let result = builder
                         .run_with_retry(ExponentialBackoff::default())
@@ -1051,6 +1055,7 @@ pub(super) struct ExecuteQuery {
     pub(crate) bookmark_manager: ExecuteQueryBookmarkManager,
     pub(super) tx_meta: Option<HashMap<String, ValueSend>>,
     pub(super) timeout: Option<TransactionTimeout>,
+    pub(super) auth: Option<Arc<AuthToken>>,
 }
 
 impl From<ExecuteQuery> for Command {

@@ -34,7 +34,7 @@ use crate::time::Instant;
 const BOLT_MAGIC_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
 // [bolt-version-bump] search tag when changing bolt version support
 const BOLT_VERSION_OFFER: [u8; 16] = [
-    0, 3, 3, 5, // BOLT 5.3 - 5.0
+    0, 4, 4, 5, // BOLT 5.4 - 5.0
     0, 0, 4, 4, // BOLT 4.4
     0, 0, 0, 0, // -
     0, 0, 0, 0, // -
@@ -243,6 +243,7 @@ fn decode_version_offer(offer: &[u8; 4]) -> Result<(u8, u8)> {
         [0, 0, 0, 0] => Err(Neo4jError::InvalidConfig {
             message: String::from("server version not supported"),
         }),
+        [_, _, 4, 5] => Ok((5, 4)),
         [_, _, 3, 5] => Ok((5, 3)),
         [_, _, 2, 5] => Ok((5, 2)),
         [_, _, 1, 5] => Ok((5, 1)),
@@ -356,6 +357,7 @@ mod tests {
     #[case([0, 0, 1, 5], (5, 1))]
     #[case([0, 0, 2, 5], (5, 2))]
     #[case([0, 0, 3, 5], (5, 3))]
+    #[case([0, 0, 4, 5], (5, 4))]
     fn test_decode_version_offer(
         #[case] mut offer: [u8; 4],
         #[case] expected: (u8, u8),
@@ -395,7 +397,7 @@ mod tests {
     #[case([0, 0, 1, 4])] // driver didn't offer version 4.1
     #[case([0, 0, 2, 4])] // driver didn't offer version 4.2
     #[case([0, 0, 3, 4])] // driver didn't offer version 4.3
-    #[case([0, 0, 4, 5])] // driver didn't offer version 5.4
+    #[case([0, 0, 5, 5])] // driver didn't offer version 5.4
     #[case([0, 0, 0, 6])] // driver didn't offer version 6.0
     fn test_garbage_server_version(
         #[case] mut offer: [u8; 4],

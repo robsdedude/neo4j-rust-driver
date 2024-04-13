@@ -233,3 +233,33 @@ impl<'a> RouteParameters<'a> {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum TelemetryAPI {
+    TxFunc,
+    UnmanagedTx,
+    AutoCommit,
+    DriverLevel,
+}
+
+impl TelemetryAPI {
+    pub(crate) fn name(&self) -> &'static str {
+        match self {
+            Self::TxFunc => "Session::transaction with retry",
+            Self::UnmanagedTx => "Session::transaction without retry",
+            Self::AutoCommit => "Session::auto_commit",
+            Self::DriverLevel => "Driver::execute_query",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TelemetryParameters {
+    pub(super) api: TelemetryAPI,
+}
+
+impl TelemetryParameters {
+    pub(crate) fn new(api: TelemetryAPI) -> Self {
+        Self { api }
+    }
+}

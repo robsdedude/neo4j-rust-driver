@@ -37,7 +37,7 @@ use notification::NotificationFilter;
 
 // imports for docs
 #[allow(unused)]
-use super::session::SessionConfig;
+use super::session::{AutoCommitBuilder, SessionConfig, TransactionBuilder};
 #[allow(unused)]
 use super::ExecuteQueryBuilder;
 #[allow(unused)]
@@ -63,6 +63,7 @@ pub struct DriverConfig {
     pub(crate) resolver: Option<Box<dyn AddressResolver>>,
     pub(crate) notification_filter: NotificationFilter,
     pub(crate) keep_alive: Option<KeepAliveConfig>,
+    pub(crate) telemetry: bool,
 }
 
 #[derive(Debug)]
@@ -155,6 +156,7 @@ impl Default for DriverConfig {
             resolver: None,
             notification_filter: Default::default(),
             keep_alive: None,
+            telemetry: true,
         }
     }
 }
@@ -530,6 +532,31 @@ impl DriverConfig {
     #[inline]
     pub fn without_keep_alive(mut self) -> Self {
         self.keep_alive = None;
+        self
+    }
+
+    /// Enable or disable telemetry.
+    ///
+    /// If enabled (default) and the server requests is, the driver will send anonymous API usage
+    /// statistics to the server.
+    /// Currently, everytime one of the following APIs is used to execute a query
+    /// (for the first time), the server is informed of this
+    /// (without any further information like arguments, client identifiers, etc.):
+    ///
+    /// * [`ExecuteQueryBuilder::run()`] / [`ExecuteQueryBuilder::run_with_retry()`]
+    /// * [`TransactionBuilder::run()`]
+    /// * [`TransactionBuilder::run_with_retry()`]
+    /// * [`AutoCommitBuilder::run()`]
+    ///
+    /// # Example
+    /// ```
+    /// use neo4j::driver::DriverConfig;
+    ///
+    /// let config = DriverConfig::new().with_telemetry(false);
+    /// ```
+    #[inline]
+    pub fn with_telemetry(mut self, telemetry: bool) -> Self {
+        self.telemetry = telemetry;
         self
     }
 }

@@ -35,8 +35,9 @@ use super::requests::TestKitAuth;
 use super::session_holder::SummaryWithQuery;
 use super::BackendId;
 
+// [bolt-version-bump] search tag when changing bolt version support
 // https://github.com/rust-lang/rust/issues/85077
-const FEATURE_LIST: [&str; 43] = [
+const FEATURE_LIST: [&str; 44] = [
     // === FUNCTIONAL FEATURES ===
     "Feature:API:BookmarkManager",
     "Feature:API:ConnectionAcquisitionTimeout",
@@ -74,7 +75,7 @@ const FEATURE_LIST: [&str; 43] = [
     "Feature:Bolt:5.1",
     "Feature:Bolt:5.2",
     "Feature:Bolt:5.3",
-    // "Feature:Bolt:5.4",
+    "Feature:Bolt:5.4",
     "Feature:Bolt:Patch:UTC",
     "Feature:Impersonation",
     // "Feature:TLS:1.1",  // rustls says no! For a good reason.

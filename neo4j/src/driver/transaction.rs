@@ -30,7 +30,7 @@ use super::io::bolt::ResponseCallbacks;
 use super::io::PooledBolt;
 use super::record_stream::{GetSingleRecordError, RecordStream, SharedErrorPropagator};
 use super::Record;
-use crate::error_::{Neo4jError, Result, ServerError};
+use crate::error_::{Neo4jError, Result};
 use crate::summary::Summary;
 use crate::value::{ValueReceive, ValueSend};
 
@@ -163,11 +163,15 @@ pub(crate) struct InnerTransaction<'driver> {
 }
 
 impl<'driver> InnerTransaction<'driver> {
-    pub(crate) fn new(connection: PooledBolt<'driver>, fetch_size: i64) -> Self {
+    pub(crate) fn new(
+        connection: PooledBolt<'driver>,
+        fetch_size: i64,
+        error_propagator: SharedErrorPropagator,
+    ) -> Self {
         Self {
             connection: Rc::new(RefCell::new(connection)),
             bookmark: Default::default(),
-            error_propagator: Default::default(),
+            error_propagator,
             fetch_size,
             closed: false,
         }
@@ -177,12 +181,14 @@ impl<'driver> InnerTransaction<'driver> {
         &mut self,
         parameters: BeginParameters<K>,
         eager: bool,
+        callbacks: ResponseCallbacks,
     ) -> Result<()> {
         let mut cx = self.connection.borrow_mut();
-        cx.begin(parameters)?;
+        cx.begin(parameters, callbacks)?;
         if eager {
             cx.write_all(None)?;
             cx.read_all(None)?;
+            self.check_error()?;
         }
         Ok(())
     }
@@ -250,9 +256,7 @@ impl<'driver> InnerTransaction<'driver> {
     fn check_error(&self) -> Result<()> {
         match self.error_propagator.deref().borrow().error() {
             None => Ok(()),
-            Some(err) => {
-                Err(ServerError::new(String::from(err.code()), String::from(err.message())).into())
-            }
+            Some(err) => Err(err.deref().clone().into()),
         }
     }
 }

@@ -159,6 +159,7 @@ pub(crate) struct PoolConfig {
     pub(crate) connection_acquisition_timeout: Option<Duration>,
     pub(crate) resolver: Option<Box<dyn AddressResolver>>,
     pub(crate) notification_filters: Arc<NotificationFilter>,
+    pub(crate) telemetry: bool,
 }
 
 impl PoolConfig {

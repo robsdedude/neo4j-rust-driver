@@ -19,6 +19,7 @@ mod bolt5x0;
 mod bolt5x1;
 mod bolt5x2;
 mod bolt5x3;
+mod bolt5x4;
 mod bolt_state;
 mod chunk;
 mod handshake;
@@ -57,6 +58,7 @@ use bolt5x0::{Bolt5x0, Bolt5x0StructTranslator};
 use bolt5x1::{Bolt5x1, Bolt5x1StructTranslator};
 use bolt5x2::{Bolt5x2, Bolt5x2StructTranslator};
 use bolt5x3::{Bolt5x3, Bolt5x3StructTranslator};
+use bolt5x4::{Bolt5x4, Bolt5x4StructTranslator};
 use bolt_state::{BoltState, BoltStateTracker};
 use chunk::{Chunker, Dechunker};
 pub(crate) use handshake::{open, TcpConnector};
@@ -64,6 +66,7 @@ use message::BoltMessage;
 use message_parameters::{
     BeginParameters, CommitParameters, DiscardParameters, GoodbyeParameters, HelloParameters,
     PullParameters, ReauthParameters, RollbackParameters, RouteParameters, RunParameters,
+    TelemetryParameters,
 };
 use packstream::PackStreamSerializer;
 pub(crate) use response::{
@@ -172,6 +175,7 @@ impl<RW: Read + Write> Bolt<RW> {
             data: BoltData::new(version, stream, socket, local_port, address),
             // [bolt-version-bump] search tag when changing bolt version support
             protocol: match version {
+                (5, 4) => Bolt5x4::<Bolt5x4StructTranslator>::default().into(),
                 (5, 3) => Bolt5x3::<Bolt5x3StructTranslator>::default().into(),
                 (5, 2) => Bolt5x2::<Bolt5x2StructTranslator>::default().into(),
                 (5, 1) => Bolt5x1::<Bolt5x1StructTranslator>::default().into(),
@@ -281,8 +285,9 @@ impl<RW: Read + Write> Bolt<RW> {
     pub(crate) fn begin<K: Borrow<str> + Debug>(
         &mut self,
         parameters: BeginParameters<K>,
+        callbacks: ResponseCallbacks,
     ) -> Result<()> {
-        self.protocol.begin(&mut self.data, parameters)
+        self.protocol.begin(&mut self.data, parameters, callbacks)
     }
 
     pub(crate) fn commit(&mut self, callbacks: ResponseCallbacks) -> Result<()> {
@@ -301,6 +306,15 @@ impl<RW: Read + Write> Bolt<RW> {
         callbacks: ResponseCallbacks,
     ) -> Result<()> {
         self.protocol.route(&mut self.data, parameters, callbacks)
+    }
+
+    pub(crate) fn telemetry(
+        &mut self,
+        parameters: TelemetryParameters,
+        callbacks: ResponseCallbacks,
+    ) -> Result<()> {
+        self.protocol
+            .telemetry(&mut self.data, parameters, callbacks)
     }
 
     pub(crate) fn read_all(
@@ -380,6 +394,9 @@ impl<RW: Read + Write> Bolt<RW> {
     pub(crate) fn is_idle_for(&self, timeout: Duration) -> bool {
         self.data.is_idle_for(timeout)
     }
+    pub(crate) fn set_telemetry_enabled(&mut self, enabled: bool) {
+        self.data.set_telemetry_enabled(enabled)
+    }
 
     #[inline(always)]
     pub(crate) fn debug_log(&self, msg: impl FnOnce() -> String) {
@@ -438,6 +455,7 @@ trait BoltProtocol: Debug {
         &mut self,
         data: &mut BoltData<RW>,
         parameters: BeginParameters<K>,
+        callbacks: ResponseCallbacks,
     ) -> Result<()>;
     fn commit<RW: Read + Write>(
         &mut self,
@@ -456,6 +474,12 @@ trait BoltProtocol: Debug {
         parameters: RouteParameters,
         callbacks: ResponseCallbacks,
     ) -> Result<()>;
+    fn telemetry<RW: Read + Write>(
+        &mut self,
+        data: &mut BoltData<RW>,
+        parameters: TelemetryParameters,
+        callbacks: ResponseCallbacks,
+    ) -> Result<()>;
 
     fn load_value<R: Read>(&mut self, reader: &mut R) -> Result<ValueReceive>;
     fn handle_response<RW: Read + Write>(
@@ -466,6 +490,7 @@ trait BoltProtocol: Debug {
     ) -> Result<()>;
 }
 
+// [bolt-version-bump] search tag when changing bolt version support
 #[enum_dispatch(BoltProtocol)]
 #[derive(Debug)]
 enum BoltProtocolVersion {
@@ -474,6 +499,7 @@ enum BoltProtocolVersion {
     V5x1(Bolt5x1<Bolt5x1StructTranslator>),
     V5x2(Bolt5x2<Bolt5x2StructTranslator>),
     V5x3(Bolt5x3<Bolt5x3StructTranslator>),
+    V5x4(Bolt5x4<Bolt5x3StructTranslator>),
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -494,6 +520,7 @@ pub(crate) struct BoltData<RW: Read + Write> {
     bolt_state: BoltStateTracker,
     meta: Arc<AtomicRefCell<HashMap<String, ValueReceive>>>,
     server_agent: Arc<AtomicRefCell<Arc<String>>>,
+    telemetry_enabled: Arc<AtomicRefCell<bool>>,
     address: Arc<Address>,
     address_str: String,
     last_qid: Arc<AtomicRefCell<Option<i64>>>,
@@ -525,6 +552,7 @@ impl<RW: Read + Write> BoltData<RW> {
             bolt_state: BoltStateTracker::new(version),
             meta: Default::default(),
             server_agent: Default::default(),
+            telemetry_enabled: Default::default(),
             address,
             address_str,
             last_qid: Default::default(),
@@ -702,6 +730,10 @@ impl<RW: Read + Write> BoltData<RW> {
 
     fn is_idle_for(&self, timeout: Duration) -> bool {
         self.idle_since.elapsed() >= timeout
+    }
+
+    fn set_telemetry_enabled(&mut self, enabled: bool) {
+        *self.telemetry_enabled.borrow_mut() = enabled;
     }
 }
 

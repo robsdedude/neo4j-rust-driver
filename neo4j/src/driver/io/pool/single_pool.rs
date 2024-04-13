@@ -102,6 +102,7 @@ impl InnerPool {
 
         let address = Arc::clone(&self.address);
         let mut connection = self.open_socket(address, deadline)?;
+        connection.set_telemetry_enabled(self.config.telemetry);
 
         connection.hello(HelloParameters::new(
             &self.config.user_agent,

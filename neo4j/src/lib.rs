@@ -25,10 +25,10 @@
 //!
 //! ## Compatibility
 // [bolt-version-bump] search tag when changing bolt version support
-//! This driver supports bolt protocol version 4.4, and 5.0 - 5.3.
-//! This corresponds to Neo4j versions 4.4, and 5.0 - 5.13.
-//! Newer 5.x versions of the server are able to negotiate a lower, common protocol version.
-//! Therefore, they, too, can be connected to but some features may be available though this driver.
+//! This driver supports bolt protocol version 4.4, and 5.0 - 5.4.
+//! This corresponds to Neo4j versions 4.4, and 5.0 - 5.19+.
+//! For details of bolt protocol compatibility, see the
+//! [official Neo4j documentation](https://neo4j.com/docs/bolt/current/bolt-compatibility/).
 //!
 //! ## Basic Example
 //! ```

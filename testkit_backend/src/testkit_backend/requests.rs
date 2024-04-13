@@ -75,8 +75,14 @@ pub(super) enum Request {
         liveness_check_timeout_ms: Option<u64>,
         max_connection_pool_size: Option<usize>,
         connection_acquisition_timeout_ms: Option<u64>,
+        #[serde(rename = "clientCertificate")]
+        client_certificate: Option<ClientCertificate>,
+        #[serde(rename = "clientCertificateProviderId")]
+        client_certificate_provider_id: Option<BackendId>,
         notifications_min_severity: Option<String>,
         notifications_disabled_categories: Option<Vec<String>>,
+        #[serde(rename = "telemetryDisabled")]
+        telemetry_disabled: Option<bool>,
         encrypted: Option<bool>,
         trusted_certificates: Option<Vec<String>>,
     },
@@ -531,6 +537,17 @@ pub(super) enum AuthTokenAndExpiration {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(tag = "name", content = "data")]
+#[allow(dead_code)] // reflects TestKit protocol
+pub(super) enum ClientCertificate {
+    ClientCertificate {
+        certfile: String,
+        keyfile: String,
+        password: Option<String>,
+    },
+}
+
+#[derive(Deserialize, Debug)]
 #[serde(untagged)]
 #[allow(dead_code)] // reflects TestKit protocol
 pub(super) enum RequestTrustedCertificates {
@@ -582,6 +599,8 @@ pub(super) struct ExecuteQueryConfig {
     bookmark_manager_id: Option<ExecuteQueryBmmId>,
     tx_meta: Option<HashMap<String, CypherValue>>,
     timeout: Option<i64>,
+    #[serde(rename = "authorizationToken")]
+    auth: MaybeTestKitAuth,
 }
 
 #[derive(Deserialize, Debug)]
@@ -754,8 +773,11 @@ impl Request {
             liveness_check_timeout_ms,
             max_connection_pool_size,
             connection_acquisition_timeout_ms,
+            client_certificate,
+            client_certificate_provider_id,
             notifications_min_severity,
             notifications_disabled_categories,
+            telemetry_disabled,
             encrypted,
             trusted_certificates,
         } = self
@@ -823,11 +845,17 @@ impl Request {
                 Duration::from_millis(connection_acquisition_timeout_ms),
             );
         }
+        if client_certificate.is_some() || client_certificate_provider_id.is_some() {
+            return Err(TestKitError::backend_err("mTLS not (yet) supported"));
+        }
         if let Some(filter) = load_notification_filter(
             notifications_min_severity,
             notifications_disabled_categories,
         )? {
             driver_config = driver_config.with_notification_filter(filter);
+        }
+        if let Some(telemetry_disabled) = telemetry_disabled {
+            driver_config = driver_config.with_telemetry(!telemetry_disabled);
         }
         if let Some(encrypted) = encrypted {
             connection_config = match encrypted {
@@ -1440,6 +1468,7 @@ impl Request {
             bookmark_manager_id,
             tx_meta,
             timeout,
+            auth,
         } = config;
         let data = backend.data.borrow_mut();
         let driver_holder = get_driver(&data, &driver_id)?;
@@ -1457,6 +1486,7 @@ impl Request {
             .map(cypher_value_map_to_value_send_map)
             .transpose()?;
         let timeout = read_transaction_timeout(timeout)?;
+        let auth = auth.0.map(|auth| Arc::new(auth.into()));
         let result = driver_holder
             .execute_query(ExecuteQuery {
                 query,
@@ -1467,6 +1497,7 @@ impl Request {
                 bookmark_manager,
                 tx_meta,
                 timeout,
+                auth,
             })
             .result?;
         let response: Response = result.try_into()?;

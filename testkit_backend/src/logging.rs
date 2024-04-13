@@ -15,7 +15,9 @@
 use std::io::{self, Cursor, Result as IoResult, Write};
 use std::mem::swap;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::SystemTime;
 
+use chrono::{DateTime, SecondsFormat, Utc};
 use log::LevelFilter;
 
 #[derive(Debug, Default, Clone)]
@@ -56,8 +58,9 @@ pub(super) fn init() {
             fern::Dispatch::new()
                 .format(move |out, message, record| {
                     out.finish(format_args!(
-                        "[{}][{:<7}] {}",
-                        record.target(),
+                        "{} [{:<7}] {}",
+                        DateTime::<Utc>::from(SystemTime::now())
+                            .to_rfc3339_opts(SecondsFormat::Nanos, true),
                         record.level(),
                         message
                     ))
