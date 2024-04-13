@@ -18,6 +18,7 @@ use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::iter::FusedIterator;
 use std::mem;
+use std::ops::Deref;
 use std::rc::Rc;
 use std::result;
 use std::sync::{Arc, Weak};
@@ -72,7 +73,7 @@ impl<'driver> RecordStream<'driver> {
         parameters: RunParameters<KP, KM>,
     ) -> Result<()> {
         if let RecordListenerState::ForeignError(e) = &(*self.listener).borrow().state {
-            return Err(ServerError::new(String::from(e.code()), String::from(e.message())).into());
+            return Err(e.deref().clone().into());
         }
 
         let mut callbacks = self.failure_callbacks();
@@ -129,11 +130,7 @@ impl<'driver> RecordStream<'driver> {
                     mem::swap(state, &mut state_swap);
                     match state_swap {
                         RecordListenerState::ForeignError(e) => {
-                            return Err(ServerError::new(
-                                String::from(e.code()),
-                                String::from(e.message()),
-                            )
-                            .into())
+                            return Err(e.deref().clone().into())
                         }
                         _ => panic!("checked state to be error above"),
                     }
@@ -420,11 +417,7 @@ impl<'driver> Iterator for RecordStream<'driver> {
                     mem::swap(&mut listener.state, &mut state);
                     match state {
                         RecordListenerState::ForeignError(e) => {
-                            return Some(Err(ServerError::new(
-                                String::from(e.code()),
-                                String::from(e.message()),
-                            )
-                            .into()))
+                            return Some(Err(e.deref().clone().into()))
                         }
                         _ => panic!("checked state to be foreign error above"),
                     }
@@ -542,9 +535,11 @@ impl RecordListener {
 
     fn failure_cb(&mut self, me: Weak<AtomicRefCell<Self>>, error: ServerError) -> Result<()> {
         if let Some(error_propagator) = &self.error_propagator {
-            error_propagator
-                .borrow_mut()
-                .propagate_error(Some(me), &error);
+            error_propagator.borrow_mut().propagate_error(
+                Some(me),
+                &error,
+                "failure in a query of this transaction caused transaction to be closed",
+            );
         }
         self.state = RecordListenerState::Error(error.into());
         self.summary = None;
@@ -629,14 +624,9 @@ impl ErrorPropagator {
         &mut self,
         source: Option<Weak<AtomicRefCell<RecordListener>>>,
         error: &ServerError,
+        reason: &str,
     ) {
-        let error = Arc::new(ServerError::new(
-            String::from(error.code()),
-            format!(
-                "failure in a query of this transaction caused transaction to be closed: {}",
-                error.message()
-            ),
-        ));
+        let error = Arc::new(error.clone_with_reason(reason));
         for listener in self.listeners.iter() {
             if let Some(source) = source.as_ref() {
                 if source.ptr_eq(listener) {
@@ -658,7 +648,8 @@ impl ErrorPropagator {
         this: SharedErrorPropagator,
     ) -> impl FnMut(ServerError) -> Result<()> + Send + Sync + 'static {
         move |err| {
-            this.borrow_mut().propagate_error(None, &err);
+            this.borrow_mut()
+                .propagate_error(None, &err, "the transaction could not be started");
             Ok(())
         }
     }

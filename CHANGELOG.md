@@ -10,7 +10,8 @@
 - Reduce the number of lifetime generic parameters in `TransactionQueryBuilder` and `TransactionRecordStream`.
 - Fix `Transaction::rolblack()` failing if a result stream failed before.
 - Introduce `neo4j::driver::Conifg::with_keep_alive()` and `without_keep_alive()`.
-- Fixed errors during transaction `BEGIN` not being properly propagated.
+- Fix errors during transaction `BEGIN` not being properly propagated.
+- Fix propagation of `is_retryable()` of errors within transactions.
 - Add support for Bolt 5.3 (bolt agent).
 - Add support for Bolt 5.4 (telemetry).
 

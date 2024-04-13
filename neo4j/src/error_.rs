@@ -350,6 +350,22 @@ impl ServerError {
     pub(crate) fn overwrite_retryable(&mut self) {
         self.retryable_overwrite = true;
     }
+
+    pub(crate) fn clone(&self) -> Self {
+        Self {
+            code: self.code.clone(),
+            message: self.message.clone(),
+            retryable_overwrite: self.retryable_overwrite,
+        }
+    }
+
+    pub(crate) fn clone_with_reason(&self, reason: &str) -> Self {
+        Self {
+            code: self.code.clone(),
+            message: format!("{}: {}", reason, self.message),
+            retryable_overwrite: self.retryable_overwrite,
+        }
+    }
 }
 
 impl Display for ServerError {
