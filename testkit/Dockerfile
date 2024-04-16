@@ -3,6 +3,9 @@ FROM rust:1.73-buster
 ENV DEBIAN_FRONTEND noninteractive
 RUN apt-get update && \
     apt-get install -y locales && \
+    # needed for aws-lc (transitive dependency of rustls)
+    # https://aws.github.io/aws-lc-rs/requirements/linux.html
+    apt-get install -y cmake gcc g++ libclang1 && \
     apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
     localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 \
  && rm -rf /var/lib/apt/lists/*
