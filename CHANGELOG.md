@@ -11,6 +11,13 @@
  - Add `Driver::is_encrypted()`.
  - Introduce `neo4j::driver::Conifg::with_keep_alive()` and `without_keep_alive()`.
 
+**👏 Improvements**
+ - ⚠️ ️️Bump `chrono-tz` from `0.8` to `0.9` (types of this crate are exposed through the driver's API.
+ - ⚠️ ️️Bump `rustls` from `0.22` to `0.23`: 
+   - types of this crate are exposed through the driver's API
+   - other breaking changes (e.g., new build requirements).
+     See [rustls' changelog](https://github.com/rustls/rustls/releases/tag/v%2F0.23.0) for more details.
+
 **🔧 Fixes**
  - Fix `Transaction::rolblack()` failing if a result stream failed before.
  - Fix errors during transaction `BEGIN` not being properly propagated.
@@ -29,7 +36,7 @@
 **👏 Improvements**
  - Impl `FromStr` for `neo4j::driver::ConnectionConfig` (besides `TryFrom<&str>`).
 
- - **🧹Clean-up**
+**🧹Clean-up**
  - ⚠️ Update dependencies.  
   Among others `rustls`.
   To accommodate this change, the `rustls_dangerous_configuration` feature was removed.
@@ -48,6 +55,7 @@
 **📚 Docs**
  - Much more documentation.
 
-## 0.0.1
 
+## 0.0.1
+***
 Initial release

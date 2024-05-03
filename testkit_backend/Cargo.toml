@@ -20,3 +20,4 @@ serde = { version = "1.0.197", features = ["derive"] }
 serde_json = "1.0.115"
 snowflaked = "1.0.3"
 thiserror = "1.0.58"
+rustls = { version = "0.23.4", features = ["ring"] }

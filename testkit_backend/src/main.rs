@@ -20,6 +20,9 @@ mod testkit_backend;
 use testkit_backend::start_server;
 
 fn main() {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to initialize aws_lc_rs");
     logging::init();
     start_server()
 }

@@ -135,6 +135,15 @@ pub enum KeepAliveConfig {
 ///     .unwrap()
 ///     .with_routing_context(routing_context);
 /// ```
+///
+/// ## TLS
+/// The driver utilizes [`rustls`] for TLS concerns.
+/// Make sure to have a look at the requirements, for building and using it.
+/// In particular:
+///  * Consider the
+///    [platform support](https://docs.rs/rustls/latest/rustls/index.html#platform-support)
+///  * Make sure a crypto provider is installed (e.g., by calling
+///    [`rustls::crypto::CryptoProvider::install_default()`] when starting the process).
 #[derive(Debug)]
 pub struct ConnectionConfig {
     pub(crate) address: Address,
@@ -634,6 +643,8 @@ impl ConnectionConfig {
     /// certificate store.
     ///
     /// Returns an error if the system's root CA certificate store could not be loaded.
+    ///
+    /// To use TLS, see the notes about [TLS requirements](Self#tls).
     #[allow(clippy::result_large_err)]
     pub fn with_encryption_trust_default_cas(mut self) -> StdResult<Self, TlsConfigError> {
         self.tls_config = Some(match tls_helper::secure_tls_config() {
@@ -652,6 +663,8 @@ impl ConnectionConfig {
     /// loaded from the given file(s).
     ///
     /// Returns an error if loading the root CA certificates failed.
+    ///
+    /// To use TLS, see the notes about [TLS requirements](Self#tls).
     #[allow(clippy::result_large_err)]
     pub fn with_encryption_trust_custom_cas<P: AsRef<Path>>(
         self,
@@ -675,6 +688,8 @@ impl ConnectionConfig {
     ///
     /// **⚠️ WARNING**:  
     /// This is not secure and should only be used for testing purposes.
+    ///
+    /// To use TLS, see the notes about [TLS requirements](Self#tls).
     pub fn with_encryption_trust_any_certificate(mut self) -> Self {
         self.tls_config = Some(tls_helper::self_signed_tls_config());
         self
@@ -693,6 +708,8 @@ impl ConnectionConfig {
     /// # use rustls_pki_types::{TrustAnchor, Der};
     ///
     /// # fn get_custom_client_config() -> ClientConfig {
+    /// #     // Fails if a provider is already installed. That's fine, too.
+    /// #     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     /// #     ClientConfig::builder().with_root_certificates(
     /// #         RootCertStore {
     /// #             roots: vec![
@@ -710,6 +727,8 @@ impl ConnectionConfig {
     /// let config = ConnectionConfig::new(("localhost", 7687).into())
     ///     .with_encryption_custom_tls_config(client_config);
     /// ```
+    ///
+    /// To use TLS, see the notes about [TLS requirements](Self#tls).
     pub fn with_encryption_custom_tls_config(mut self, tls_config: ClientConfig) -> Self {
         self.tls_config = Some(tls_config);
         self
@@ -933,7 +952,13 @@ mod mockable {
             OnceLock::new();
 
         pub fn secure_tls_config() -> StdResult<ClientConfig, String> {
+            // Fails if a provider is already installed. That's fine, too.
+            let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
             let root_store = SYSTEM_CERTIFICATES.get_or_init(|| {
+                // Fails if a provider is already installed. That's fine, too.
+                let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
                 let mut root_store = RootCertStore::empty();
                 // root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
                 //     rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
@@ -957,6 +982,9 @@ mod mockable {
         pub fn custom_ca_tls_config<'a, 'b>(
             paths: &'a [&'b Path],
         ) -> StdResult<ClientConfig, String> {
+            // Fails if a provider is already installed. That's fine, too.
+            let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
             let mut root_store = RootCertStore::empty();
             for path in paths {
                 let file = File::open(path)
@@ -976,6 +1004,9 @@ mod mockable {
         }
 
         pub fn self_signed_tls_config() -> ClientConfig {
+            // Fails if a provider is already installed. That's fine, too.
+            let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
             let root_store = RootCertStore::empty();
             let mut config = ClientConfig::builder()
                 .with_root_certificates(root_store)
@@ -1095,6 +1126,9 @@ mod tests {
     }
 
     fn get_test_client_config() -> ClientConfig {
+        // Fails if a provider is already installed. That's fine, too.
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
         let root_store = RootCertStore::empty();
         ClientConfig::builder()
             .with_root_certificates(root_store)

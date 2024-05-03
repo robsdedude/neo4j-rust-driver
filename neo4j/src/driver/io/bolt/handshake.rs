@@ -226,7 +226,12 @@ pub(crate) fn open<S: SocketProvider>(
     )?;
     socket_debug!(local_port, "S: <BOLT> {:02X?}", negotiated_version);
 
-    let version = decode_version_offer(&negotiated_version)?;
+    let version = wrap_socket_killing(
+        &mut socket_provider,
+        &raw_socket,
+        local_port,
+        decode_version_offer(&negotiated_version),
+    )?;
 
     Ok(Bolt::new(
         version,
@@ -302,6 +307,22 @@ where
             "could not resolve to any addresses",
         )
     }))
+}
+
+fn wrap_socket_killing<S: SocketProvider, T>(
+    socket_provider: &mut S,
+    stream: &S::RW,
+    local_port: u16,
+    res: Result<T>,
+) -> Result<T> {
+    match res {
+        Ok(res) => Ok(res),
+        Err(err) => {
+            socket_debug!(local_port, "  closing socket because {}", &err);
+            let _ = socket_provider.shutdown(stream, Shutdown::Both);
+            Err(err)
+        }
+    }
 }
 
 fn wrap_socket_write<S: SocketProvider, T>(
