@@ -233,6 +233,7 @@ pub mod transaction {
 
 mod private {
     // Trait to prevent traits from being implemented outside of this crate.
+    #[allow(dead_code)]
     pub trait Sealed {}
 }
 
