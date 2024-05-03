@@ -4,6 +4,10 @@
 
 ## NEXT
 ***
+
+
+## 0.1.0
+***
 **⭐ New Features**
  - Add support for Bolt 5.2, which adds notification filtering.
  - Add support for Bolt 5.3 (bolt agent).
@@ -12,10 +16,10 @@
  - Introduce `neo4j::driver::Conifg::with_keep_alive()` and `without_keep_alive()`.
 
 **👏 Improvements**
- - ⚠️ ️️Bump `chrono-tz` from `0.8` to `0.9` (types of this crate are exposed through the driver's API.
+ - ⚠️ ️️Bump `chrono-tz` from `0.8` to `0.9` (types of this crate are exposed through the driver's API).
  - ⚠️ ️️Bump `rustls` from `0.22` to `0.23`: 
    - types of this crate are exposed through the driver's API
-   - other breaking changes (e.g., new build requirements).
+   - other breaking changes (e.g., new build requirements).  
      See [rustls' changelog](https://github.com/rustls/rustls/releases/tag/v%2F0.23.0) for more details.
 
 **🔧 Fixes**
