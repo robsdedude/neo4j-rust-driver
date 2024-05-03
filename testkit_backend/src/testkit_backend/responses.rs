@@ -307,7 +307,7 @@ impl TryFrom<SummaryWithQuery> for Summary {
             parameters,
         } = summary;
         let mut summary: Self = (*summary).clone().try_into()?;
-        summary.query.text = (*query).clone();
+        summary.query.text.clone_from(&*query);
         summary.query.parameters = (*parameters)
             .clone()
             .unwrap_or_default()

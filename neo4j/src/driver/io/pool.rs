@@ -551,7 +551,7 @@ impl RoutingPool {
             Ok(mut new_rt) => {
                 if args.db.is_some() {
                     let db = args.db.cloned();
-                    new_rt.database = db.clone();
+                    new_rt.database.clone_from(&db);
                     rts.insert(db.clone(), new_rt);
                     self.clean_up_pools(rts);
                     Ok(db)
