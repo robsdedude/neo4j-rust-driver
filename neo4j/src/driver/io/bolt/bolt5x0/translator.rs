@@ -494,7 +494,7 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                     Ok(tz) => tz,
                     Err(e) => {
                         return failed_struct(format!(
-                            "failed to load DateTimeZoneId time zone: {e}"
+                            "failed to load DateTimeZoneId time zone \"{tz_id}\": {e}"
                         ));
                     }
                 };
