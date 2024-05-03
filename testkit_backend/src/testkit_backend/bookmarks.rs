@@ -128,10 +128,3 @@ fn make_consumer_fn(
         }
     }
 }
-
-#[derive(Debug)]
-pub(super) struct TestKitBookmarkManager {
-    // id: BackendId,
-    // backend_io: Arc<AtomicRefCell<BackendIo>>,
-    // id_generator: Generator,
-}
