@@ -548,6 +548,7 @@ mod tests {
     }
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     enum MockSocketProviderCall {
         Connect(Arc<MockAddress>),
         ConnectTimeout {
