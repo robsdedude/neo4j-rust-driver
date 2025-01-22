@@ -184,7 +184,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: testkit-artifacts
+          name: testkit-${{ matrix.tests }}${{ matrix.config && format('-{0}', matrix.config) || ''}}-artifacts
           path: testkit/artifacts
           compression-level: 9
 
