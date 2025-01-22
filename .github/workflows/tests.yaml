@@ -190,8 +190,10 @@ jobs:
 
   ci-end:
     name: CI End
+    if: ${{ cancelled() || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'failure') }}
     needs: [ tests, lints, testkit ]
     runs-on: ubuntu-latest
     steps:
-      - name: All Done!
-        run: echo This is a single job to check all the other jobs have passed.
+      - run: |
+          echo "Some workflows have failed!"
+          exit 1
