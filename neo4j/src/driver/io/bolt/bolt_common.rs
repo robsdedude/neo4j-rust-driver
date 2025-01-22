@@ -45,7 +45,7 @@ macro_rules! value_as {
                     concat!(
                         "expected ",
                         $name,
-                        " to be an ",
+                        " to be ",
                         $type_name,
                         ", found {0:?}"
                     ),

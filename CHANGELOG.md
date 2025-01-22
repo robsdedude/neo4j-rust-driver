@@ -4,6 +4,12 @@
 
 ## NEXT
 ***
+**⭐ New Features**
+ - Rework `neo4j::value::graph::Path`
+   - `Path`s now properly validate data received from the server (as documented)
+   - ⚠️ The return type of `Path::traverse()` was changed to reflect that paths with only one node and no relationships exist.
+   - The invariants of `Path` were changed for the above reason, too.
+   - New methods `Path::new()`, `Path::new_unchecked()`, and `Path::verify_invariants()`.
 
 
 ## 0.1.0

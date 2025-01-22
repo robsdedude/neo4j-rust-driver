@@ -1002,6 +1002,57 @@ impl core::panic::unwind_safe::RefUnwindSafe for neo4j::transaction::Transaction
 impl core::panic::unwind_safe::UnwindSafe for neo4j::transaction::TransactionTimeout
 pub mod neo4j::value
 pub mod neo4j::value::graph
+#[non_exhaustive] pub enum neo4j::value::graph::PathInvariantError
+#[non_exhaustive] pub neo4j::value::graph::PathInvariantError::EmptyNodes
+#[non_exhaustive] pub neo4j::value::graph::PathInvariantError::EvenIndexOutOfRange
+pub neo4j::value::graph::PathInvariantError::EvenIndexOutOfRange::index: usize
+pub neo4j::value::graph::PathInvariantError::EvenIndexOutOfRange::relationships_len: usize
+pub neo4j::value::graph::PathInvariantError::EvenIndexOutOfRange::value: isize
+#[non_exhaustive] pub neo4j::value::graph::PathInvariantError::OddIndexOutOfRange
+pub neo4j::value::graph::PathInvariantError::OddIndexOutOfRange::index: usize
+pub neo4j::value::graph::PathInvariantError::OddIndexOutOfRange::nodes_len: usize
+pub neo4j::value::graph::PathInvariantError::OddIndexOutOfRange::value: isize
+#[non_exhaustive] pub neo4j::value::graph::PathInvariantError::TooManyNodes
+#[non_exhaustive] pub neo4j::value::graph::PathInvariantError::TooManyRelationships
+#[non_exhaustive] pub neo4j::value::graph::PathInvariantError::UnevenIndicesCount
+impl core::clone::Clone for neo4j::value::graph::PathInvariantError
+pub fn neo4j::value::graph::PathInvariantError::clone(&self) -> neo4j::value::graph::PathInvariantError
+impl core::cmp::Eq for neo4j::value::graph::PathInvariantError
+impl core::cmp::PartialEq for neo4j::value::graph::PathInvariantError
+pub fn neo4j::value::graph::PathInvariantError::eq(&self, other: &neo4j::value::graph::PathInvariantError) -> bool
+impl core::error::Error for neo4j::value::graph::PathInvariantError
+impl core::fmt::Debug for neo4j::value::graph::PathInvariantError
+pub fn neo4j::value::graph::PathInvariantError::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for neo4j::value::graph::PathInvariantError
+pub fn neo4j::value::graph::PathInvariantError::fmt(&self, __formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for neo4j::value::graph::PathInvariantError
+impl core::marker::Freeze for neo4j::value::graph::PathInvariantError
+impl core::marker::Send for neo4j::value::graph::PathInvariantError
+impl core::marker::Sync for neo4j::value::graph::PathInvariantError
+impl core::marker::Unpin for neo4j::value::graph::PathInvariantError
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::graph::PathInvariantError
+impl core::panic::unwind_safe::UnwindSafe for neo4j::value::graph::PathInvariantError
+pub enum neo4j::value::graph::RelationshipDirection
+pub neo4j::value::graph::RelationshipDirection::From
+pub neo4j::value::graph::RelationshipDirection::To
+impl core::clone::Clone for neo4j::value::graph::RelationshipDirection
+pub fn neo4j::value::graph::RelationshipDirection::clone(&self) -> neo4j::value::graph::RelationshipDirection
+impl core::cmp::Eq for neo4j::value::graph::RelationshipDirection
+impl core::cmp::PartialEq for neo4j::value::graph::RelationshipDirection
+pub fn neo4j::value::graph::RelationshipDirection::eq(&self, other: &neo4j::value::graph::RelationshipDirection) -> bool
+impl core::fmt::Debug for neo4j::value::graph::RelationshipDirection
+pub fn neo4j::value::graph::RelationshipDirection::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for neo4j::value::graph::RelationshipDirection
+pub fn neo4j::value::graph::RelationshipDirection::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::value::graph::RelationshipDirection
+pub fn neo4j::value::graph::RelationshipDirection::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+impl core::marker::StructuralPartialEq for neo4j::value::graph::RelationshipDirection
+impl core::marker::Freeze for neo4j::value::graph::RelationshipDirection
+impl core::marker::Send for neo4j::value::graph::RelationshipDirection
+impl core::marker::Sync for neo4j::value::graph::RelationshipDirection
+impl core::marker::Unpin for neo4j::value::graph::RelationshipDirection
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::graph::RelationshipDirection
+impl core::panic::unwind_safe::UnwindSafe for neo4j::value::graph::RelationshipDirection
 #[non_exhaustive] pub struct neo4j::value::graph::Node
 pub neo4j::value::graph::Node::element_id: alloc::string::String
 pub neo4j::value::graph::Node::id: i64
@@ -1030,7 +1081,8 @@ pub neo4j::value::graph::Path::indices: alloc::vec::Vec<isize>
 pub neo4j::value::graph::Path::nodes: alloc::vec::Vec<neo4j::value::graph::Node>
 pub neo4j::value::graph::Path::relationships: alloc::vec::Vec<neo4j::value::graph::UnboundRelationship>
 impl neo4j::value::graph::Path
-pub fn neo4j::value::graph::Path::traverse(&self) -> alloc::vec::Vec<(&neo4j::value::graph::Node, &neo4j::value::graph::UnboundRelationship, &neo4j::value::graph::Node)>
+pub fn neo4j::value::graph::Path::traverse(&self) -> (&neo4j::value::graph::Node, alloc::vec::Vec<(neo4j::value::graph::RelationshipDirection, &neo4j::value::graph::UnboundRelationship, &neo4j::value::graph::Node)>)
+pub fn neo4j::value::graph::Path::verify_invariants(&self) -> core::result::Result<(), neo4j::value::graph::PathInvariantError>
 impl core::clone::Clone for neo4j::value::graph::Path
 pub fn neo4j::value::graph::Path::clone(&self) -> neo4j::value::graph::Path
 impl core::cmp::PartialEq for neo4j::value::graph::Path

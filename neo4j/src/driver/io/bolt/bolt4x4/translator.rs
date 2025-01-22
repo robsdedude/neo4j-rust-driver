@@ -192,11 +192,10 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                 for index in raw_indices {
                     indices.push(as_int!(index, "path index").into_isize());
                 }
-                ValueReceive::Path(Path {
-                    nodes,
-                    relationships,
-                    indices,
-                })
+                match Path::new(nodes, relationships, indices) {
+                    Ok(path) => ValueReceive::Path(path),
+                    Err(e) => invalid_struct(format!("Path invariant violated: {e}")),
+                }
             }
             TAG_DATE_TIME | TAG_DATE_TIME_ZONE_ID if !self.utc_patch => {
                 ValueReceive::BrokenValue(BrokenValue {

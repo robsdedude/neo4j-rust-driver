@@ -84,13 +84,13 @@ pub fn get_session(driver: &Driver) -> Session {
     )
 }
 
-pub fn with_transaction<R>(example: impl FnMut(Transaction) -> Neo4jResult<R>) {
+pub fn with_transaction<R>(example: impl FnMut(Transaction) -> Neo4jResult<R>) -> R {
     let driver = get_driver();
     let mut session = get_session(&driver);
     session
         .transaction()
         .run_with_retry(ExponentialBackoff::default(), example)
-        .unwrap();
+        .unwrap()
 }
 
 pub fn db_exclusive(work: impl FnOnce() + UnwindSafe) {
