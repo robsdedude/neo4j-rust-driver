@@ -203,7 +203,7 @@ impl AuthToken {
         }
         self.data
             .iter()
-            .all(|(k1, v2)| other.data.get(k1).map_or(false, |v1| v1.eq_data(v2)))
+            .all(|(k1, v2)| other.data.get(k1).is_some_and(|v1| v1.eq_data(v2)))
     }
 
     /// Get the raw data contained in this [`AuthToken`].

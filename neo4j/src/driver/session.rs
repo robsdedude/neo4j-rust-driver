@@ -753,15 +753,13 @@ impl<
 }
 
 impl<
-        'driver,
-        'session,
         Q: AsRef<str>,
         KP: Borrow<str> + Debug,
         P: Borrow<HashMap<KP, ValueSend>>,
         KM: Borrow<str> + Debug,
         M: Borrow<HashMap<KM, ValueSend>>,
         FRes,
-    > Debug for AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>
+    > Debug for AutoCommitBuilder<'_, '_, Q, KP, P, KM, M, FRes>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AutoCommitBuilder")
@@ -1009,7 +1007,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     }
 }
 
-impl<'driver, 'session, KM, M: Debug> Debug for TransactionBuilder<'driver, 'session, KM, M> {
+impl<KM, M: Debug> Debug for TransactionBuilder<'_, '_, KM, M> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TransactionBuilder")
             .field(

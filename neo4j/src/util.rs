@@ -32,7 +32,7 @@ pub(crate) enum RefContainer<'a, T> {
     Borrowed(&'a T),
 }
 
-impl<'a, T> AsRef<T> for RefContainer<'a, T> {
+impl<T> AsRef<T> for RefContainer<'_, T> {
     fn as_ref(&self) -> &T {
         match self {
             RefContainer::Owned(t) => t,

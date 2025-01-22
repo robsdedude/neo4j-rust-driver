@@ -730,7 +730,8 @@ impl Eq for AuthResetHandle {}
 
 impl Hash for AuthResetHandle {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        std::ptr::hash(&*self.0, state);
+        let bool_ref: &AtomicBool = &self.0;
+        std::ptr::hash(bool_ref, state);
     }
 }
 

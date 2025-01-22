@@ -45,7 +45,7 @@ impl<'a, W: Write> PackStreamSerializerImpl<'a, W> {
     }
 }
 
-impl<'a, W: Write> PackStreamSerializer for PackStreamSerializerImpl<'a, W> {
+impl<W: Write> PackStreamSerializer for PackStreamSerializerImpl<'_, W> {
     type Error = PackStreamSerializeError;
 
     fn error(&self, message: String) -> Self::Error {

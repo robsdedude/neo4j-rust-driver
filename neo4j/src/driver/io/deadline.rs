@@ -133,7 +133,7 @@ fn set_socket_timeout(socket: &TcpStream, timeout: Option<Duration>) -> io::Resu
     socket.set_write_timeout(timeout)
 }
 
-impl<'tcp, S> Debug for DeadlineIO<'tcp, S> {
+impl<S> Debug for DeadlineIO<'_, S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DeadlineIO")
             .field("deadline", &self.deadline)
@@ -142,13 +142,13 @@ impl<'tcp, S> Debug for DeadlineIO<'tcp, S> {
     }
 }
 
-impl<'tcp, S: Read + Write> Read for DeadlineIO<'tcp, S> {
+impl<S: Read + Write> Read for DeadlineIO<'_, S> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.with_deadline(|self_| self_.stream.read(buf))
     }
 }
 
-impl<'tcp, S: Read + Write> Write for DeadlineIO<'tcp, S> {
+impl<S: Read + Write> Write for DeadlineIO<'_, S> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.with_deadline(|self_| self_.stream.write(buf))
     }

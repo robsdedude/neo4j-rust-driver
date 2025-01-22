@@ -139,7 +139,7 @@ impl<'a, R: Read + 'a> PackStreamDeserializerImpl<'a, R> {
     }
 }
 
-impl<'a, R: Read> PackStreamDeserializerImpl<'a, R> {
+impl<R: Read> PackStreamDeserializerImpl<'_, R> {
     fn read_marker(&mut self) -> Result<u8, PackStreamDeserializeError> {
         let mut marker = [0; 1];
         self.reader.read_exact(&mut marker)?;
@@ -259,7 +259,7 @@ impl<'a, R: Read> PackStreamDeserializerImpl<'a, R> {
     }
 }
 
-impl<'a, R: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'a, R> {
+impl<R: Read> PackStreamDeserializer for PackStreamDeserializerImpl<'_, R> {
     type Error = PackStreamDeserializeError;
 
     fn make_error(reason: String) -> Self::Error {

@@ -930,6 +930,7 @@ pub struct InvalidRoutingContextError<Builder> {
 #[double]
 use mockable::tls_helper;
 
+#[cfg_attr(test, allow(dead_code))]
 mod mockable {
     #[cfg(test)]
     use mockall::automock;
