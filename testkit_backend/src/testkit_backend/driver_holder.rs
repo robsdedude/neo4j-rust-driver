@@ -147,7 +147,7 @@ impl DriverHolder {
     pub(super) fn execute_query(&self, args: ExecuteQuery) -> ExecuteQueryResult {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
-            CommandResult::ExecuteQuery(result) => result,
+            CommandResult::ExecuteQuery(result) => *result,
             res => panic!("expected CommandResult::ExecuteQuery, found {res:?}"),
         }
     }
@@ -762,7 +762,7 @@ enum CommandResult {
     SupportsSessionAuth(SupportsSessionAuthResult),
     IsEncrypted(IsEncryptedResult),
     VerifyAuthentication(VerifyAuthenticationResult),
-    ExecuteQuery(ExecuteQueryResult),
+    ExecuteQuery(Box<ExecuteQueryResult>),
     Close(CloseResult),
 }
 
@@ -1079,7 +1079,7 @@ pub(super) struct ExecuteQueryResult {
 
 impl From<ExecuteQueryResult> for CommandResult {
     fn from(r: ExecuteQueryResult) -> Self {
-        CommandResult::ExecuteQuery(r)
+        CommandResult::ExecuteQuery(Box::new(r))
     }
 }
 

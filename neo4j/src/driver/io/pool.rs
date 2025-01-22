@@ -106,7 +106,7 @@ impl<'pool> PooledBolt<'pool> {
     }
 }
 
-impl<'pool> Deref for PooledBolt<'pool> {
+impl Deref for PooledBolt<'_> {
     type Target = SinglePooledBolt;
 
     fn deref(&self) -> &Self::Target {
@@ -116,7 +116,7 @@ impl<'pool> Deref for PooledBolt<'pool> {
     }
 }
 
-impl<'pool> DerefMut for PooledBolt<'pool> {
+impl DerefMut for PooledBolt<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.bolt
             .as_mut()
@@ -124,7 +124,7 @@ impl<'pool> DerefMut for PooledBolt<'pool> {
     }
 }
 
-impl<'pool> Drop for PooledBolt<'pool> {
+impl Drop for PooledBolt<'_> {
     fn drop(&mut self) {
         let bolt = self
             .bolt

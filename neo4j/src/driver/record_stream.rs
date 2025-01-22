@@ -352,7 +352,7 @@ impl<'driver> RecordStream<'driver> {
     }
 }
 
-impl<'driver> Iterator for RecordStream<'driver> {
+impl Iterator for RecordStream<'_> {
     type Item = Result<Record>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -439,7 +439,7 @@ impl<'driver> Iterator for RecordStream<'driver> {
     }
 }
 
-impl<'driver> FusedIterator for RecordStream<'driver> {}
+impl FusedIterator for RecordStream<'_> {}
 
 #[derive(Debug)]
 enum RecordListenerState {

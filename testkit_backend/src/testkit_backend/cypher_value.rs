@@ -193,7 +193,7 @@ where
 
 struct CypherFloatVisitor {}
 
-impl<'de> Visitor<'de> for CypherFloatVisitor {
+impl Visitor<'_> for CypherFloatVisitor {
     type Value = f64;
 
     fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
@@ -261,7 +261,7 @@ where
 
 struct CypherBytesVisitor {}
 
-impl<'de> Visitor<'de> for CypherBytesVisitor {
+impl Visitor<'_> for CypherBytesVisitor {
     type Value = Vec<u8>;
 
     fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
@@ -789,6 +789,7 @@ fn date_time_fixed_to_cypher_value(value: time::DateTimeFixed) -> CypherValue {
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn try_into_node(n: Neo4jNode) -> Result<Node, BrokenValueError> {
     Ok(Node {
         id: Box::new(CypherValue::CypherInt { value: n.id }),
@@ -808,6 +809,7 @@ fn try_into_node(n: Neo4jNode) -> Result<Node, BrokenValueError> {
     })
 }
 
+#[allow(clippy::result_large_err)]
 fn try_into_relationship(r: Neo4jRelationship) -> Result<Relationship, BrokenValueError> {
     Ok(Relationship {
         id: Box::new(CypherValue::CypherInt { value: r.id }),
@@ -834,6 +836,7 @@ fn try_into_relationship(r: Neo4jRelationship) -> Result<Relationship, BrokenVal
     })
 }
 
+#[allow(clippy::result_large_err)]
 fn try_into_relationship_unbound(
     s: &Neo4jNode,
     r: Neo4jUnboundRelationship,

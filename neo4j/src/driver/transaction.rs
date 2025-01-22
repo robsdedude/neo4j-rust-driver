@@ -112,7 +112,7 @@ pub struct TransactionRecordStream<'driver, 'tx>(
     &'tx Transaction<'driver, 'tx>,
 );
 
-impl<'driver, 'tx> Drop for TransactionRecordStream<'driver, 'tx> {
+impl Drop for TransactionRecordStream<'_, '_> {
     fn drop(&mut self) {
         if let Err(err) = self.0.consume() {
             if self.1.drop_result.borrow().is_ok() {
@@ -122,7 +122,7 @@ impl<'driver, 'tx> Drop for TransactionRecordStream<'driver, 'tx> {
     }
 }
 
-impl<'driver, 'tx> TransactionRecordStream<'driver, 'tx> {
+impl<'driver> TransactionRecordStream<'driver, '_> {
     /// see [`RecordStream::consume()`] (except that this consumes `self`)
     pub fn consume(mut self) -> Result<Option<Summary>> {
         self.0.consume()
@@ -145,7 +145,7 @@ impl<'driver, 'tx> TransactionRecordStream<'driver, 'tx> {
     }
 }
 
-impl<'driver, 'tx> Iterator for TransactionRecordStream<'driver, 'tx> {
+impl Iterator for TransactionRecordStream<'_, '_> {
     type Item = Result<Record>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -360,8 +360,8 @@ impl<'driver, 'tx, Q: AsRef<str>, K: Borrow<str> + Debug, M: Borrow<HashMap<K, V
     }
 }
 
-impl<'driver, 'tx, Q: AsRef<str>, K: Borrow<str> + Debug, M: Borrow<HashMap<K, ValueSend>>> Debug
-    for TransactionQueryBuilder<'driver, 'tx, Q, K, M>
+impl<Q: AsRef<str>, K: Borrow<str> + Debug, M: Borrow<HashMap<K, ValueSend>>> Debug
+    for TransactionQueryBuilder<'_, '_, Q, K, M>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TransactionQueryBuilder")

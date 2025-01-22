@@ -934,6 +934,7 @@ mod mockable {
     #[cfg(test)]
     use mockall::automock;
 
+    #[allow(dead_code)]
     #[cfg_attr(test, automock)]
     pub(super) mod tls_helper {
         use std::fs::File;

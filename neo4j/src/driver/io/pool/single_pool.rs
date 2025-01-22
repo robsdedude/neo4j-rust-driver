@@ -53,6 +53,8 @@ struct InnerPoolSyncedData {
 impl InnerPool {
     fn new(address: Arc<Address>, config: Arc<PoolConfig>) -> Self {
         let raw_pool = VecDeque::with_capacity(config.max_connection_pool_size);
+        // allow: `AuthResetHandle::hash` hashes by pointer address, not value
+        #[allow(clippy::mutable_key_type)]
         let borrowed_auth_reset = HashSet::with_capacity(config.max_connection_pool_size);
         let synced = Mutex::new(InnerPoolSyncedData {
             raw_pool,

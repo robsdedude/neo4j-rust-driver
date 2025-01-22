@@ -78,7 +78,7 @@ impl<'de> Deserialize<'de> for BackendId {
 
 struct BackendIdVisitor;
 
-impl<'de> Visitor<'de> for BackendIdVisitor {
+impl Visitor<'_> for BackendIdVisitor {
     type Value = BackendId;
 
     fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {

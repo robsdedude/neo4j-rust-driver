@@ -15,7 +15,7 @@ jobs:
       - name: install nightly toolchain for cargo-check-external-types
         uses: dtolnay/rust-toolchain@v1
         with:
-          toolchain: nightly-2024-02-07
+          toolchain: nightly-2024-06-30
       - name: install latest nightly toolchain for rustfmt
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -41,8 +41,8 @@ jobs:
         run: |
           set -x
           pushd neo4j
-          cargo install --locked cargo-check-external-types
-          cargo +nightly-2024-02-07 check-external-types
+          cargo install --locked cargo-check-external-types@0.1.13
+          cargo +nightly-2024-06-30 check-external-types
           popd
       - name: API stability check
         run: cargo test --workspace --features _internal_public_api public_api

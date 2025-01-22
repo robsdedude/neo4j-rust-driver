@@ -95,7 +95,7 @@ pub(crate) enum Chunk<'a> {
     Size([u8; 2]),
 }
 
-impl<'a> Deref for Chunk<'a> {
+impl Deref for Chunk<'_> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {

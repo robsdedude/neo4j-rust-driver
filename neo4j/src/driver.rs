@@ -990,14 +990,13 @@ impl<
 }
 
 impl<
-        'driver,
         Q: AsRef<str>,
         KP: Borrow<str> + Debug,
         P: Borrow<HashMap<KP, ValueSend>>,
         KM: Borrow<str> + Debug,
         M: Borrow<HashMap<KM, ValueSend>>,
         FRes,
-    > Debug for ExecuteQueryBuilder<'driver, Q, KP, P, KM, M, FRes>
+    > Debug for ExecuteQueryBuilder<'_, Q, KP, P, KM, M, FRes>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExecuteQueryBuilder")

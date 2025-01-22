@@ -16,7 +16,7 @@ To skip the checks, use `git commit --no-verify`.
 https://github.com/enselic/cargo-public-api
 If you intentionally change the public API, you need to run:
 ```bash
-UPDATE_EXPECT=1 cargo test --workspace --features _internal_public_api public_api
+UPDATE_EXPECT=1 cargo +stable test --workspace --features _internal_public_api public_api
 ```
 **IMPORTANT:** make sure to run this with the latest stable toolchain have all the latest blanket impls included. 
 
@@ -24,5 +24,5 @@ UPDATE_EXPECT=1 cargo test --workspace --features _internal_public_api public_ap
 ### Cargo Check External Types
 https://github.com/awslabs/cargo-check-external-types
 ```bash
-cargo install --locked cargo-check-external-types
+cargo +nightly-2024-06-30 install --locked cargo-check-external-types
 ```
