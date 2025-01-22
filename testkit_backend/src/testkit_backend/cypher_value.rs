@@ -27,7 +27,7 @@ use thiserror::Error;
 use super::errors::TestKitError;
 use neo4j::driver::Record;
 use neo4j::value::graph::{
-    Node as Neo4jNode, Relationship as Neo4jRelationship,
+    Node as Neo4jNode, Relationship as Neo4jRelationship, RelationshipDirection,
     UnboundRelationship as Neo4jUnboundRelationship,
 };
 use neo4j::value::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
@@ -668,21 +668,23 @@ impl TryFrom<ValueReceive> for CypherValue {
                 CypherValue::CypherRelationship(try_into_relationship(r)?)
             }
             ValueReceive::Path(p) => {
-                let traversal = p.traverse();
-                assert!(!traversal.is_empty());
-                let nodes = [traversal[0].0]
-                    .into_iter()
-                    .chain(traversal.iter().map(|t| t.2))
-                    .map(|n| Ok(CypherValue::Node(try_into_node(n.clone())?)))
-                    .collect::<Result<_, _>>()?;
-                let relationships = traversal
-                    .iter()
-                    .map(|(s, r, e)| {
-                        Ok(CypherValue::CypherRelationship(
-                            try_into_relationship_unbound(s, (*r).clone(), e)?,
-                        ))
-                    })
-                    .collect::<Result<_, _>>()?;
+                let (mut start_node, hops) = p.traverse();
+                let mut nodes = Vec::with_capacity(hops.len() + 1);
+                let mut relationships = Vec::with_capacity(hops.len());
+                nodes.push(CypherValue::Node(try_into_node(start_node.clone())?));
+                for (direction, relationship, end_node) in hops {
+                    nodes.push(CypherValue::Node(try_into_node(end_node.clone())?));
+                    let relationship = relationship.clone();
+                    relationships.push(CypherValue::CypherRelationship(match direction {
+                        RelationshipDirection::To => {
+                            try_into_relationship_unbound(start_node, relationship, end_node)?
+                        }
+                        RelationshipDirection::From => {
+                            try_into_relationship_unbound(end_node, relationship, start_node)?
+                        }
+                    }));
+                    start_node = end_node;
+                }
                 CypherValue::CypherPath {
                     nodes: Box::new(CypherValue::CypherList { value: nodes }),
                     relationships: Box::new(CypherValue::CypherList {

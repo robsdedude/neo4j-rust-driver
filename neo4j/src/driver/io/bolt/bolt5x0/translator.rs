@@ -358,11 +358,10 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                 for index in raw_indices {
                     indices.push(as_int!(index, "path index").into_isize());
                 }
-                ValueReceive::Path(Path {
-                    nodes,
-                    relationships,
-                    indices,
-                })
+                match Path::new(nodes, relationships, indices) {
+                    Ok(path) => ValueReceive::Path(path),
+                    Err(e) => invalid_struct(format!("Path invariant violated: {e}")),
+                }
             }
             TAG_DATE => {
                 if size != 1 {

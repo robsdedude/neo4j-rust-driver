@@ -27,7 +27,7 @@ repos:
         pass_filenames: false
       - id: unit
         name: unit tests
-        entry: cargo test --workspace --tests --benches --features _internal_public_api
+        entry: cargo +stable test --workspace --tests --benches --features _internal_public_api
         language: system
         types: [rust]
         pass_filenames: false
