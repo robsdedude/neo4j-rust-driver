@@ -104,6 +104,7 @@ pub(super) fn failed_struct(reason: impl Into<String>) -> ValueReceive {
     ValueReceive::BrokenValue(BrokenValueInner::Reason(reason.into()).into())
 }
 
+// [bolt-version-bump] search tag when changing bolt version support
 #[derive(Debug, Copy, Clone)]
 pub(super) enum ServerAwareBoltVersion {
     V4x4,
@@ -111,8 +112,12 @@ pub(super) enum ServerAwareBoltVersion {
     V5x1,
     V5x2,
     V5x3,
-    #[allow(dead_code)] // bolt version exists, not yet implemented
     V5x4,
+    V5x6,
+    #[allow(dead_code)] // bolt versions exists, not yet implemented
+    V5x7,
+    #[allow(dead_code)]
+    V5x8,
 }
 
 impl ServerAwareBoltVersion {
@@ -125,6 +130,9 @@ impl ServerAwareBoltVersion {
             ServerAwareBoltVersion::V5x2 => "5.2",
             ServerAwareBoltVersion::V5x3 => "5.3",
             ServerAwareBoltVersion::V5x4 => "5.4",
+            ServerAwareBoltVersion::V5x6 => "5.6",
+            ServerAwareBoltVersion::V5x7 => "5.7",
+            ServerAwareBoltVersion::V5x8 => "5.8",
         }
     }
 
@@ -137,6 +145,9 @@ impl ServerAwareBoltVersion {
             ServerAwareBoltVersion::V5x2 => "5.7",
             ServerAwareBoltVersion::V5x3 => "5.9",
             ServerAwareBoltVersion::V5x4 => "5.13",
+            ServerAwareBoltVersion::V5x6 => "5.23",
+            ServerAwareBoltVersion::V5x7 => "5.26",
+            ServerAwareBoltVersion::V5x8 => "5.26",
         }
     }
 }

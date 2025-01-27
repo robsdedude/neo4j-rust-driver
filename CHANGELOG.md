@@ -10,6 +10,9 @@
    - ⚠️ The return type of `Path::traverse()` was changed to reflect that paths with only one node and no relationships exist.
    - The invariants of `Path` were changed for the above reason, too.
    - New methods `Path::new()`, `Path::new_unchecked()`, and `Path::verify_invariants()`.
+ - Add support for Bolt 5.6 (GQL compatible notifications/result statuses)
+   - ⚠️ `neo4j::driver::notification::NotificationFilter`'s API has been completely reworked to support this new feature and enable more internal changes in the future without breaking the API again.
+   - ⚠️ changed `neo4j::summary::Summary::notifications` from `Option<Vec<Notification>>` to `Vec<Notification>` defaulting to `Vec::new()` when the server does not send any notifications.
 
 
 ## 0.1.0

@@ -23,15 +23,14 @@
 //!
 //! ## Compatibility
 // [bolt-version-bump] search tag when changing bolt version support
-//! This driver supports bolt protocol version 4.4, and 5.0 - 5.4.
-//! This corresponds to Neo4j versions 4.4, and 5.0 - 5.19+.
+//! This driver supports bolt protocol version 4.4, and 5.0 - 5.6.
+//! This corresponds to Neo4j versions 4.4, and 5.0 - 5.23+.
 //! For details of bolt protocol compatibility, see the
 //! [official Neo4j documentation](https://neo4j.com/docs/bolt/current/bolt-compatibility/).
 //!
 //! ## Basic Example
 //! ```
 //! use std::sync::Arc;
-//! # use std::env;
 //!
 //! use neo4j::address::Address;
 //! use neo4j::driver::auth::AuthToken;

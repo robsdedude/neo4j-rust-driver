@@ -26,6 +26,8 @@ use crate::value::ValueReceive;
 #[allow(unused)]
 use super::eager_result::EagerResult;
 #[allow(unused)]
+use super::notification::NotificationFilter;
+#[allow(unused)]
 use super::record_stream::RecordStream;
 #[allow(unused)]
 use super::transaction::TransactionRecordStream;
@@ -40,12 +42,15 @@ pub struct Summary {
     pub result_available_after: Option<Duration>,
     pub result_consumed_after: Option<Duration>,
     pub counters: Counters,
-    pub notifications: Option<Vec<Notification>>,
+    pub notifications: Vec<Notification>,
+    pub gql_status_objects: Vec<GqlStatusObject>,
     pub profile: Option<Profile>,
     pub plan: Option<Plan>,
     pub query_type: Option<SummaryQueryType>,
     pub database: Option<String>,
     pub server_info: ServerInfo,
+    had_record: bool,
+    had_key: bool,
 }
 
 impl Summary {
@@ -60,10 +65,13 @@ impl Summary {
             query_type: Default::default(),
             database: Default::default(),
             server_info: ServerInfo::new(connection),
+            gql_status_objects: Default::default(),
+            had_record: false,
+            had_key: false,
         }
     }
 
-    pub(crate) fn load_run_meta(&mut self, meta: &mut BoltMeta) -> Result<()> {
+    pub(crate) fn load_run_meta(&mut self, meta: &mut BoltMeta, had_key: bool) -> Result<()> {
         self.result_available_after = meta
             .remove("t_first")
             .map(|t_first| {
@@ -79,9 +87,11 @@ impl Summary {
                 })?))
             })
             .transpose()?;
+        self.had_key = had_key;
         Ok(())
     }
-    pub(crate) fn load_pull_meta(&mut self, meta: &mut BoltMeta) -> Result<()> {
+    pub(crate) fn load_pull_meta(&mut self, meta: &mut BoltMeta, had_record: bool) -> Result<()> {
+        self.had_record = had_record;
         self.result_consumed_after = meta
             .remove("t_last")
             .map(|t_last| {
@@ -98,7 +108,8 @@ impl Summary {
             })
             .transpose()?;
         self.counters = Counters::load_meta(meta)?;
-        self.notifications = Notification::load_meta(meta)?;
+        (self.notifications, self.gql_status_objects) =
+            statuses_load_meta(meta, self.had_key, self.had_record)?;
         self.profile = Profile::load_meta(meta)?;
         self.query_type = SummaryQueryType::load_meta(meta)?;
         self.plan = Plan::load_meta(meta)?;
@@ -292,50 +303,243 @@ pub struct Notification {
     pub raw_category: String,
 }
 
-impl Notification {
-    fn load_meta(meta: &mut BoltMeta) -> Result<Option<Vec<Self>>> {
-        let Some(notifications) = meta.remove("notifications") else {
-            return Ok(None);
-        };
-        Ok(Some(
-            try_into_list(notifications, "notifications")?
-                .into_iter()
-                .map(|n| Self::load_single(&mut try_into_map(n, "notifications entry")?))
-                .collect::<Result<Vec<Self>>>()?,
-        ))
+fn statuses_load_meta(
+    meta: &mut BoltMeta,
+    had_key: bool,
+    had_record: bool,
+) -> Result<(Vec<Notification>, Vec<GqlStatusObject>)> {
+    let Some(raw_statuses) = meta.remove("statuses") else {
+        return statuses_load_meta_legacy(meta, had_key, had_record);
+    };
+    let raw_statuses = try_into_list(raw_statuses, "statuses")?;
+    let mut notifications = Vec::with_capacity(raw_statuses.len());
+    let mut gql_status_objects = Vec::with_capacity(raw_statuses.len());
+    for raw_status in raw_statuses.into_iter() {
+        let mut raw_status = try_into_map(raw_status, "status")?;
+        let (notification, gql_status_object) = status_load_single(&mut raw_status)?;
+        if let Some(notification) = notification {
+            notifications.push(notification);
+        }
+        gql_status_objects.push(gql_status_object);
     }
+    Ok((notifications, gql_status_objects))
+}
 
-    fn load_single(meta: &mut BoltMeta) -> Result<Self> {
-        let description = meta
-            .remove("description")
-            .map(|c| try_into_string(c, "description in notification"))
-            .unwrap_or_else(|| Ok(Default::default()))?;
-        let code = meta
-            .remove("code")
-            .map(|c| try_into_string(c, "code in notification"))
-            .unwrap_or_else(|| Ok(Default::default()))?;
-        let title = meta
-            .remove("title")
-            .map(|c| try_into_string(c, "title in notification"))
-            .unwrap_or_else(|| Ok(Default::default()))?;
-        let position = meta
-            .remove("position")
-            .map(|c| {
-                let mut meta = try_into_map(c, "position in notification")?;
-                Position::load_meta(&mut meta).map(Some)
-            })
-            .unwrap_or_else(|| Ok(None))?;
-        let raw_severity = meta
-            .remove("severity")
-            .map(|c| try_into_string(c, "severity in notification"))
-            .unwrap_or_else(|| Ok(Default::default()))?;
-        let severity = Severity::from_str(&raw_severity);
-        let raw_category = meta
-            .remove("category")
-            .map(|c| try_into_string(c, "category in notification"))
-            .unwrap_or_else(|| Ok(Default::default()))?;
-        let category = Category::from_str(&raw_category);
-        Ok(Self {
+fn statuses_load_meta_legacy(
+    meta: &mut BoltMeta,
+    had_key: bool,
+    had_record: bool,
+) -> Result<(Vec<Notification>, Vec<GqlStatusObject>)> {
+    let raw_notifications = meta
+        .remove("notifications")
+        .unwrap_or_else(|| ValueReceive::List(Default::default()));
+    let raw_entries = try_into_list(raw_notifications, "notifications")?;
+    let mut notifications = Vec::with_capacity(raw_entries.len());
+    let mut gql_status_objects = Vec::with_capacity(notifications.len());
+    for raw_entry in raw_entries.into_iter() {
+        let mut raw_notification = try_into_map(raw_entry, "notification")?;
+        let (notification, gql_status_object) = status_load_single_legacy(&mut raw_notification)?;
+        notifications.push(notification);
+        gql_status_objects.push(gql_status_object);
+    }
+    if had_record {
+        gql_status_objects.push(GqlStatusObject::new_success())
+    } else if had_key {
+        gql_status_objects.push(GqlStatusObject::new_no_data())
+    } else {
+        gql_status_objects.push(GqlStatusObject::new_omitted_result())
+    }
+    gql_status_objects.sort_by_key(|status| {
+        if status.gql_status.starts_with("02") {
+            // no data
+            return -3;
+        }
+        if status.gql_status.starts_with("01") {
+            // warning
+            return -2;
+        }
+        if status.gql_status.starts_with("00") {
+            // success
+            return -1;
+        }
+        if status.gql_status.starts_with("03") {
+            // informational
+            return 0;
+        }
+        1
+    });
+    Ok((notifications, gql_status_objects))
+}
+
+fn status_load_single(meta: &mut BoltMeta) -> Result<(Option<Notification>, GqlStatusObject)> {
+    let gql_status = meta
+        .remove("gql_status")
+        .map(|c| try_into_string(c, "gql_status in status"))
+        .unwrap_or_else(|| Ok(Default::default()))?;
+    let neo4j_code = meta
+        .remove("neo4j_code")
+        .map(|c| try_into_string(c, "neo4j_code in status"))
+        .transpose()?;
+    let description = meta
+        .remove("description")
+        .map(|c| try_into_string(c, "description in status"))
+        .unwrap_or_else(|| Ok(Default::default()))?;
+    let status_description = meta
+        .remove("status_description")
+        .map(|c| try_into_string(c, "status_description in status"))
+        .unwrap_or_else(|| Ok(Default::default()))?;
+    let title = meta
+        .remove("title")
+        .map(|c| try_into_string(c, "title in status"))
+        .unwrap_or_else(|| Ok(Default::default()))?;
+    let diagnostic_record = meta
+        .remove("diagnostic_record")
+        .map(|c| try_into_map(c, "diagnostic_record in status"))
+        .unwrap_or_else(|| Ok(Default::default()))?;
+    let position = diagnostic_record
+        .get("_position")
+        .and_then(ValueReceive::as_map)
+        .cloned()
+        .and_then(|mut c| Position::load_meta(&mut c).ok());
+    let raw_severity = diagnostic_record
+        .get("_severity")
+        .and_then(ValueReceive::as_string);
+    let has_severity = raw_severity.is_some();
+    let raw_severity = raw_severity.cloned().unwrap_or_default();
+    let severity = Severity::from_str(&raw_severity);
+    let raw_classification = diagnostic_record
+        .get("_classification")
+        .and_then(ValueReceive::as_string);
+    let has_classification = raw_classification.is_some();
+    let raw_classification = raw_classification.cloned().unwrap_or_default();
+    let classification = Classification::from_str(&raw_classification);
+
+    let notification = neo4j_code.map(|neo4j_code| Notification {
+        description: description.clone(),
+        code: neo4j_code,
+        title: title.clone(),
+        position,
+        severity,
+        raw_severity: raw_severity.clone(),
+        category: classification,
+        raw_category: raw_classification.clone(),
+    });
+    let is_notification = notification.is_some();
+
+    Ok((
+        notification,
+        GqlStatusObject {
+            is_notification,
+            gql_status,
+            status_description,
+            position,
+            raw_classification: match has_classification {
+                true => Some(raw_classification),
+                false => None,
+            },
+            classification,
+            raw_severity: match has_severity {
+                true => Some(raw_severity),
+                false => None,
+            },
+            severity,
+            diagnostic_record,
+        },
+    ))
+}
+
+fn status_load_single_legacy(meta: &mut BoltMeta) -> Result<(Notification, GqlStatusObject)> {
+    let description = meta
+        .remove("description")
+        .map(|c| try_into_string(c, "description in notification"))
+        .unwrap_or_else(|| Ok(Default::default()))?;
+    let code = meta
+        .remove("code")
+        .map(|c| try_into_string(c, "code in notification"))
+        .unwrap_or_else(|| Ok(Default::default()))?;
+    let title = meta
+        .remove("title")
+        .map(|c| try_into_string(c, "title in notification"))
+        .unwrap_or_else(|| Ok(Default::default()))?;
+    let raw_position = meta
+        .remove("position")
+        .map(|c| try_into_map(c, "position in notification"))
+        .transpose()?;
+    let position = raw_position
+        .clone()
+        .map(|mut meta| Position::load_meta(&mut meta).map(Some))
+        .unwrap_or_else(|| Ok(None))?;
+    let raw_severity = meta.remove("severity");
+    let has_severity = raw_severity.is_some();
+    let raw_severity = raw_severity
+        .map(|c| try_into_string(c, "severity in notification"))
+        .unwrap_or_else(|| Ok(Default::default()))?;
+    let severity = Severity::from_str(&raw_severity);
+    let raw_category = meta.remove("category");
+    let has_category = raw_category.is_some();
+    let raw_category = raw_category
+        .map(|c| try_into_string(c, "category in notification"))
+        .unwrap_or_else(|| Ok(Default::default()))?;
+    let category = Category::from_str(&raw_category);
+    let status = GqlStatusObject {
+        is_notification: true,
+        gql_status: String::from(match severity {
+            Severity::Warning => "01N42",
+            _ => "03N42",
+        }),
+        status_description: match description.is_empty() {
+            true => String::from(match severity {
+                Severity::Warning => "warn: unknown warning",
+                _ => "info: unknown notification",
+            }),
+            false => description.clone(),
+        },
+        position,
+        raw_classification: match has_category {
+            true => Some(raw_category.clone()),
+            false => None,
+        },
+        classification: category,
+        raw_severity: match has_severity {
+            true => Some(raw_severity.clone()),
+            false => None,
+        },
+        severity,
+        diagnostic_record: {
+            let mut diagnostic_record = HashMap::with_capacity(6);
+            diagnostic_record.insert(
+                String::from("OPERATION"),
+                ValueReceive::String(String::from("")),
+            );
+            diagnostic_record.insert(
+                String::from("OPERATION_CODE"),
+                ValueReceive::String(String::from("0")),
+            );
+            diagnostic_record.insert(
+                String::from("CURRENT_SCHEMA"),
+                ValueReceive::String(String::from("/")),
+            );
+            if has_category {
+                diagnostic_record.insert(
+                    String::from("_classification"),
+                    ValueReceive::String(raw_category.clone()),
+                );
+            }
+            if has_severity {
+                diagnostic_record.insert(
+                    String::from("_severity"),
+                    ValueReceive::String(raw_severity.clone()),
+                );
+            }
+            if let Some(raw_position) = raw_position {
+                diagnostic_record
+                    .insert(String::from("_position"), ValueReceive::Map(raw_position));
+            }
+            diagnostic_record
+        },
+    };
+    Ok((
+        Notification {
             description,
             code,
             title,
@@ -344,11 +548,146 @@ impl Notification {
             raw_severity,
             category,
             raw_category,
-        })
+        },
+        status,
+    ))
+}
+
+/// See [`Summary::gql_status_objects`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct GqlStatusObject {
+    /// Whether this GqlStatusObject is a notification.
+    ///
+    /// Only some [`GqlStatusObject`]s are notifications.
+    /// The definition of notification is vendor-specific.
+    /// Notifications are those [`GqlStatusObject`]s that provide additional information and can be
+    /// filtered out via [`NotificationFilter`].
+    ///
+    /// The fields [`position`](`Self::position`),
+    /// [`raw_classification`](`Self::raw_classification`),
+    /// [`classification`](`Self::classification`),
+    /// [`raw_severity`](`Self::raw_severity`), and
+    /// [`severity`](`Self::severity`) are only meaningful for notifications.
+    pub is_notification: bool,
+    /// The GQLSTATUS.
+    ///
+    /// The following GQLSTATUS codes denote codes that the driver will use for polyfilling (when
+    /// connected to an old, non-GQL-aware server).
+    /// Further, they may be used by servers during the transition-phase to GQLSTATUS-awareness.
+    ///
+    ///  * `01N42` (warning - unknown warning)
+    ///  * `02N42` (no data - unknown subcondition)
+    ///  * `03N42` (informational - unknown notification)
+    ///  * `05N42` (general processing exception - unknown error)
+    ///
+    /// <div class="warning">
+    ///
+    /// This means these codes are not guaranteed to be stable and may change in future versions of
+    /// the driver or the server.
+    ///
+    /// </div>
+    pub gql_status: String,
+    /// A description of the status.
+    pub status_description: String,
+    /// The position of the input that caused the status (if applicable).
+    ///
+    /// This is vendor-specific information.
+    ///
+    /// Only notifications (see [`is_notification`](`Self::is_notification`)) have a meaningful
+    /// position.
+    ///
+    /// The value is [`None`] if the server’s data was missing.
+    pub position: Option<Position>,
+    /// The raw (string) classification of the status.
+    ///
+    /// This is a vendor-specific classification that can be used to filter notifications.
+    ///
+    /// Only notifications (see [`is_notification`](`Self::is_notification`)) have a meaningful
+    /// classification.
+    pub raw_classification: Option<String>,
+    /// Parsed version of [`raw_classification`](`Self::raw_classification`).
+    ///
+    /// Only notifications (see [`is_notification`](`Self::is_notification`)) have a meaningful
+    /// classification.
+    pub classification: Classification,
+    /// The raw (string) severity of the status.
+    ///
+    /// This is a vendor-specific severity that can be used to filter notifications.
+    ///
+    /// Only notifications (see [`is_notification`](`Self::is_notification`)) have a meaningful
+    /// severity.
+    pub raw_severity: Option<String>,
+    /// Parsed version of [`raw_severity`](`Self::raw_severity`).
+    ///
+    /// Only notifications (see [`is_notification`](`Self::is_notification`)) have a meaningful
+    pub severity: Severity,
+    /// Further information about the GQLSTATUS for diagnostic purposes.
+    pub diagnostic_record: HashMap<String, ValueReceive>,
+}
+
+impl GqlStatusObject {
+    fn new_success() -> Self {
+        Self {
+            is_notification: false,
+            gql_status: String::from("00000"),
+            status_description: String::from("note: successful completion"),
+            position: None,
+            raw_classification: None,
+            classification: Category::Unknown,
+            raw_severity: None,
+            severity: Severity::Unknown,
+            diagnostic_record: Self::default_diagnostic_record(),
+        }
+    }
+
+    fn new_no_data() -> Self {
+        Self {
+            is_notification: false,
+            gql_status: String::from("02000"),
+            status_description: String::from("note: no data"),
+            position: None,
+            raw_classification: None,
+            classification: Category::Unknown,
+            raw_severity: None,
+            severity: Severity::Unknown,
+            diagnostic_record: Self::default_diagnostic_record(),
+        }
+    }
+
+    fn new_omitted_result() -> Self {
+        Self {
+            is_notification: false,
+            gql_status: String::from("00001"),
+            status_description: String::from("note: successful completion - omitted result"),
+            position: None,
+            raw_classification: None,
+            classification: Category::Unknown,
+            raw_severity: None,
+            severity: Severity::Unknown,
+            diagnostic_record: Self::default_diagnostic_record(),
+        }
+    }
+
+    fn default_diagnostic_record() -> HashMap<String, ValueReceive> {
+        let mut map = HashMap::with_capacity(3);
+        map.insert(
+            String::from("OPERATION"),
+            ValueReceive::String(String::from("")),
+        );
+        map.insert(
+            String::from("OPERATION_CODE"),
+            ValueReceive::String(String::from("0")),
+        );
+        map.insert(
+            String::from("CURRENT_SCHEMA"),
+            ValueReceive::String(String::from("/")),
+        );
+        map
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Position {
     /// The column number referred to by the position; column numbers start at 1.
     pub column: i64,
@@ -366,11 +705,11 @@ impl Position {
             .unwrap_or_else(|| Ok(Default::default()))?;
         let offset = meta
             .remove("offset")
-            .map(|c| try_into_int(c, "offset in notification position"))
+            .map(|c| try_into_int(c, "column in notification position"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         let line = meta
             .remove("line")
-            .map(|c| try_into_int(c, "line in notification position"))
+            .map(|c| try_into_int(c, "column in notification position"))
             .unwrap_or_else(|| Ok(Default::default()))?;
         Ok(Self {
             column,
@@ -411,6 +750,7 @@ pub enum Category {
     Generic,
     Security,
     Topology,
+    Schema,
     Unknown,
 }
 
@@ -425,10 +765,14 @@ impl Category {
             "GENERIC" => Self::Generic,
             "SECURITY" => Self::Security,
             "TOPOLOGY" => Self::Topology,
+            "SCHEMA" => Self::Schema,
             _ => Self::Unknown,
         }
     }
 }
+
+/// Alias for [`Category`] to better match [`GqlStatusObject::classification`].
+pub type Classification = Category;
 
 #[derive(Debug)]
 struct PlanProfileCommon {

@@ -140,6 +140,7 @@ pub neo4j::driver::notification::DisabledCategory::Deprecation
 pub neo4j::driver::notification::DisabledCategory::Generic
 pub neo4j::driver::notification::DisabledCategory::Hint
 pub neo4j::driver::notification::DisabledCategory::Performance
+pub neo4j::driver::notification::DisabledCategory::Schema
 pub neo4j::driver::notification::DisabledCategory::Security
 pub neo4j::driver::notification::DisabledCategory::Topology
 pub neo4j::driver::notification::DisabledCategory::Unrecognized
@@ -179,10 +180,15 @@ impl core::marker::Unpin for neo4j::driver::notification::MinimumSeverity
 impl core::panic::unwind_safe::RefUnwindSafe for neo4j::driver::notification::MinimumSeverity
 impl core::panic::unwind_safe::UnwindSafe for neo4j::driver::notification::MinimumSeverity
 pub struct neo4j::driver::notification::NotificationFilter
-pub neo4j::driver::notification::NotificationFilter::disabled_categories: core::option::Option<alloc::vec::Vec<neo4j::driver::notification::DisabledCategory>>
-pub neo4j::driver::notification::NotificationFilter::minimum_severity: core::option::Option<neo4j::driver::notification::MinimumSeverity>
 impl neo4j::driver::notification::NotificationFilter
-pub fn neo4j::driver::notification::NotificationFilter::disable_all() -> Self
+pub fn neo4j::driver::notification::NotificationFilter::new() -> Self
+pub fn neo4j::driver::notification::NotificationFilter::new_disable_all() -> Self
+pub fn neo4j::driver::notification::NotificationFilter::with_default_disabled_categories(self) -> Self
+pub fn neo4j::driver::notification::NotificationFilter::with_default_disabled_classifications(self) -> Self
+pub fn neo4j::driver::notification::NotificationFilter::with_default_minimum_severity(self) -> Self
+pub fn neo4j::driver::notification::NotificationFilter::with_disabled_categories(self, disabled_categories: alloc::vec::Vec<neo4j::driver::notification::DisabledCategory>) -> Self
+pub fn neo4j::driver::notification::NotificationFilter::with_disabled_classifications(self, disabled_classifications: alloc::vec::Vec<neo4j::driver::notification::DisabledClassification>) -> Self
+pub fn neo4j::driver::notification::NotificationFilter::with_minimum_severity(self, minimum_severity: neo4j::driver::notification::MinimumSeverity) -> Self
 impl core::clone::Clone for neo4j::driver::notification::NotificationFilter
 pub fn neo4j::driver::notification::NotificationFilter::clone(&self) -> neo4j::driver::notification::NotificationFilter
 impl core::cmp::Eq for neo4j::driver::notification::NotificationFilter
@@ -199,6 +205,7 @@ impl core::marker::Sync for neo4j::driver::notification::NotificationFilter
 impl core::marker::Unpin for neo4j::driver::notification::NotificationFilter
 impl core::panic::unwind_safe::RefUnwindSafe for neo4j::driver::notification::NotificationFilter
 impl core::panic::unwind_safe::UnwindSafe for neo4j::driver::notification::NotificationFilter
+pub type neo4j::driver::notification::DisabledClassification = neo4j::driver::notification::DisabledCategory
 pub mod neo4j::driver::record_stream
 pub enum neo4j::driver::record_stream::GetSingleRecordError
 pub neo4j::driver::record_stream::GetSingleRecordError::NoRecords
@@ -750,6 +757,7 @@ pub neo4j::summary::Category::Deprecation
 pub neo4j::summary::Category::Generic
 pub neo4j::summary::Category::Hint
 pub neo4j::summary::Category::Performance
+pub neo4j::summary::Category::Schema
 pub neo4j::summary::Category::Security
 pub neo4j::summary::Category::Topology
 pub neo4j::summary::Category::Unknown
@@ -833,6 +841,26 @@ impl core::marker::Sync for neo4j::summary::Counters
 impl core::marker::Unpin for neo4j::summary::Counters
 impl core::panic::unwind_safe::RefUnwindSafe for neo4j::summary::Counters
 impl core::panic::unwind_safe::UnwindSafe for neo4j::summary::Counters
+#[non_exhaustive] pub struct neo4j::summary::GqlStatusObject
+pub neo4j::summary::GqlStatusObject::classification: neo4j::summary::Classification
+pub neo4j::summary::GqlStatusObject::diagnostic_record: std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>
+pub neo4j::summary::GqlStatusObject::gql_status: alloc::string::String
+pub neo4j::summary::GqlStatusObject::is_notification: bool
+pub neo4j::summary::GqlStatusObject::position: core::option::Option<neo4j::summary::Position>
+pub neo4j::summary::GqlStatusObject::raw_classification: core::option::Option<alloc::string::String>
+pub neo4j::summary::GqlStatusObject::raw_severity: core::option::Option<alloc::string::String>
+pub neo4j::summary::GqlStatusObject::severity: neo4j::summary::Severity
+pub neo4j::summary::GqlStatusObject::status_description: alloc::string::String
+impl core::clone::Clone for neo4j::summary::GqlStatusObject
+pub fn neo4j::summary::GqlStatusObject::clone(&self) -> neo4j::summary::GqlStatusObject
+impl core::fmt::Debug for neo4j::summary::GqlStatusObject
+pub fn neo4j::summary::GqlStatusObject::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for neo4j::summary::GqlStatusObject
+impl core::marker::Send for neo4j::summary::GqlStatusObject
+impl core::marker::Sync for neo4j::summary::GqlStatusObject
+impl core::marker::Unpin for neo4j::summary::GqlStatusObject
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::summary::GqlStatusObject
+impl core::panic::unwind_safe::UnwindSafe for neo4j::summary::GqlStatusObject
 #[non_exhaustive] pub struct neo4j::summary::Notification
 pub neo4j::summary::Notification::category: neo4j::summary::Category
 pub neo4j::summary::Notification::code: alloc::string::String
@@ -875,6 +903,7 @@ impl core::clone::Clone for neo4j::summary::Position
 pub fn neo4j::summary::Position::clone(&self) -> neo4j::summary::Position
 impl core::fmt::Debug for neo4j::summary::Position
 pub fn neo4j::summary::Position::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for neo4j::summary::Position
 impl core::marker::Freeze for neo4j::summary::Position
 impl core::marker::Send for neo4j::summary::Position
 impl core::marker::Sync for neo4j::summary::Position
@@ -920,7 +949,8 @@ impl core::panic::unwind_safe::UnwindSafe for neo4j::summary::ServerInfo
 #[non_exhaustive] pub struct neo4j::summary::Summary
 pub neo4j::summary::Summary::counters: neo4j::summary::Counters
 pub neo4j::summary::Summary::database: core::option::Option<alloc::string::String>
-pub neo4j::summary::Summary::notifications: core::option::Option<alloc::vec::Vec<neo4j::summary::Notification>>
+pub neo4j::summary::Summary::gql_status_objects: alloc::vec::Vec<neo4j::summary::GqlStatusObject>
+pub neo4j::summary::Summary::notifications: alloc::vec::Vec<neo4j::summary::Notification>
 pub neo4j::summary::Summary::plan: core::option::Option<neo4j::summary::Plan>
 pub neo4j::summary::Summary::profile: core::option::Option<neo4j::summary::Profile>
 pub neo4j::summary::Summary::query_type: core::option::Option<neo4j::summary::SummaryQueryType>
@@ -937,6 +967,7 @@ impl core::marker::Sync for neo4j::summary::Summary
 impl core::marker::Unpin for neo4j::summary::Summary
 impl core::panic::unwind_safe::RefUnwindSafe for neo4j::summary::Summary
 impl core::panic::unwind_safe::UnwindSafe for neo4j::summary::Summary
+pub type neo4j::summary::Classification = neo4j::summary::Category
 pub mod neo4j::transaction
 pub struct neo4j::transaction::Transaction<'driver, 'tx>
 impl<'driver, 'tx> neo4j::transaction::Transaction<'driver, 'tx>
@@ -1363,86 +1394,107 @@ pub neo4j::value::ValueReceive::WGS84_2D(neo4j::value::spatial::WGS84_2D)
 pub neo4j::value::ValueReceive::WGS84_3D(neo4j::value::spatial::WGS84_3D)
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_bool(&self) -> core::option::Option<bool>
+pub fn neo4j::ValueReceive::as_bool_mut(&mut self) -> core::option::Option<&mut bool>
 pub fn neo4j::ValueReceive::is_bool(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_bool(self) -> core::result::Result<bool, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_bytes(&self) -> core::option::Option<&alloc::vec::Vec<u8>>
+pub fn neo4j::ValueReceive::as_bytes_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<u8>>
 pub fn neo4j::ValueReceive::is_bytes(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_bytes(self) -> core::result::Result<alloc::vec::Vec<u8>, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_cartesian_2d(&self) -> core::option::Option<&neo4j::value::spatial::Cartesian2D>
+pub fn neo4j::ValueReceive::as_cartesian_2d_mut(&mut self) -> core::option::Option<&mut neo4j::value::spatial::Cartesian2D>
 pub fn neo4j::ValueReceive::is_cartesian_2d(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_cartesian_2d(self) -> core::result::Result<neo4j::value::spatial::Cartesian2D, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_cartesian_3d(&self) -> core::option::Option<&neo4j::value::spatial::Cartesian3D>
+pub fn neo4j::ValueReceive::as_cartesian_3d_mut(&mut self) -> core::option::Option<&mut neo4j::value::spatial::Cartesian3D>
 pub fn neo4j::ValueReceive::is_cartesian_3d(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_cartesian_3d(self) -> core::result::Result<neo4j::value::spatial::Cartesian3D, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_date(&self) -> core::option::Option<&neo4j::value::time::Date>
+pub fn neo4j::ValueReceive::as_date_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::Date>
 pub fn neo4j::ValueReceive::is_date(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_date(self) -> core::result::Result<neo4j::value::time::Date, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_date_time(&self) -> core::option::Option<&neo4j::value::time::DateTime>
+pub fn neo4j::ValueReceive::as_date_time_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::DateTime>
 pub fn neo4j::ValueReceive::is_date_time(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_date_time(self) -> core::result::Result<neo4j::value::time::DateTime, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_date_time_fixed(&self) -> core::option::Option<&neo4j::value::time::DateTimeFixed>
+pub fn neo4j::ValueReceive::as_date_time_fixed_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::DateTimeFixed>
 pub fn neo4j::ValueReceive::is_date_time_fixed(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_date_time_fixed(self) -> core::result::Result<neo4j::value::time::DateTimeFixed, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_duration(&self) -> core::option::Option<&neo4j::value::time::Duration>
+pub fn neo4j::ValueReceive::as_duration_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::Duration>
 pub fn neo4j::ValueReceive::is_duration(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_duration(self) -> core::result::Result<neo4j::value::time::Duration, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_float(&self) -> core::option::Option<f64>
+pub fn neo4j::ValueReceive::as_float_mut(&mut self) -> core::option::Option<&mut f64>
 pub fn neo4j::ValueReceive::is_float(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_float(self) -> core::result::Result<f64, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_int(&self) -> core::option::Option<i64>
+pub fn neo4j::ValueReceive::as_int_mut(&mut self) -> core::option::Option<&mut i64>
 pub fn neo4j::ValueReceive::is_int(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_int(self) -> core::result::Result<i64, Self>
 impl neo4j::ValueReceive
-pub fn neo4j::ValueReceive::as_list(&self) -> core::option::Option<&[neo4j::ValueReceive]>
+pub fn neo4j::ValueReceive::as_list(&self) -> core::option::Option<&alloc::vec::Vec<neo4j::ValueReceive>>
+pub fn neo4j::ValueReceive::as_list_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<neo4j::ValueReceive>>
 pub fn neo4j::ValueReceive::is_list(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_list(self) -> core::result::Result<alloc::vec::Vec<neo4j::ValueReceive>, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_local_date_time(&self) -> core::option::Option<&neo4j::value::time::LocalDateTime>
+pub fn neo4j::ValueReceive::as_local_date_time_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::LocalDateTime>
 pub fn neo4j::ValueReceive::is_local_date_time(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_local_date_time(self) -> core::result::Result<neo4j::value::time::LocalDateTime, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_local_time(&self) -> core::option::Option<&neo4j::value::time::LocalTime>
+pub fn neo4j::ValueReceive::as_local_time_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::LocalTime>
 pub fn neo4j::ValueReceive::is_local_time(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_local_time(self) -> core::result::Result<neo4j::value::time::LocalTime, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_map(&self) -> core::option::Option<&std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>>
+pub fn neo4j::ValueReceive::as_map_mut(&mut self) -> core::option::Option<&mut std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>>
 pub fn neo4j::ValueReceive::is_map(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_map(self) -> core::result::Result<std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_node(&self) -> core::option::Option<&neo4j::value::graph::Node>
+pub fn neo4j::ValueReceive::as_node_mut(&mut self) -> core::option::Option<&mut neo4j::value::graph::Node>
 pub fn neo4j::ValueReceive::is_node(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_node(self) -> core::result::Result<neo4j::value::graph::Node, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_path(&self) -> core::option::Option<&neo4j::value::graph::Path>
+pub fn neo4j::ValueReceive::as_path_mut(&mut self) -> core::option::Option<&mut neo4j::value::graph::Path>
 pub fn neo4j::ValueReceive::is_path(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_path(self) -> core::result::Result<neo4j::value::graph::Path, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_relationship(&self) -> core::option::Option<&neo4j::value::graph::Relationship>
+pub fn neo4j::ValueReceive::as_relationship_mut(&mut self) -> core::option::Option<&mut neo4j::value::graph::Relationship>
 pub fn neo4j::ValueReceive::is_relationship(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_relationship(self) -> core::result::Result<neo4j::value::graph::Relationship, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_string(&self) -> core::option::Option<&alloc::string::String>
+pub fn neo4j::ValueReceive::as_string_mut(&mut self) -> core::option::Option<&mut alloc::string::String>
 pub fn neo4j::ValueReceive::is_string(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_string(self) -> core::result::Result<alloc::string::String, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_time(&self) -> core::option::Option<&neo4j::value::time::Time>
+pub fn neo4j::ValueReceive::as_time_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::Time>
 pub fn neo4j::ValueReceive::is_time(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_time(self) -> core::result::Result<neo4j::value::time::Time, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_wgs84_2d(&self) -> core::option::Option<&neo4j::value::spatial::WGS84_2D>
+pub fn neo4j::ValueReceive::as_wgs84_2d_mut(&mut self) -> core::option::Option<&mut neo4j::value::spatial::WGS84_2D>
 pub fn neo4j::ValueReceive::is_wgs84_2d(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_wgs84_2d(self) -> core::result::Result<neo4j::value::spatial::WGS84_2D, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_wgs84_3d(&self) -> core::option::Option<&neo4j::value::spatial::WGS84_3D>
+pub fn neo4j::ValueReceive::as_wgs84_3d_mut(&mut self) -> core::option::Option<&mut neo4j::value::spatial::WGS84_3D>
 pub fn neo4j::ValueReceive::is_wgs84_3d(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_wgs84_3d(self) -> core::result::Result<neo4j::value::spatial::WGS84_3D, Self>
 impl neo4j::ValueReceive
@@ -1838,86 +1890,107 @@ pub neo4j::ValueReceive::WGS84_2D(neo4j::value::spatial::WGS84_2D)
 pub neo4j::ValueReceive::WGS84_3D(neo4j::value::spatial::WGS84_3D)
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_bool(&self) -> core::option::Option<bool>
+pub fn neo4j::ValueReceive::as_bool_mut(&mut self) -> core::option::Option<&mut bool>
 pub fn neo4j::ValueReceive::is_bool(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_bool(self) -> core::result::Result<bool, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_bytes(&self) -> core::option::Option<&alloc::vec::Vec<u8>>
+pub fn neo4j::ValueReceive::as_bytes_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<u8>>
 pub fn neo4j::ValueReceive::is_bytes(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_bytes(self) -> core::result::Result<alloc::vec::Vec<u8>, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_cartesian_2d(&self) -> core::option::Option<&neo4j::value::spatial::Cartesian2D>
+pub fn neo4j::ValueReceive::as_cartesian_2d_mut(&mut self) -> core::option::Option<&mut neo4j::value::spatial::Cartesian2D>
 pub fn neo4j::ValueReceive::is_cartesian_2d(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_cartesian_2d(self) -> core::result::Result<neo4j::value::spatial::Cartesian2D, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_cartesian_3d(&self) -> core::option::Option<&neo4j::value::spatial::Cartesian3D>
+pub fn neo4j::ValueReceive::as_cartesian_3d_mut(&mut self) -> core::option::Option<&mut neo4j::value::spatial::Cartesian3D>
 pub fn neo4j::ValueReceive::is_cartesian_3d(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_cartesian_3d(self) -> core::result::Result<neo4j::value::spatial::Cartesian3D, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_date(&self) -> core::option::Option<&neo4j::value::time::Date>
+pub fn neo4j::ValueReceive::as_date_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::Date>
 pub fn neo4j::ValueReceive::is_date(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_date(self) -> core::result::Result<neo4j::value::time::Date, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_date_time(&self) -> core::option::Option<&neo4j::value::time::DateTime>
+pub fn neo4j::ValueReceive::as_date_time_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::DateTime>
 pub fn neo4j::ValueReceive::is_date_time(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_date_time(self) -> core::result::Result<neo4j::value::time::DateTime, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_date_time_fixed(&self) -> core::option::Option<&neo4j::value::time::DateTimeFixed>
+pub fn neo4j::ValueReceive::as_date_time_fixed_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::DateTimeFixed>
 pub fn neo4j::ValueReceive::is_date_time_fixed(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_date_time_fixed(self) -> core::result::Result<neo4j::value::time::DateTimeFixed, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_duration(&self) -> core::option::Option<&neo4j::value::time::Duration>
+pub fn neo4j::ValueReceive::as_duration_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::Duration>
 pub fn neo4j::ValueReceive::is_duration(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_duration(self) -> core::result::Result<neo4j::value::time::Duration, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_float(&self) -> core::option::Option<f64>
+pub fn neo4j::ValueReceive::as_float_mut(&mut self) -> core::option::Option<&mut f64>
 pub fn neo4j::ValueReceive::is_float(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_float(self) -> core::result::Result<f64, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_int(&self) -> core::option::Option<i64>
+pub fn neo4j::ValueReceive::as_int_mut(&mut self) -> core::option::Option<&mut i64>
 pub fn neo4j::ValueReceive::is_int(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_int(self) -> core::result::Result<i64, Self>
 impl neo4j::ValueReceive
-pub fn neo4j::ValueReceive::as_list(&self) -> core::option::Option<&[neo4j::ValueReceive]>
+pub fn neo4j::ValueReceive::as_list(&self) -> core::option::Option<&alloc::vec::Vec<neo4j::ValueReceive>>
+pub fn neo4j::ValueReceive::as_list_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<neo4j::ValueReceive>>
 pub fn neo4j::ValueReceive::is_list(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_list(self) -> core::result::Result<alloc::vec::Vec<neo4j::ValueReceive>, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_local_date_time(&self) -> core::option::Option<&neo4j::value::time::LocalDateTime>
+pub fn neo4j::ValueReceive::as_local_date_time_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::LocalDateTime>
 pub fn neo4j::ValueReceive::is_local_date_time(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_local_date_time(self) -> core::result::Result<neo4j::value::time::LocalDateTime, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_local_time(&self) -> core::option::Option<&neo4j::value::time::LocalTime>
+pub fn neo4j::ValueReceive::as_local_time_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::LocalTime>
 pub fn neo4j::ValueReceive::is_local_time(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_local_time(self) -> core::result::Result<neo4j::value::time::LocalTime, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_map(&self) -> core::option::Option<&std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>>
+pub fn neo4j::ValueReceive::as_map_mut(&mut self) -> core::option::Option<&mut std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>>
 pub fn neo4j::ValueReceive::is_map(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_map(self) -> core::result::Result<std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_node(&self) -> core::option::Option<&neo4j::value::graph::Node>
+pub fn neo4j::ValueReceive::as_node_mut(&mut self) -> core::option::Option<&mut neo4j::value::graph::Node>
 pub fn neo4j::ValueReceive::is_node(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_node(self) -> core::result::Result<neo4j::value::graph::Node, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_path(&self) -> core::option::Option<&neo4j::value::graph::Path>
+pub fn neo4j::ValueReceive::as_path_mut(&mut self) -> core::option::Option<&mut neo4j::value::graph::Path>
 pub fn neo4j::ValueReceive::is_path(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_path(self) -> core::result::Result<neo4j::value::graph::Path, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_relationship(&self) -> core::option::Option<&neo4j::value::graph::Relationship>
+pub fn neo4j::ValueReceive::as_relationship_mut(&mut self) -> core::option::Option<&mut neo4j::value::graph::Relationship>
 pub fn neo4j::ValueReceive::is_relationship(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_relationship(self) -> core::result::Result<neo4j::value::graph::Relationship, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_string(&self) -> core::option::Option<&alloc::string::String>
+pub fn neo4j::ValueReceive::as_string_mut(&mut self) -> core::option::Option<&mut alloc::string::String>
 pub fn neo4j::ValueReceive::is_string(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_string(self) -> core::result::Result<alloc::string::String, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_time(&self) -> core::option::Option<&neo4j::value::time::Time>
+pub fn neo4j::ValueReceive::as_time_mut(&mut self) -> core::option::Option<&mut neo4j::value::time::Time>
 pub fn neo4j::ValueReceive::is_time(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_time(self) -> core::result::Result<neo4j::value::time::Time, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_wgs84_2d(&self) -> core::option::Option<&neo4j::value::spatial::WGS84_2D>
+pub fn neo4j::ValueReceive::as_wgs84_2d_mut(&mut self) -> core::option::Option<&mut neo4j::value::spatial::WGS84_2D>
 pub fn neo4j::ValueReceive::is_wgs84_2d(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_wgs84_2d(self) -> core::result::Result<neo4j::value::spatial::WGS84_2D, Self>
 impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_wgs84_3d(&self) -> core::option::Option<&neo4j::value::spatial::WGS84_3D>
+pub fn neo4j::ValueReceive::as_wgs84_3d_mut(&mut self) -> core::option::Option<&mut neo4j::value::spatial::WGS84_3D>
 pub fn neo4j::ValueReceive::is_wgs84_3d(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_wgs84_3d(self) -> core::result::Result<neo4j::value::spatial::WGS84_3D, Self>
 impl neo4j::ValueReceive

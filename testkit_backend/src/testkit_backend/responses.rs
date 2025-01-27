@@ -37,13 +37,15 @@ use super::BackendId;
 
 // [bolt-version-bump] search tag when changing bolt version support
 // https://github.com/rust-lang/rust/issues/85077
-const FEATURE_LIST: [&str; 44] = [
+const FEATURE_LIST: [&str; 46] = [
     // === FUNCTIONAL FEATURES ===
     "Feature:API:BookmarkManager",
     "Feature:API:ConnectionAcquisitionTimeout",
     "Feature:API:Driver.ExecuteQuery",
+    // "Feature:API:Driver.ExecuteQuery:WithAuth",
     "Feature:API:Driver:GetServerInfo",
     "Feature:API:Driver.IsEncrypted",
+    // "Feature:API:Driver:MaxConnectionLifetime",
     // Even tough the driver does not support notification config,
     // TestKit uses this flag to change assertions on the notification objects
     "Feature:API:Driver:NotificationsConfig",
@@ -58,24 +60,30 @@ const FEATURE_LIST: [&str; 44] = [
     "Feature:API:RetryableExceptions",
     "Feature:API:Session:AuthConfig",
     "Feature:API:Session:NotificationsConfig",
+    // "Feature:API:SSLClientCertificate",
     "Feature:API:SSLConfig",
     "Feature:API:SSLSchemes",
+    "Feature:API:Summary:GqlStatusObjects",
     "Feature:API:Type.Spatial",
     "Feature:API:Type.Temporal",
     "Feature:Auth:Bearer",
     "Feature:Auth:Custom",
     "Feature:Auth:Kerberos",
     "Feature:Auth:Managed",
-    // "Feature:Bolt:3.0",
-    // "Feature:Bolt:4.1",
-    // "Feature:Bolt:4.2",
-    // "Feature:Bolt:4.3",
+    // "Feature:Bolt:3.0",  // legacy, won't implement
+    // "Feature:Bolt:4.1",  // legacy, won't implement
+    // "Feature:Bolt:4.2",  // legacy, won't implement
+    // "Feature:Bolt:4.3",  // legacy, won't implement
     "Feature:Bolt:4.4",
     "Feature:Bolt:5.0",
     "Feature:Bolt:5.1",
     "Feature:Bolt:5.2",
     "Feature:Bolt:5.3",
     "Feature:Bolt:5.4",
+    // "Feature:Bolt:5.5",  // unused/deprecated protocol version
+    "Feature:Bolt:5.6",
+    // "Feature:Bolt:5.7",
+    // "Feature:Bolt:5.8",
     "Feature:Bolt:Patch:UTC",
     "Feature:Impersonation",
     // "Feature:TLS:1.1",  // rustls says no! For a good reason.
@@ -88,6 +96,8 @@ const FEATURE_LIST: [&str; 44] = [
     "Optimization:ConnectionReuse",
     "Optimization:EagerTransactionBegin",
     "Optimization:ExecuteQueryPipelining",
+    // "Optimization:HomeDatabaseCache",
+    // "Optimization:HomeDbCacheBasicPrincipalIsImpersonatedUser",
     "Optimization:ImplicitDefaultArguments",
     "Optimization:MinimalBookmarksSet",
     "Optimization:MinimalResets",
@@ -98,6 +108,7 @@ const FEATURE_LIST: [&str; 44] = [
     // === IMPLEMENTATION DETAILS ===
     // "Detail:ClosedDriverIsEncrypted",
     // "Detail:DefaultSecurityConfigValueEquality",
+    // "Detail:NumberIsNumber",  // Rust can tell float and int appart
     //
     // === CONFIGURATION HINTS (BOLT 4.3+) ===
     "ConfHint:connection.recv_timeout_seconds",
@@ -115,6 +126,14 @@ fn get_plain_skipped_tests() -> &'static HashMap<&'static str, &'static str> {
     PLAIN_SKIPPED_TESTS.get_or_init(|| {
         HashMap::from([
             // ("path.to.skipped_test", "reason"),
+            (
+                "stub.summary.test_summary.TestSummaryNotifications4x4.test_no_notifications",
+                "An empty list is returned when there are no notifications",
+            ),
+            (
+                "neo4j.test_summary.TestSummary.test_no_notification_info",
+                "An empty list is returned when there are no notifications",
+            ),
         ])
     })
 }
@@ -287,7 +306,8 @@ pub(super) struct RecordListEntry {
 pub(super) struct Summary {
     counters: SummaryCounters,
     database: Option<String>,
-    notifications: Option<Vec<Notification>>,
+    notifications: Vec<Notification>,
+    gql_status_objects: Vec<GqlStatusObject>,
     plan: Option<Plan>,
     profile: Option<Profile>,
     query: SummaryQuery,
@@ -325,9 +345,12 @@ impl TryFrom<neo4j::summary::Summary> for Summary {
         Ok(Self {
             counters: summary.counters.into(),
             database: summary.database,
-            notifications: summary
-                .notifications
-                .map(|notifications| notifications.into_iter().map(Into::into).collect()),
+            notifications: summary.notifications.into_iter().map(Into::into).collect(),
+            gql_status_objects: summary
+                .gql_status_objects
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?,
             plan: summary.plan.map(TryInto::try_into).transpose()?,
             profile: summary.profile.map(TryInto::try_into).transpose()?,
             query: SummaryQuery {
@@ -427,6 +450,44 @@ impl From<neo4j::summary::Notification> for Notification {
 }
 
 #[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct GqlStatusObject {
+    gql_status: String,
+    status_description: String,
+    position: Option<Position>,
+    classification: Classification,
+    raw_classification: Option<String>,
+    severity: Severity,
+    raw_severity: Option<String>,
+    diagnostic_record: HashMap<String, CypherValue>,
+    is_notification: bool,
+}
+
+impl TryFrom<neo4j::summary::GqlStatusObject> for GqlStatusObject {
+    type Error = TestKitError;
+    fn try_from(status: neo4j::summary::GqlStatusObject) -> Result<Self, Self::Error> {
+        Ok(Self {
+            gql_status: status.gql_status,
+            status_description: status.status_description,
+            position: status.position.map(Into::into),
+            classification: status.classification.into(),
+            raw_classification: status.raw_classification,
+            severity: status.severity.into(),
+            raw_severity: status.raw_severity,
+            diagnostic_record: status
+                .diagnostic_record
+                .into_iter()
+                .map(|(k, v)| match v.try_into() {
+                    Err(e) => Err(e),
+                    Ok(v) => Ok((k, v)),
+                })
+                .collect::<Result<_, _>>()?,
+            is_notification: status.is_notification,
+        })
+    }
+}
+
+#[derive(Serialize, Debug)]
 pub(super) struct Position {
     column: i64,
     offset: i64,
@@ -474,9 +535,12 @@ pub(super) enum Category {
     Generic,
     Security,
     Topology,
+    Schema,
     Unknown,
     Unhandled,
 }
+
+type Classification = Category;
 
 impl From<neo4j::summary::Category> for Category {
     fn from(severity: neo4j::summary::Category) -> Self {
@@ -489,6 +553,7 @@ impl From<neo4j::summary::Category> for Category {
             neo4j::summary::Category::Generic => Self::Generic,
             neo4j::summary::Category::Security => Self::Security,
             neo4j::summary::Category::Topology => Self::Topology,
+            neo4j::summary::Category::Schema => Self::Schema,
             neo4j::summary::Category::Unknown => Self::Unknown,
             _ => Self::Unhandled,
         }

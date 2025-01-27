@@ -60,7 +60,7 @@ impl<T: BoltStructTranslator> Bolt5x2<T> {
             None => 0,
             Some(NotificationFilter {
                 minimum_severity,
-                disabled_categories,
+                disabled_classifications: disabled_categories,
             }) => [minimum_severity.is_some(), !disabled_categories.is_none()]
                 .into_iter()
                 .map(<bool as Into<u64>>::into)
@@ -79,7 +79,7 @@ impl<T: BoltStructTranslator> Bolt5x2<T> {
         };
         let NotificationFilter {
             minimum_severity,
-            disabled_categories,
+            disabled_classifications: disabled_categories,
         } = notification_filter;
         if let Some(minimum_severity) = minimum_severity {
             serializer.write_string("notifications_minimum_severity")?;

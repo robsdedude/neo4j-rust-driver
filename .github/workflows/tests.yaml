@@ -134,6 +134,7 @@ jobs:
     strategy:
       matrix:
         tests: [ TESTKIT_TESTS ]
+        # [bolt-version-bump] search tag when changing bolt version support
         config:
           - 4.4-community-bolt
           - 4.4-community-neo4j
@@ -144,6 +145,8 @@ jobs:
           - 5.5-enterprise-cluster-neo4j
           - 5.7-enterprise-cluster-neo4j
           - 5.9-enterprise-cluster-neo4j
+          - 5.13-enterprise-cluster-neo4j
+          - 5.23-enterprise-cluster-neo4j
         include:
           - tests: STUB_TESTS
             config: ""

@@ -479,6 +479,7 @@ struct RecordListener {
     summary: Option<Summary>,
     bookmark: Option<String>,
     error_propagator: Option<SharedErrorPropagator>,
+    had_record: bool,
 }
 
 impl RecordListener {
@@ -492,6 +493,7 @@ impl RecordListener {
             summary: Some(summary),
             bookmark: None,
             error_propagator,
+            had_record: false,
         }
     }
 
@@ -522,13 +524,14 @@ impl RecordListener {
             .map(|field| match field {
                 ValueReceive::String(field) => Ok(Arc::new(field)),
                 _ => Err(Neo4jError::protocol_error(
-                    "SUCCESS after RUN 'fields' was not a list",
+                    "SUCCESS after RUN 'fields' was not a list of strings",
                 )),
             })
-            .collect::<Result<_>>()?;
+            .collect::<Result<Vec<_>>>()?;
+        let has_keys = !fields.is_empty();
         self.keys = Some(fields);
         if let Some(summary) = self.summary.as_mut() {
-            summary.load_run_meta(&mut meta)?
+            summary.load_run_meta(&mut meta, has_keys)?
         }
 
         Ok(())
@@ -568,6 +571,7 @@ impl RecordListener {
             )));
         }
         self.buffer.push_back(Record::new(keys, fields));
+        self.had_record = true;
         Ok(())
     }
 
@@ -578,7 +582,7 @@ impl RecordListener {
                 self.bookmark = Some(bms);
             };
             if let Some(summary) = self.summary.as_mut() {
-                summary.load_pull_meta(&mut meta)?
+                summary.load_pull_meta(&mut meta, self.had_record)?
             }
             return Ok(());
         };
