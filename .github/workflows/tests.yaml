@@ -12,19 +12,19 @@ jobs:
     runs-on: "ubuntu-latest"
     steps:
       - uses: actions/checkout@v4
-      - name: install nightly toolchain for cargo-check-external-types
+      - name: Install nightly toolchain for cargo-check-external-types
         uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: nightly-2024-06-30
-      - name: install latest nightly toolchain for rustfmt
+      - name: Install latest nightly toolchain for rustfmt
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
-      - name: install stable toolchain
+      - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - name: versions
+      - name: Versions
         run: |
           set -x
           rustup show
@@ -37,7 +37,7 @@ jobs:
         run: cargo clippy --all --all-features -- -D warnings
       - name: clippy driver
         run: cargo clippy -p neo4j -- -D warnings
-      - name:  check exported dependencies
+      - name:  Check exported dependencies
         run: |
           set -x
           pushd neo4j
@@ -54,11 +54,11 @@ jobs:
       matrix:
         rust-version: [ "1.70", "stable" ]
     steps:
-      - name: pull neo4j docker image
-        run: docker pull neo4j:5.6-enterprise
-      - name: make neo4j logs directory
+      - name: Pull neo4j docker image
+        run: docker pull neo4j:5.26-enterprise
+      - name: Make neo4j logs directory
         run: mkdir -p neo4j/logs
-      - name: start neo4j
+      - name: Start neo4j
         id: start_neo4j
         run: docker run
           -d --name neo4j
@@ -67,19 +67,19 @@ jobs:
           -e NEO4J_AUTH=neo4j/pass
           -e NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
           -e NEO4J_dbms_security_auth__minimum__password__length=1
-          neo4j:5.6-enterprise &
+          neo4j:5.26-enterprise &
       - uses: actions/checkout@v4
         with:
           path: driver
-      - name: put Cargo.lock in place
+      - name: Put Cargo.lock in place
         working-directory: driver
         run: cp .github/Cargo.lock Cargo.lock
-      - name: install ${{ matrix.rust-version }} toolchain to test against
+      - name: Install ${{ matrix.rust-version }} toolchain to test against
         uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ matrix.rust-version }}
           components: clippy
-      - name: versions
+      - name: Versions
         run: |
           rustup show
           cargo --version 
@@ -89,10 +89,10 @@ jobs:
         env:
           RUSTFLAGS: -D warnings
         run: cargo check
-      - name: docs build
+      - name: Docs build
         working-directory: driver
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
-      - name: tests
+      - name: Tests
         working-directory: driver
         env:
           TEST_NEO4J_SCHEME: neo4j
@@ -101,9 +101,9 @@ jobs:
           TEST_NEO4J_USER: neo4j
           TEST_NEO4J_PASS: pass
           TEST_NEO4J_EDITION: enterprise
-          TEST_NEO4J_VERSION: 5.6
+          TEST_NEO4J_VERSION: 5.26
         run: cargo test --workspace --all-targets
-      - name: doc tests
+      - name: Doc tests
         working-directory: driver
         env:
           TEST_NEO4J_SCHEME: neo4j
@@ -112,15 +112,15 @@ jobs:
           TEST_NEO4J_USER: neo4j
           TEST_NEO4J_PASS: pass
           TEST_NEO4J_EDITION: enterprise
-          TEST_NEO4J_VERSION: 5.6
+          TEST_NEO4J_VERSION: 5.26
         run: cargo test --workspace --doc
-      - name: stop neo4j
+      - name: Stop neo4j
         if: ${{ !cancelled() && steps.start_neo4j.conclusion == 'success' }}
         run: |
           docker stop neo4j
           docker logs neo4j > neo4j/neo4j_docker.log 2>&1
           docker rm neo4j
-      - name: upload artifacts (neo4j logs)
+      - name: Upload artifacts (neo4j logs)
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
@@ -157,7 +157,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: driver
-      - name: put Cargo.lock in place
+      - name: Put Cargo.lock in place
         working-directory: driver
         run: cp .github/Cargo.lock Cargo.lock
 
@@ -183,7 +183,7 @@ jobs:
           python3 main.py --tests ${{ matrix.tests }} \
             ${{ matrix.config && format('--config {0}', matrix.config) || ''}}
 
-      - name: upload artifacts (TestKit logs)
+      - name: Upload artifacts (TestKit logs)
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
