@@ -83,16 +83,16 @@ impl ResponseCallbacks {
     }
 
     pub(crate) fn with_on_success_pre_hook<
-        F: FnMut(&BoltMeta) -> Result<()> + Send + Sync + 'static,
+        F: FnMut(&mut BoltMeta) -> Result<()> + Send + Sync + 'static,
     >(
         mut self,
         mut pre_hook: F,
     ) -> Self {
         match self.on_success_cb {
-            None => self.on_success_cb = Some(Box::new(move |meta| pre_hook(&meta))),
+            None => self.on_success_cb = Some(Box::new(move |mut meta| pre_hook(&mut meta))),
             Some(mut cb) => {
-                self.on_success_cb = Some(Box::new(move |meta| {
-                    pre_hook(&meta)?;
+                self.on_success_cb = Some(Box::new(move |mut meta| {
+                    pre_hook(&mut meta)?;
                     cb(meta)
                 }))
             }

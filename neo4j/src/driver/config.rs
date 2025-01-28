@@ -495,14 +495,15 @@ impl DriverConfig {
     ///
     /// # Example
     /// ```
-    /// use neo4j::driver::notification::{DisabledCategory, MinimumSeverity, NotificationFilter};
+    /// use neo4j::driver::notification::{
+    ///     DisabledClassification, MinimumSeverity, NotificationFilter,
+    /// };
     /// use neo4j::driver::DriverConfig;
     ///
     /// // filter to only receive warnings (and above), but no performance notifications
-    /// let filter = NotificationFilter {
-    ///     minimum_severity: Some(MinimumSeverity::Warning),
-    ///     disabled_categories: Some(vec![DisabledCategory::Performance]),
-    /// };
+    /// let filter = NotificationFilter::new()
+    ///     .with_minimum_severity(MinimumSeverity::Warning)
+    ///     .with_disabled_classifications(vec![DisabledClassification::Performance]);
     /// let config = DriverConfig::new().with_notification_filter(filter);
     /// ```
     #[inline]

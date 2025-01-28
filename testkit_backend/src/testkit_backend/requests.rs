@@ -21,7 +21,9 @@ use serde_json::Value as JsonValue;
 
 use neo4j::bookmarks::{BookmarkManager, Bookmarks};
 use neo4j::driver::auth::AuthToken;
-use neo4j::driver::notification::{DisabledCategory, MinimumSeverity, NotificationFilter};
+use neo4j::driver::notification::{
+    DisabledCategory, DisabledClassification, MinimumSeverity, NotificationFilter,
+};
 use neo4j::driver::{ConnectionConfig, DriverConfig, RoutingControl};
 use neo4j::session::SessionConfig;
 use neo4j::transaction::TransactionTimeout;
@@ -81,6 +83,7 @@ pub(super) enum Request {
         client_certificate_provider_id: Option<BackendId>,
         notifications_min_severity: Option<String>,
         notifications_disabled_categories: Option<Vec<String>>,
+        notifications_disabled_classifications: Option<Vec<String>>,
         #[serde(rename = "telemetryDisabled")]
         telemetry_disabled: Option<bool>,
         encrypted: Option<bool>,
@@ -181,6 +184,7 @@ pub(super) enum Request {
         impersonated_user: Option<String>,
         notifications_min_severity: Option<String>,
         notifications_disabled_categories: Option<Vec<String>>,
+        notifications_disabled_classifications: Option<Vec<String>>,
         bookmark_manager_id: Option<BackendId>,
         #[serde(rename = "authorizationToken")]
         auth: MaybeTestKitAuth,
@@ -624,8 +628,12 @@ where
 fn load_notification_filter(
     notifications_min_severity: Option<String>,
     notifications_disabled_categories: Option<Vec<String>>,
+    notifications_disabled_classifications: Option<Vec<String>>,
 ) -> Result<Option<NotificationFilter>, TestKitError> {
-    if notifications_disabled_categories.is_none() && notifications_min_severity.is_none() {
+    if notifications_disabled_categories.is_none()
+        && notifications_min_severity.is_none()
+        && notifications_disabled_classifications.is_none()
+    {
         return Ok(None);
     }
     let minimum_severity = match notifications_min_severity {
@@ -656,6 +664,7 @@ fn load_notification_filter(
                         "GENERIC" => DisabledCategory::Generic,
                         "SECURITY" => DisabledCategory::Security,
                         "TOPOLOGY" => DisabledCategory::Topology,
+                        "SCHEMA" => DisabledCategory::Schema,
                         _ => {
                             return Err(TestKitError::backend_err(format!(
                                 "unknown disabled notification category: {cat:?}",
@@ -667,10 +676,48 @@ fn load_notification_filter(
                 .collect::<Result<_, _>>()
         })
         .transpose()?;
-    Ok(Some(NotificationFilter {
-        minimum_severity,
-        disabled_categories,
-    }))
+    let disabled_classifications = notifications_disabled_classifications
+        .map(|classifications| {
+            classifications
+                .into_iter()
+                .map(|classification| {
+                    Ok(match classification.as_str() {
+                        "HINT" => DisabledClassification::Hint,
+                        "UNRECOGNIZED" => DisabledClassification::Unrecognized,
+                        "UNSUPPORTED" => DisabledClassification::Unsupported,
+                        "PERFORMANCE" => DisabledClassification::Performance,
+                        "DEPRECATION" => DisabledClassification::Deprecation,
+                        "GENERIC" => DisabledClassification::Generic,
+                        "SECURITY" => DisabledClassification::Security,
+                        "TOPOLOGY" => DisabledClassification::Topology,
+                        "SCHEMA" => DisabledClassification::Schema,
+                        _ => {
+                            return Err(TestKitError::backend_err(format!(
+                                "unknown disabled notification classification: {cls:?}",
+                                cls = classification
+                            )))
+                        }
+                    })
+                })
+                .collect::<Result<_, _>>()
+        })
+        .transpose()?;
+    let filter = NotificationFilter::new();
+    let filter = match minimum_severity {
+        None => filter,
+        Some(minimum_severity) => filter.with_minimum_severity(minimum_severity),
+    };
+    let filter = match disabled_categories {
+        None => filter,
+        Some(disabled_categories) => filter.with_disabled_categories(disabled_categories),
+    };
+    let filter = match disabled_classifications {
+        None => filter,
+        Some(disabled_classifications) => {
+            filter.with_disabled_classifications(disabled_classifications)
+        }
+    };
+    Ok(Some(filter))
 }
 
 impl Request {
@@ -777,6 +824,7 @@ impl Request {
             client_certificate_provider_id,
             notifications_min_severity,
             notifications_disabled_categories,
+            notifications_disabled_classifications,
             telemetry_disabled,
             encrypted,
             trusted_certificates,
@@ -851,6 +899,7 @@ impl Request {
         if let Some(filter) = load_notification_filter(
             notifications_min_severity,
             notifications_disabled_categories,
+            notifications_disabled_classifications,
         )? {
             driver_config = driver_config.with_notification_filter(filter);
         }
@@ -1071,6 +1120,7 @@ impl Request {
             impersonated_user,
             notifications_min_severity,
             notifications_disabled_categories,
+            notifications_disabled_classifications,
             bookmark_manager_id,
             auth,
         } = self
@@ -1103,6 +1153,7 @@ impl Request {
         if let Some(filter) = load_notification_filter(
             notifications_min_severity,
             notifications_disabled_categories,
+            notifications_disabled_classifications,
         )? {
             config = config.with_notification_filter(filter);
         }

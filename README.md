@@ -30,6 +30,7 @@ A bump in MSRV is considered a minor breaking change.
      * [x] `connection_acquisition_timeout`
      * [x] `resolver`
      * [x] `max_connection_lifetime`
+     * [x] `liveness_check_timeout` (called `idle_time_before_connection_test`)
      * [x] routing and direct connections
      * [x] `keep_alive`
      * [x] `TLS`
@@ -79,13 +80,19 @@ A bump in MSRV is considered a minor breaking change.
      * [x] most basic functionality
      * [ ] ergonomic way to access by key
  * [x] Bookmark Management
- * [x] Protocol Versions
+ * [ ] Protocol Versions (including features introduced to the official drivers with each version)
    * [x] 4.4
    * [x] 5.0 (utc fix)
    * [x] 5.1 (re-auth)
    * [x] 5.2 (notification filtering)
    * [x] 5.3 (bolt agent)
    * [x] 5.4 (telemetry)
+   * [x] 5.5 (never released)
+   * [x] 5.6 (GQL notifications)
+   * [ ] 5.7
+     * [ ] (GQL errors)
+     * [ ] (new bolt version handshake)
+   * [ ] 5.8 (home db resolution cache)
  * [x] Types
    * [x] `Null`
    * [x] `Integer`
