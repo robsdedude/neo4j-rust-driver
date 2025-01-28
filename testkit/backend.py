@@ -21,5 +21,5 @@ from _common import run
 
 
 if __name__ == "__main__":
-    run(["cargo", "run", "-p", "testkit_backend"],
+    run(["cargo", "run", "--release", "-p", "testkit_backend"],
         env={**os.environ, "RUST_LOG": "debug", "RUST_BACKTRACE": "full"})

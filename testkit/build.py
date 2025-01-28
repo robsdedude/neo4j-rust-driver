@@ -19,4 +19,4 @@ from _common import run
 
 
 if __name__ == "__main__":
-    run(["cargo", "build", "--all-features"])
+    run(["cargo", "build", "--release", "--all-features"])
