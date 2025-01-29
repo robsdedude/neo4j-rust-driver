@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
 use std::error::Error as StdError;
 // use std::backtrace::Backtrace;
 use std::fmt::{Display, Formatter};
@@ -21,6 +22,7 @@ use log::info;
 use thiserror::Error;
 
 use crate::driver::io::bolt::BoltMeta;
+use crate::util::concat_str;
 use crate::value::ValueReceive;
 
 // imports for docs
@@ -85,7 +87,7 @@ pub enum Neo4jError {
     ///    supported over the negotiated protocol version.
     ///  * Can be generated using [`Neo4jError::from::<GetSingleRecordError>`]
     ///    (the driver itself won't perform this conversion)
-    ///  * Trying to use a address resolver ([`DriverConfig::with_resolver()`]) that returns no
+    ///  * Trying to use an address resolver ([`DriverConfig::with_resolver()`]) that returns no
     ///    addresses.
     ///  * Configuring the driver's sockets according to [`DriverConfig`] failed.
     ///    * TLS is enabled, but establishing a TLS connection failed.
@@ -234,17 +236,34 @@ impl Neo4jError {
         }
     }
 }
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ServerError {
     pub code: String,
+    pub gql_status: String,
     pub message: String,
+    pub gql_status_description: String,
+    pub gql_raw_classification: Option<String>,
+    pub gql_classification: GqlErrorClassification,
+    pub diagnostic_record: HashMap<String, ValueReceive>,
+    pub cause: Option<Box<GqlErrorCause>>,
     retryable_overwrite: bool,
 }
 
+const UNKNOWN_NEO4J_CODE: &str = "Neo.DatabaseError.General.UnknownError";
+const UNKNOWN_NEO4J_MESSAGE: &str = "An unknown error occurred.";
+const UNKNOWN_GQL_STATUS: &str = "50N42";
+const UNKNOWN_GQL_STATUS_DESCRIPTION: &str =
+    "error: general processing exception - unexpected error";
+#[allow(dead_code)] // will be the error message in a future version of the driver
+const UNKNOWN_GQL_MESSAGE: &str = concat_str!(
+    UNKNOWN_GQL_STATUS,
+    ": Unexpected error has occurred. See debug log for details."
+);
+
 impl ServerError {
-    pub fn new(code: String, message: String) -> Self {
-        let code = match code.as_str() {
+    fn map_legacy_codes(code: String) -> String {
+        match code.as_str() {
             // In 5.0, these errors have been re-classified as ClientError.
             // For backwards compatibility with Neo4j 4.4 and earlier, we re-map
             // them in the driver, too.
@@ -255,24 +274,51 @@ impl ServerError {
                 String::from("Neo.ClientError.Transaction.LockClientStopped")
             }
             _ => code,
-        };
-        Self {
-            code,
-            message,
-            retryable_overwrite: false,
         }
     }
 
     pub(crate) fn from_meta(mut meta: BoltMeta) -> Self {
         let code = match meta.remove("code") {
             Some(ValueReceive::String(code)) => code,
-            _ => "Neo.DatabaseError.General.UnknownError".into(),
+            _ => UNKNOWN_NEO4J_CODE.into(),
         };
         let message = match meta.remove("message") {
             Some(ValueReceive::String(message)) => message,
-            _ => "An unknown error occurred.".into(),
+            _ => UNKNOWN_NEO4J_MESSAGE.into(),
         };
-        Self::new(code, message)
+        let gql_status_description = format!("{UNKNOWN_GQL_STATUS_DESCRIPTION}. {message}");
+        Self {
+            code: Self::map_legacy_codes(code),
+            message,
+            gql_status: String::from(UNKNOWN_GQL_STATUS),
+            gql_status_description,
+            gql_raw_classification: None,
+            gql_classification: GqlErrorClassification::Unknown,
+            diagnostic_record: GqlErrorCause::default_diagnostic_record(),
+            cause: None,
+            retryable_overwrite: false,
+        }
+    }
+
+    pub(crate) fn from_meta_gql(mut meta: BoltMeta) -> Self {
+        let code = match meta.remove("neo4j_code") {
+            Some(ValueReceive::String(code)) => code,
+            _ => UNKNOWN_NEO4J_CODE.into(),
+        };
+
+        let gql_data = GqlErrorCause::from_meta(meta);
+
+        Self {
+            code: Self::map_legacy_codes(code),
+            message: gql_data.message,
+            gql_status: gql_data.gql_status,
+            gql_status_description: gql_data.gql_status_description,
+            gql_raw_classification: gql_data.gql_raw_classification,
+            gql_classification: gql_data.gql_classification,
+            diagnostic_record: gql_data.diagnostic_record,
+            cause: gql_data.cause,
+            retryable_overwrite: false,
+        }
     }
 
     pub fn code(&self) -> &str {
@@ -347,7 +393,13 @@ impl ServerError {
     pub(crate) fn clone(&self) -> Self {
         Self {
             code: self.code.clone(),
+            gql_status: self.gql_status.clone(),
             message: self.message.clone(),
+            gql_status_description: self.gql_status_description.clone(),
+            gql_raw_classification: self.gql_raw_classification.clone(),
+            gql_classification: self.gql_classification,
+            diagnostic_record: self.diagnostic_record.clone(),
+            cause: self.cause.clone(),
             retryable_overwrite: self.retryable_overwrite,
         }
     }
@@ -355,7 +407,13 @@ impl ServerError {
     pub(crate) fn clone_with_reason(&self, reason: &str) -> Self {
         Self {
             code: self.code.clone(),
+            gql_status: self.gql_status.clone(),
             message: format!("{}: {}", reason, self.message),
+            gql_status_description: self.gql_status_description.clone(),
+            gql_raw_classification: self.gql_raw_classification.clone(),
+            gql_classification: self.gql_classification,
+            diagnostic_record: self.diagnostic_record.clone(),
+            cause: self.cause.clone(),
             retryable_overwrite: self.retryable_overwrite,
         }
     }
@@ -363,7 +421,128 @@ impl ServerError {
 
 impl Display for ServerError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "server error {}: {}", self.code, self.message)
+        write!(
+            f,
+            "server error: {} (code: {}, gql_status: {})",
+            self.message, self.code, self.gql_status,
+        )?;
+        if let Some(cause) = &self.cause {
+            write!(f, "\ncaused by: {}", cause)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+#[non_exhaustive]
+/// See [`ServerError::gql_classification`].
+pub enum GqlErrorClassification {
+    ClientError,
+    DatabaseError,
+    TransientError,
+    /// Used when the server provides a Classification which the driver is unaware of.
+    /// This can happen when connecting to a server newer than the driver or before GQL errors were
+    /// introduced.
+    Unknown,
+}
+
+impl GqlErrorClassification {
+    fn from_str(s: &str) -> Self {
+        match s {
+            "CLIENT_ERROR" => Self::ClientError,
+            "DATABASE_ERROR" => Self::DatabaseError,
+            "TRANSIENT_ERROR" => Self::TransientError,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct GqlErrorCause {
+    pub gql_status: String,
+    pub message: String,
+    pub gql_status_description: String,
+    pub gql_raw_classification: Option<String>,
+    pub gql_classification: GqlErrorClassification,
+    pub diagnostic_record: HashMap<String, ValueReceive>,
+    pub cause: Option<Box<GqlErrorCause>>,
+}
+
+impl GqlErrorCause {
+    pub(crate) fn from_meta(mut meta: BoltMeta) -> Self {
+        let mut message = meta
+            .remove("message")
+            .and_then(|v| v.try_into_string().ok());
+        let mut gql_status = meta
+            .remove("gql_status")
+            .and_then(|v| v.try_into_string().ok());
+        let mut description = meta
+            .remove("description")
+            .and_then(|v| v.try_into_string().ok());
+        let diagnostic_record = meta
+            .remove("diagnostic_record")
+            .and_then(|v| v.try_into_map().ok())
+            .unwrap_or_else(Self::default_diagnostic_record);
+        let cause = meta
+            .remove("cause")
+            .and_then(|v| v.try_into_map().ok())
+            .map(GqlErrorCause::from_meta)
+            .map(Box::new);
+        let gql_raw_classification = diagnostic_record
+            .get("_classification")
+            .and_then(ValueReceive::as_string)
+            .cloned();
+        let gql_classification = gql_raw_classification
+            .as_deref()
+            .map(GqlErrorClassification::from_str)
+            .unwrap_or(GqlErrorClassification::Unknown);
+
+        if gql_status.is_none() || message.is_none() || description.is_none() {
+            gql_status = Some(String::from(UNKNOWN_GQL_STATUS));
+            message = Some(String::from(UNKNOWN_GQL_MESSAGE));
+            description = Some(String::from(UNKNOWN_GQL_STATUS_DESCRIPTION));
+        }
+        let gql_status = gql_status.expect("cannot be None because of code above");
+        let message = message.expect("cannot be None because of code above");
+        let description = description.expect("cannot be None because of code above");
+
+        Self {
+            message,
+            gql_status,
+            gql_status_description: description,
+            gql_raw_classification,
+            gql_classification,
+            diagnostic_record,
+            cause,
+        }
+    }
+
+    fn default_diagnostic_record() -> HashMap<String, ValueReceive> {
+        let mut map = HashMap::with_capacity(3);
+        map.insert(
+            String::from("OPERATION"),
+            ValueReceive::String(String::from("")),
+        );
+        map.insert(
+            String::from("OPERATION_CODE"),
+            ValueReceive::String(String::from("0")),
+        );
+        map.insert(
+            String::from("CURRENT_SCHEMA"),
+            ValueReceive::String(String::from("/")),
+        );
+        map
+    }
+}
+
+impl Display for GqlErrorCause {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)?;
+        if let Some(cause) = &self.cause {
+            write!(f, "\ncaused by: {}", cause)?;
+        }
+        Ok(())
     }
 }
 
@@ -412,9 +591,3 @@ impl UserCallbackError {
 }
 
 pub type Result<T> = std::result::Result<T, Neo4jError>;
-
-impl From<ServerError> for Neo4jError {
-    fn from(err: ServerError) -> Self {
-        Neo4jError::ServerError { error: err }
-    }
-}

@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
 use neo4j::driver::{ConfigureFetchSizeError, ConnectionConfigParseError, TlsConfigError};
-use neo4j::error::{ServerError, UserCallbackError};
+use neo4j::error::{GqlErrorCause, GqlErrorClassification, ServerError, UserCallbackError};
 use neo4j::retry::RetryError;
-use neo4j::Neo4jError;
+use neo4j::{Neo4jError, ValueReceive};
 
 use super::cypher_value::{BrokenValueError, NotADriverValueError};
 use super::{BackendId, Generator};
@@ -27,11 +28,7 @@ use super::{BackendId, Generator};
 #[allow(clippy::enum_variant_names)] // names are reflecting TestKit protocol
 pub(super) enum TestKitError {
     DriverError {
-        error_type: String,
-        msg: String,
-        code: Option<String>,
-        id: Option<BackendId>,
-        retryable: bool,
+        error: Box<TestKitDriverError>,
     },
     FrontendError {
         msg: String,
@@ -43,6 +40,52 @@ pub(super) enum TestKitError {
         #[allow(dead_code)] // used (and usefull) in Debug impl
         error: String,
     },
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct TestKitDriverError {
+    pub(super) error_type: String,
+    pub(super) msg: String,
+    pub(super) code: Option<String>,
+    pub(super) gql_status: Option<String>,
+    pub(super) status_description: Option<String>,
+    pub(super) cause: Option<Box<GqlErrorCause>>,
+    pub(super) diagnostic_record: Option<HashMap<String, ValueReceive>>,
+    pub(super) classification: Option<GqlErrorClassification>,
+    pub(super) raw_classification: Option<String>,
+    pub(super) id: Option<BackendId>,
+    pub(super) retryable: bool,
+}
+
+impl TestKitError {
+    pub(super) fn driver_error_client_only(
+        error_type: String,
+        msg: String,
+        retryable: bool,
+    ) -> Self {
+        TestKitDriverError {
+            error_type,
+            msg,
+            code: None,
+            gql_status: None,
+            status_description: None,
+            cause: None,
+            diagnostic_record: None,
+            classification: None,
+            raw_classification: None,
+            id: None,
+            retryable,
+        }
+        .into()
+    }
+}
+
+impl From<TestKitDriverError> for TestKitError {
+    fn from(error: TestKitDriverError) -> Self {
+        TestKitError::DriverError {
+            error: Box::new(error),
+        }
+    }
 }
 
 impl Display for TestKitError {
@@ -57,50 +100,57 @@ impl From<Neo4jError> for TestKitError {
         match err {
             Neo4jError::Disconnect { during_commit, .. } => {
                 let msg = err.to_string();
-                TestKitError::DriverError {
-                    error_type: String::from(if during_commit {
+                TestKitError::driver_error_client_only(
+                    String::from(if during_commit {
                         "IncompleteCommit"
                     } else {
                         "Disconnect"
                     }),
                     msg,
-                    code: None,
-                    id: None,
                     retryable,
-                }
+                )
             }
-            Neo4jError::InvalidConfig { message, .. } => TestKitError::DriverError {
-                error_type: String::from("ConfigError"),
-                msg: message,
-                code: None,
-                id: None,
+            Neo4jError::InvalidConfig { message, .. } => TestKitError::driver_error_client_only(
+                String::from("ConfigError"),
+                message,
                 retryable,
-            },
+            ),
             Neo4jError::ServerError { error, .. } => {
-                let ServerError { code, message, .. } = error;
-                TestKitError::DriverError {
+                let ServerError {
+                    code,
+                    gql_status,
+                    message,
+                    gql_status_description,
+                    gql_raw_classification,
+                    gql_classification,
+                    diagnostic_record,
+                    cause,
+                    ..
+                } = error;
+                TestKitDriverError {
                     error_type: String::from("ServerError"),
                     msg: message,
                     code: Some(code),
+                    gql_status: Some(gql_status),
+                    status_description: Some(gql_status_description),
+                    cause,
+                    diagnostic_record: Some(diagnostic_record),
+                    classification: Some(gql_classification),
+                    raw_classification: gql_raw_classification,
                     id: None,
                     retryable,
                 }
+                .into()
             }
-            Neo4jError::Timeout { message, .. } => TestKitError::DriverError {
-                error_type: String::from("Timeout"),
-                msg: message,
-                code: None,
-                id: None,
-                retryable,
-            },
+            Neo4jError::Timeout { message, .. } => {
+                TestKitError::driver_error_client_only(String::from("Timeout"), message, retryable)
+            }
             Neo4jError::UserCallback { error, .. } => error.into(),
-            Neo4jError::ProtocolError { message, .. } => TestKitError::DriverError {
-                error_type: String::from("ProtocolError"),
-                msg: message,
-                code: None,
-                id: None,
+            Neo4jError::ProtocolError { message, .. } => TestKitError::driver_error_client_only(
+                String::from("ProtocolError"),
+                message,
                 retryable,
-            },
+            ),
         }
     }
 }
@@ -193,50 +243,42 @@ impl From<BrokenValueError> for TestKitError {
     fn from(v: BrokenValueError) -> Self {
         // TestKit expects broken values to be represented as error when accessing the field.
         // Instead, the Rust driver exposes them a an enum variant.
-        // Hence we just re-write that variant as an error.
-        TestKitError::DriverError {
-            error_type: String::from("BrokenValueError"),
-            msg: format!("{v}"),
-            code: None,
-            id: None,
-            retryable: false,
-        }
+        // Hence, we just re-write that variant as an error.
+        TestKitError::driver_error_client_only(
+            String::from("BrokenValueError"),
+            format!("{v}"),
+            false,
+        )
     }
 }
 
 impl<Builder> From<ConfigureFetchSizeError<Builder>> for TestKitError {
     fn from(e: ConfigureFetchSizeError<Builder>) -> Self {
-        TestKitError::DriverError {
-            error_type: String::from("ConfigureFetchSizeError"),
-            msg: format!("{e}"),
-            code: None,
-            id: None,
-            retryable: false,
-        }
+        TestKitError::driver_error_client_only(
+            String::from("ConfigureFetchSizeError"),
+            format!("{e}"),
+            false,
+        )
     }
 }
 
 impl From<ConnectionConfigParseError> for TestKitError {
     fn from(e: ConnectionConfigParseError) -> Self {
-        TestKitError::DriverError {
-            error_type: String::from("ConnectionConfigParseError"),
-            msg: format!("{e}"),
-            code: None,
-            id: None,
-            retryable: false,
-        }
+        TestKitError::driver_error_client_only(
+            String::from("ConnectionConfigParseError"),
+            format!("{e}"),
+            false,
+        )
     }
 }
 
 impl From<TlsConfigError> for TestKitError {
     fn from(e: TlsConfigError) -> Self {
-        TestKitError::DriverError {
-            error_type: String::from("TlsConfigError"),
-            msg: format!("{e}"),
-            code: None,
-            id: None,
-            retryable: false,
-        }
+        TestKitError::driver_error_client_only(
+            String::from("TlsConfigError"),
+            format!("{e}"),
+            false,
+        )
     }
 }
 
@@ -244,13 +286,11 @@ impl From<RetryError> for TestKitError {
     fn from(v: RetryError) -> Self {
         match v {
             RetryError::Neo4jError(e) => e.into(),
-            RetryError::Timeout(e) => TestKitError::DriverError {
-                error_type: String::from("RetryableError"),
-                msg: format!("{e}"),
-                code: None,
-                id: None,
-                retryable: false,
-            },
+            RetryError::Timeout(e) => TestKitError::driver_error_client_only(
+                String::from("RetryableError"),
+                format!("{e}"),
+                false,
+            ),
         }
     }
 }
@@ -260,8 +300,8 @@ impl Error for TestKitError {}
 impl TestKitError {
     pub(super) fn set_id_gen(&mut self, generator: &Generator) {
         match self {
-            TestKitError::DriverError { id, .. } => {
-                *id = Some(generator.next_id());
+            TestKitError::DriverError { error } => {
+                error.id = Some(generator.next_id());
             }
             TestKitError::FatalError { .. }
             | TestKitError::FrontendError { .. }
@@ -271,8 +311,8 @@ impl TestKitError {
 
     pub(super) fn set_id(&mut self, new_id: BackendId) {
         match self {
-            TestKitError::DriverError { id, .. } => {
-                *id = Some(new_id);
+            TestKitError::DriverError { error } => {
+                error.id = Some(new_id);
             }
             TestKitError::FatalError { .. }
             | TestKitError::FrontendError { .. }
@@ -282,7 +322,7 @@ impl TestKitError {
 
     pub(super) fn get_id(&self) -> Option<BackendId> {
         match self {
-            TestKitError::DriverError { id, .. } => *id,
+            TestKitError::DriverError { error } => error.id,
             TestKitError::FatalError { .. }
             | TestKitError::FrontendError { .. }
             | TestKitError::BackendError { .. } => None,
@@ -309,47 +349,46 @@ impl TestKitError {
         match err {
             Neo4jError::Disconnect { during_commit, .. } => {
                 let msg = err.to_string();
-                TestKitError::DriverError {
-                    error_type: String::from(if *during_commit {
+                TestKitError::driver_error_client_only(
+                    String::from(if *during_commit {
                         "IncompleteCommit"
                     } else {
                         "Disconnect"
                     }),
                     msg,
-                    code: None,
-                    id: None,
                     retryable,
-                }
+                )
             }
-            Neo4jError::InvalidConfig { message, .. } => TestKitError::DriverError {
-                error_type: String::from("ConfigError"),
-                msg: message.clone(),
-                code: None,
-                id: None,
+            Neo4jError::InvalidConfig { message, .. } => TestKitError::driver_error_client_only(
+                String::from("ConfigError"),
+                message.clone(),
                 retryable,
-            },
-            Neo4jError::ServerError { error, .. } => TestKitError::DriverError {
+            ),
+            Neo4jError::ServerError { error, .. } => TestKitDriverError {
                 error_type: String::from("ServerError"),
-                msg: String::from(error.message()),
-                code: Some(String::from(error.code())),
+                msg: error.message.clone(),
+                code: Some(error.code.clone()),
+                gql_status: Some(error.gql_status.clone()),
+                status_description: Some(error.gql_status_description.clone()),
+                cause: error.cause.clone(),
+                diagnostic_record: Some(error.diagnostic_record.clone()),
+                classification: Some(error.gql_classification),
+                raw_classification: error.gql_raw_classification.clone(),
                 id: None,
                 retryable,
-            },
-            Neo4jError::Timeout { message, .. } => TestKitError::DriverError {
-                error_type: String::from("Timeout"),
-                msg: message.clone(),
-                code: None,
-                id: None,
+            }
+            .into(),
+            Neo4jError::Timeout { message, .. } => TestKitError::driver_error_client_only(
+                String::from("Timeout"),
+                message.clone(),
                 retryable,
-            },
+            ),
             Neo4jError::UserCallback { error, .. } => error.into(),
-            Neo4jError::ProtocolError { message, .. } => TestKitError::DriverError {
-                error_type: String::from("ProtocolError"),
-                msg: message.clone(),
-                code: None,
-                id: None,
+            Neo4jError::ProtocolError { message, .. } => TestKitError::driver_error_client_only(
+                String::from("ProtocolError"),
+                message.clone(),
                 retryable,
-            },
+            ),
         }
     }
 }

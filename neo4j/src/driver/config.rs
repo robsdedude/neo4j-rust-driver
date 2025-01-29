@@ -1121,10 +1121,9 @@ mod tests {
     // that Mutex to also panic.
     fn get_tls_helper_lock() -> MutexGuard<'static, ()> {
         let mutex = TLS_HELPER_MTX.get_or_init(Default::default);
-        match mutex.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        }
+        mutex
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn get_test_client_config() -> ClientConfig {

@@ -105,3 +105,36 @@ pub fn db_exclusive(work: impl FnOnce() + UnwindSafe) {
         resume_unwind(err)
     }
 }
+
+pub fn error_retryable() -> Neo4jResult<()> {
+    let driver = Driver::new(
+        ConnectionConfig::new(("127.0.0.256", 7687).into()),
+        DriverConfig::new().with_auth(Arc::new(get_auth_token())),
+    );
+    let res = driver.verify_connectivity();
+    match res {
+        Ok(()) => panic!("Expected an error"),
+        Err(err) if err.is_retryable() => Err(err),
+        Err(err) => {
+            panic!("Expected a retryable error, got: {}", err);
+        }
+    }
+}
+
+pub fn error_non_retryable() -> Neo4jResult<()> {
+    let user = get_user();
+    let password = get_password() + "_wrong";
+    let auth = AuthToken::new_basic_auth(user, password);
+    let driver = Driver::new(
+        ConnectionConfig::new(get_address()),
+        DriverConfig::new().with_auth(Arc::new(auth)),
+    );
+    let res = driver.verify_connectivity();
+    match res {
+        Ok(()) => panic!("Expected an error"),
+        Err(err) if !err.is_retryable() => Err(err),
+        Err(err) => {
+            panic!("Expected a non-retryable error, got: {}", err);
+        }
+    }
+}

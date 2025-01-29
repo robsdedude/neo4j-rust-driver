@@ -73,7 +73,9 @@ impl<'driver> RecordStream<'driver> {
         parameters: RunParameters<KP, KM>,
     ) -> Result<()> {
         if let RecordListenerState::ForeignError(e) = &(*self.listener).borrow().state {
-            return Err(e.deref().clone().into());
+            return Err(Neo4jError::ServerError {
+                error: e.deref().clone(),
+            });
         }
 
         let mut callbacks = self.failure_callbacks();
@@ -130,7 +132,9 @@ impl<'driver> RecordStream<'driver> {
                     mem::swap(state, &mut state_swap);
                     match state_swap {
                         RecordListenerState::ForeignError(e) => {
-                            return Err(e.deref().clone().into())
+                            return Err(Neo4jError::ServerError {
+                                error: e.deref().clone(),
+                            })
                         }
                         _ => panic!("checked state to be error above"),
                     }
@@ -417,7 +421,9 @@ impl Iterator for RecordStream<'_> {
                     mem::swap(&mut listener.state, &mut state);
                     match state {
                         RecordListenerState::ForeignError(e) => {
-                            return Some(Err(e.deref().clone().into()))
+                            return Some(Err(Neo4jError::ServerError {
+                                error: e.deref().clone(),
+                            }))
                         }
                         _ => panic!("checked state to be foreign error above"),
                     }
@@ -545,7 +551,7 @@ impl RecordListener {
                 "failure in a query of this transaction caused transaction to be closed",
             );
         }
-        self.state = RecordListenerState::Error(error.into());
+        self.state = RecordListenerState::Error(Neo4jError::ServerError { error });
         self.summary = None;
         Ok(())
     }

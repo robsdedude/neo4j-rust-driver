@@ -23,8 +23,8 @@
 //!
 //! ## Compatibility
 // [bolt-version-bump] search tag when changing bolt version support
-//! This driver supports bolt protocol version 4.4, and 5.0 - 5.6.
-//! This corresponds to Neo4j versions 4.4, and 5.0 - 5.23+.
+//! This driver supports bolt protocol version 4.4, and 5.0 - 5.7.
+//! This corresponds to Neo4j versions 4.4, and 5.0 - 5.26+.
 //! For details of bolt protocol compatibility, see the
 //! [official Neo4j documentation](https://neo4j.com/docs/bolt/current/bolt-compatibility/).
 //!
@@ -211,7 +211,9 @@ pub mod bookmarks {
 }
 /// Error and result types.
 pub mod error {
-    pub use super::error_::{ServerError, UserCallbackError};
+    pub use super::error_::{
+        GqlErrorCause, GqlErrorClassification, ServerError, UserCallbackError,
+    };
 }
 /// Retry policies.
 pub mod retry {

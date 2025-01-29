@@ -560,6 +560,22 @@ impl core::marker::Unpin for neo4j::driver::TlsConfigError
 impl !core::panic::unwind_safe::RefUnwindSafe for neo4j::driver::TlsConfigError
 impl !core::panic::unwind_safe::UnwindSafe for neo4j::driver::TlsConfigError
 pub mod neo4j::error
+#[non_exhaustive] pub enum neo4j::error::GqlErrorClassification
+pub neo4j::error::GqlErrorClassification::ClientError
+pub neo4j::error::GqlErrorClassification::DatabaseError
+pub neo4j::error::GqlErrorClassification::TransientError
+pub neo4j::error::GqlErrorClassification::Unknown
+impl core::clone::Clone for neo4j::error::GqlErrorClassification
+pub fn neo4j::error::GqlErrorClassification::clone(&self) -> neo4j::error::GqlErrorClassification
+impl core::fmt::Debug for neo4j::error::GqlErrorClassification
+pub fn neo4j::error::GqlErrorClassification::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for neo4j::error::GqlErrorClassification
+impl core::marker::Freeze for neo4j::error::GqlErrorClassification
+impl core::marker::Send for neo4j::error::GqlErrorClassification
+impl core::marker::Sync for neo4j::error::GqlErrorClassification
+impl core::marker::Unpin for neo4j::error::GqlErrorClassification
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::error::GqlErrorClassification
+impl core::panic::unwind_safe::UnwindSafe for neo4j::error::GqlErrorClassification
 #[non_exhaustive] pub enum neo4j::error::UserCallbackError
 pub neo4j::error::UserCallbackError::AuthManager(alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync)>)
 pub neo4j::error::UserCallbackError::BookmarkManagerGet(alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync)>)
@@ -579,18 +595,43 @@ impl core::marker::Sync for neo4j::error::UserCallbackError
 impl core::marker::Unpin for neo4j::error::UserCallbackError
 impl !core::panic::unwind_safe::RefUnwindSafe for neo4j::error::UserCallbackError
 impl !core::panic::unwind_safe::UnwindSafe for neo4j::error::UserCallbackError
-pub struct neo4j::error::ServerError
+#[non_exhaustive] pub struct neo4j::error::GqlErrorCause
+pub neo4j::error::GqlErrorCause::cause: core::option::Option<alloc::boxed::Box<neo4j::error::GqlErrorCause>>
+pub neo4j::error::GqlErrorCause::diagnostic_record: std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>
+pub neo4j::error::GqlErrorCause::gql_classification: neo4j::error::GqlErrorClassification
+pub neo4j::error::GqlErrorCause::gql_raw_classification: core::option::Option<alloc::string::String>
+pub neo4j::error::GqlErrorCause::gql_status: alloc::string::String
+pub neo4j::error::GqlErrorCause::gql_status_description: alloc::string::String
+pub neo4j::error::GqlErrorCause::message: alloc::string::String
+impl core::clone::Clone for neo4j::error::GqlErrorCause
+pub fn neo4j::error::GqlErrorCause::clone(&self) -> neo4j::error::GqlErrorCause
+impl core::fmt::Debug for neo4j::error::GqlErrorCause
+pub fn neo4j::error::GqlErrorCause::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for neo4j::error::GqlErrorCause
+pub fn neo4j::error::GqlErrorCause::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for neo4j::error::GqlErrorCause
+impl core::marker::Send for neo4j::error::GqlErrorCause
+impl core::marker::Sync for neo4j::error::GqlErrorCause
+impl core::marker::Unpin for neo4j::error::GqlErrorCause
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::error::GqlErrorCause
+impl core::panic::unwind_safe::UnwindSafe for neo4j::error::GqlErrorCause
+#[non_exhaustive] pub struct neo4j::error::ServerError
+pub neo4j::error::ServerError::cause: core::option::Option<alloc::boxed::Box<neo4j::error::GqlErrorCause>>
 pub neo4j::error::ServerError::code: alloc::string::String
+pub neo4j::error::ServerError::diagnostic_record: std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>
+pub neo4j::error::ServerError::gql_classification: neo4j::error::GqlErrorClassification
+pub neo4j::error::ServerError::gql_raw_classification: core::option::Option<alloc::string::String>
+pub neo4j::error::ServerError::gql_status: alloc::string::String
+pub neo4j::error::ServerError::gql_status_description: alloc::string::String
 pub neo4j::error::ServerError::message: alloc::string::String
 impl neo4j::error::ServerError
 pub fn neo4j::error::ServerError::category(&self) -> &str
 pub fn neo4j::error::ServerError::classification(&self) -> &str
 pub fn neo4j::error::ServerError::code(&self) -> &str
 pub fn neo4j::error::ServerError::message(&self) -> &str
-pub fn neo4j::error::ServerError::new(code: alloc::string::String, message: alloc::string::String) -> Self
 pub fn neo4j::error::ServerError::title(&self) -> &str
-impl core::convert::From<neo4j::error::ServerError> for neo4j::Neo4jError
-pub fn neo4j::Neo4jError::from(err: neo4j::error::ServerError) -> Self
+impl core::clone::Clone for neo4j::error::ServerError
+pub fn neo4j::error::ServerError::clone(&self) -> neo4j::error::ServerError
 impl core::fmt::Debug for neo4j::error::ServerError
 pub fn neo4j::error::ServerError::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for neo4j::error::ServerError
@@ -1850,8 +1891,6 @@ impl core::convert::From<neo4j::Neo4jError> for neo4j::retry::RetryError
 pub fn neo4j::retry::RetryError::from(source: neo4j::Neo4jError) -> Self
 impl core::convert::From<neo4j::driver::record_stream::GetSingleRecordError> for neo4j::Neo4jError
 pub fn neo4j::Neo4jError::from(err: neo4j::driver::record_stream::GetSingleRecordError) -> Self
-impl core::convert::From<neo4j::error::ServerError> for neo4j::Neo4jError
-pub fn neo4j::Neo4jError::from(err: neo4j::error::ServerError) -> Self
 impl core::error::Error for neo4j::Neo4jError
 pub fn neo4j::Neo4jError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl core::fmt::Debug for neo4j::Neo4jError

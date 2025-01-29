@@ -8,6 +8,12 @@
  - Add support for Bolt 5.6 (GQL compatible notifications/result statuses)
    - ⚠️ `neo4j::driver::notification::NotificationFilter`'s API has been completely reworked to support this new feature and enable more internal changes in the future without breaking the API again.
    - ⚠️ changed `neo4j::summary::Summary::notifications` from `Option<Vec<Notification>>` to `Vec<Notification>` defaulting to `Vec::new()` when the server does not send any notifications.
+ - Add support for Bolt 5.7 (GQL compatible errors)
+   - ⚠️ `neo4j::error::ServerError` is now `#[non_exhaustive]`
+   - ⚠️ removed `impl From<neo4j::error::ServerError> for neo4j::error::Neo4jError`
+   - ⚠️ `neo4j::error::ServerError::new(...)` has been removed.  
+     User-code should not need to create arbitrary `ServerError`s.
+     In return, `ServerError` now implements `Clone`.
 
 **🔧 Fixes**
  - Rework `neo4j::value::graph::Path`

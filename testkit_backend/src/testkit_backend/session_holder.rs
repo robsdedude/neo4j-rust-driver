@@ -34,7 +34,7 @@ use super::cypher_value::CypherValues;
 use super::driver_holder::EmulatedDriverConfig;
 use super::errors::TestKitError;
 use super::requests::BackendErrorId;
-use super::BackendId;
+use super::{BackendId, TestKitResult, TestKitResultT};
 
 #[derive(Debug)]
 pub(super) struct SessionHolder {
@@ -1220,43 +1220,35 @@ impl SessionHolderRunner {
 }
 
 fn result_out_of_scope_error() -> TestKitError {
-    TestKitError::DriverError {
-        error_type: String::from("ResultOutOfScope"),
-        msg: String::from("The record stream's transaction has been closed"),
-        code: None,
-        id: None,
-        retryable: false,
-    }
+    TestKitError::driver_error_client_only(
+        String::from("ResultOutOfScope"),
+        String::from("The record stream's transaction has been closed"),
+        false,
+    )
 }
 
 fn result_consumed_error() -> TestKitError {
-    TestKitError::DriverError {
-        error_type: String::from("ResultConsumed"),
-        msg: String::from("The record stream has been consumed"),
-        code: None,
-        id: None,
-        retryable: false,
-    }
+    TestKitError::driver_error_client_only(
+        String::from("ResultConsumed"),
+        String::from("The record stream has been consumed"),
+        false,
+    )
 }
 
 fn transaction_out_of_scope_error() -> TestKitError {
-    TestKitError::DriverError {
-        error_type: String::from("TransactionOutOfScope"),
-        msg: String::from("The transaction has been closed"),
-        code: None,
-        id: None,
-        retryable: false,
-    }
+    TestKitError::driver_error_client_only(
+        String::from("TransactionOutOfScope"),
+        String::from("The transaction has been closed"),
+        false,
+    )
 }
 
 fn session_already_executing_tx_error() -> TestKitError {
-    TestKitError::DriverError {
-        error_type: String::from("SessionError"),
-        msg: String::from("Session is already executing a transaction"),
-        code: None,
-        id: None,
-        retryable: false,
-    }
+    TestKitError::driver_error_client_only(
+        String::from("SessionError"),
+        String::from("Session is already executing a transaction"),
+        false,
+    )
 }
 
 #[derive(Debug)]
@@ -1328,7 +1320,7 @@ impl RecordBuffer {
         }
     }
 
-    fn next(&mut self) -> Result<Option<CypherValues>, TestKitError> {
+    fn next(&mut self) -> TestKitResultT<Option<CypherValues>> {
         match self {
             RecordBuffer::AutoCommit {
                 records, consumed, ..
@@ -1347,7 +1339,7 @@ impl RecordBuffer {
         }
     }
 
-    fn single(&mut self) -> Result<CypherValues, TestKitError> {
+    fn single(&mut self) -> TestKitResultT<CypherValues> {
         match self {
             RecordBuffer::AutoCommit {
                 records, consumed, ..
@@ -1382,7 +1374,7 @@ impl RecordBuffer {
         }
     }
 
-    fn consume(&mut self) -> Result<SummaryWithQuery, TestKitError> {
+    fn consume(&mut self) -> TestKitResultT<SummaryWithQuery> {
         match self {
             RecordBuffer::AutoCommit {
                 records,
@@ -1410,7 +1402,7 @@ impl RecordBuffer {
 
     fn drop_buffered_records(
         records: &mut VecDeque<Result<Record, Arc<Neo4jError>>>,
-    ) -> Result<(), TestKitError> {
+    ) -> TestKitResult {
         let mut swapped_records = Default::default();
         mem::swap(records, &mut swapped_records);
         let dropped_records = swapped_records.into_iter().try_for_each(|r| {
@@ -1577,7 +1569,7 @@ impl From<AutoCommit> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct AutoCommitResult {
-    pub(super) result: Result<(BackendId, RecordKeys), TestKitError>,
+    pub(super) result: TestKitResultT<(BackendId, RecordKeys)>,
 }
 
 impl From<AutoCommitResult> for CommandResult {
@@ -1603,7 +1595,7 @@ impl From<TransactionFunction> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct TransactionFunctionResult {
-    pub(super) result: Result<RetryableOutcome, TestKitError>,
+    pub(super) result: TestKitResultT<RetryableOutcome>,
 }
 
 impl From<TransactionFunctionResult> for CommandResult {
@@ -1626,7 +1618,7 @@ impl From<RetryablePositive> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct RetryablePositiveResult {
-    pub(super) result: Result<RetryableOutcome, TestKitError>,
+    pub(super) result: TestKitResultT<RetryableOutcome>,
 }
 
 impl From<RetryablePositiveResult> for CommandResult {
@@ -1650,7 +1642,7 @@ impl From<RetryableNegative> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct RetryableNegativeResult {
-    pub(super) result: Result<RetryableOutcome, TestKitError>,
+    pub(super) result: TestKitResultT<RetryableOutcome>,
 }
 
 #[derive(Debug)]
@@ -1681,7 +1673,7 @@ impl From<BeginTransaction> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct BeginTransactionResult {
-    pub(super) result: Result<BackendId, TestKitError>,
+    pub(super) result: TestKitResultT<BackendId>,
 }
 
 impl From<BeginTransactionResult> for CommandResult {
@@ -1725,7 +1717,7 @@ impl TransactionRun {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct TransactionRunResult {
-    pub(super) result: Result<(BackendId, RecordKeys), TestKitError>,
+    pub(super) result: TestKitResultT<(BackendId, RecordKeys)>,
 }
 
 impl From<TransactionRunResult> for CommandResult {
@@ -1759,7 +1751,7 @@ impl CommitTransaction {
         tx_res.send(msg).unwrap();
     }
 
-    fn real_response(&self, result: Result<(), TestKitError>, tx_res: &Sender<CommandResult>) {
+    fn real_response(&self, result: TestKitResult, tx_res: &Sender<CommandResult>) {
         let msg = CommandResult::CommitTransaction(CommitTransactionResult { result });
         tx_res.send(msg).unwrap();
     }
@@ -1768,7 +1760,7 @@ impl CommitTransaction {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct CommitTransactionResult {
-    pub(super) result: Result<(), TestKitError>,
+    pub(super) result: TestKitResult,
 }
 
 impl From<CommitTransactionResult> for CommandResult {
@@ -1803,7 +1795,7 @@ impl RollbackTransaction {
         tx_res.send(msg).unwrap();
     }
 
-    fn real_response(&self, result: Result<(), TestKitError>, tx_res: &Sender<CommandResult>) {
+    fn real_response(&self, result: TestKitResult, tx_res: &Sender<CommandResult>) {
         let msg = CommandResult::RollbackTransaction(RollbackTransactionResult { result });
         tx_res.send(msg).unwrap();
     }
@@ -1812,7 +1804,7 @@ impl RollbackTransaction {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct RollbackTransactionResult {
-    pub(super) result: Result<(), TestKitError>,
+    pub(super) result: TestKitResult,
 }
 
 impl From<RollbackTransactionResult> for CommandResult {
@@ -1846,7 +1838,7 @@ impl CloseTransaction {
         tx_res.send(msg).unwrap();
     }
 
-    fn real_response(&self, result: Result<(), TestKitError>, tx_res: &Sender<CommandResult>) {
+    fn real_response(&self, result: TestKitResult, tx_res: &Sender<CommandResult>) {
         let msg = CommandResult::CloseTransaction(CloseTransactionResult { result });
         tx_res.send(msg).unwrap();
     }
@@ -1855,7 +1847,7 @@ impl CloseTransaction {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct CloseTransactionResult {
-    pub(super) result: Result<(), TestKitError>,
+    pub(super) result: TestKitResult,
 }
 
 impl From<CloseTransactionResult> for CommandResult {
@@ -1878,7 +1870,7 @@ impl From<ResultNext> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct ResultNextResult {
-    pub(super) result: Result<Option<CypherValues>, TestKitError>,
+    pub(super) result: TestKitResultT<Option<CypherValues>>,
 }
 
 impl From<ResultNextResult> for CommandResult {
@@ -1901,7 +1893,7 @@ impl From<ResultSingle> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct ResultSingleResult {
-    pub(super) result: Result<CypherValues, TestKitError>,
+    pub(super) result: TestKitResultT<CypherValues>,
 }
 
 impl From<ResultSingleResult> for CommandResult {
@@ -1924,7 +1916,7 @@ impl From<ResultConsume> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct ResultConsumeResult {
-    pub(super) result: Result<SummaryWithQuery, TestKitError>,
+    pub(super) result: TestKitResultT<SummaryWithQuery>,
 }
 
 #[derive(Debug, Clone)]
@@ -1967,7 +1959,7 @@ impl LastBookmarks {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct LastBookmarksResult {
-    pub(super) result: Result<Arc<Bookmarks>, TestKitError>,
+    pub(super) result: TestKitResultT<Arc<Bookmarks>>,
 }
 
 impl From<LastBookmarksResult> for CommandResult {
@@ -1979,7 +1971,7 @@ impl From<LastBookmarksResult> for CommandResult {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct CloseResult {
-    pub(super) result: Result<(), TestKitError>,
+    pub(super) result: TestKitResult,
 }
 
 impl From<CloseResult> for CommandResult {

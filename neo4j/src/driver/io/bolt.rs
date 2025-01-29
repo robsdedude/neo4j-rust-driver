@@ -21,6 +21,7 @@ mod bolt5x2;
 mod bolt5x3;
 mod bolt5x4;
 mod bolt5x6;
+mod bolt5x7;
 mod bolt_state;
 mod chunk;
 mod handshake;
@@ -61,6 +62,7 @@ use bolt5x2::{Bolt5x2, Bolt5x2StructTranslator};
 use bolt5x3::{Bolt5x3, Bolt5x3StructTranslator};
 use bolt5x4::{Bolt5x4, Bolt5x4StructTranslator};
 use bolt5x6::{Bolt5x6, Bolt5x6StructTranslator};
+use bolt5x7::{Bolt5x7, Bolt5x7StructTranslator};
 use bolt_state::{BoltState, BoltStateTracker};
 use chunk::{Chunker, Dechunker};
 pub(crate) use handshake::{open, TcpConnector};
@@ -177,6 +179,7 @@ impl<RW: Read + Write> Bolt<RW> {
             data: BoltData::new(version, stream, socket, local_port, address),
             // [bolt-version-bump] search tag when changing bolt version support
             protocol: match version {
+                (5, 7) => Bolt5x7::<Bolt5x7StructTranslator>::default().into(),
                 (5, 6) => Bolt5x6::<Bolt5x6StructTranslator>::default().into(),
                 (5, 4) => Bolt5x4::<Bolt5x4StructTranslator>::default().into(),
                 (5, 3) => Bolt5x3::<Bolt5x3StructTranslator>::default().into(),
@@ -492,6 +495,7 @@ enum BoltProtocolVersion {
     V5x3(Bolt5x3<Bolt5x3StructTranslator>),
     V5x4(Bolt5x4<Bolt5x4StructTranslator>),
     V5x6(Bolt5x6<Bolt5x6StructTranslator>),
+    V5x7(Bolt5x7<Bolt5x7StructTranslator>),
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]

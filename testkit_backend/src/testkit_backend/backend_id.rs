@@ -16,11 +16,8 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use base64::prelude::BASE64_STANDARD_NO_PAD;
-use base64::Engine;
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use snowflaked::Generator as SnowflakeGenerator;
 
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub(super) struct BackendId(u64);
@@ -33,7 +30,7 @@ impl Display for BackendId {
 
 impl From<BackendId> for String {
     fn from(id: BackendId) -> Self {
-        BASE64_STANDARD_NO_PAD.encode(id.0.to_be_bytes())
+        format!("{}", id.0)
     }
 }
 
@@ -41,20 +38,9 @@ impl FromStr for BackendId {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let bytes = match BASE64_STANDARD_NO_PAD.decode(s) {
-            Ok(bytes) => bytes,
-            Err(err) => return Err(format!("Invalid BackendId: {err}")),
-        };
-        let bytes: [u8; 8] = match bytes.try_into() {
-            Ok(bytes) => bytes,
-            Err(bytes) => {
-                return Err(format!(
-                    "Invalid BackendId: expected 8 bytes received {}",
-                    bytes.len()
-                ))
-            }
-        };
-        Ok(BackendId(u64::from_be_bytes(bytes)))
+        u64::from_str(s)
+            .map_err(|err| format!("Invalid BackendId: {}", err))
+            .map(BackendId)
     }
 }
 
@@ -96,15 +82,32 @@ impl Visitor<'_> for BackendIdVisitor {
     }
 }
 
+#[derive(Debug)]
+struct SimpleIdGenerator {
+    next: u64,
+}
+
+impl SimpleIdGenerator {
+    fn new(start: u64) -> Self {
+        Self { next: start }
+    }
+
+    fn generate(&mut self) -> u64 {
+        let id = self.next;
+        self.next = self.next.wrapping_add(1);
+        id
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct Generator {
-    generator: Arc<Mutex<SnowflakeGenerator>>,
+    generator: Arc<Mutex<SimpleIdGenerator>>,
 }
 
 impl Generator {
     pub(super) fn new() -> Self {
         Self {
-            generator: Arc::new(Mutex::new(SnowflakeGenerator::new(0))),
+            generator: Arc::new(Mutex::new(SimpleIdGenerator::new(0))),
         }
     }
 

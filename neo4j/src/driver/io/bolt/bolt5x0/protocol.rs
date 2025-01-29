@@ -65,6 +65,13 @@ impl<T: BoltStructTranslator> Bolt5x0<T> {
             protocol_version,
         }
     }
+
+    pub(in super::super) fn try_parse_error(meta: ValueReceive) -> Result<ServerError> {
+        let meta = meta
+            .try_into_map()
+            .map_err(|_| Neo4jError::protocol_error("FAILURE meta was not a Dictionary"))?;
+        Ok(ServerError::from_meta(meta))
+    }
 }
 
 impl<T: BoltStructTranslator> Default for Bolt5x0<T> {
@@ -992,7 +999,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
                 assert_response_field_count("FAILURE", &fields, 1)?;
                 let meta = fields.pop().unwrap();
                 bolt_debug!(bolt_data, "S: FAILURE {}", meta.dbg_print());
-                let mut error = try_parse_error(meta)?;
+                let mut error = Self::try_parse_error(meta)?;
                 bolt_data.bolt_state.failure();
                 match on_server_error {
                     None => response.callbacks.on_failure(error),
@@ -1031,11 +1038,4 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
             ))),
         }
     }
-}
-
-fn try_parse_error(meta: ValueReceive) -> Result<ServerError> {
-    let meta = meta
-        .try_into_map()
-        .map_err(|_| Neo4jError::protocol_error("FAILURE meta was not a Dictionary"))?;
-    Ok(ServerError::from_meta(meta))
 }
