@@ -15,7 +15,7 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::io::{Error as IoError, Read, Write};
+use std::io::{Read, Write};
 use std::mem;
 use std::net::TcpStream;
 use std::ops::Deref;
@@ -278,27 +278,19 @@ impl<T: BoltStructTranslator> Bolt5x0<T> {
                     socket
                         .map(|socket| {
                             let timeout = Some(Duration::from_secs(*timeout as u64));
-                            socket.set_read_timeout(timeout)?;
-                            socket.set_write_timeout(timeout)?;
-                            Ok(())
+                            socket.set_read_timeout(timeout)
                         })
                         .transpose()
-                        .unwrap_or_else(|err: IoError| {
+                        .unwrap_or_else(|err| {
                             warn!("Failed to set socket timeout as hinted by the server: {err}");
                             None
                         });
                 }
                 ValueReceive::Integer(_) => {
-                    warn!(
-                        "Server sent unexpected {RECV_TIMEOUT_KEY} value {:?}",
-                        timeout
-                    );
+                    warn!("Server sent unexpected {RECV_TIMEOUT_KEY} value {timeout:?}");
                 }
                 _ => {
-                    warn!(
-                        "Server sent unexpected {RECV_TIMEOUT_KEY} type {:?}",
-                        timeout
-                    );
+                    warn!("Server sent unexpected {RECV_TIMEOUT_KEY} type {timeout:?}");
                 }
             }
         }
