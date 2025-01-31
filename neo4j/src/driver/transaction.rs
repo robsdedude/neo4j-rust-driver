@@ -256,7 +256,9 @@ impl<'driver> InnerTransaction<'driver> {
     fn check_error(&self) -> Result<()> {
         match self.error_propagator.deref().borrow().error() {
             None => Ok(()),
-            Some(err) => Err(err.deref().clone().into()),
+            Some(err) => Err(Neo4jError::ServerError {
+                error: err.deref().clone(),
+            }),
         }
     }
 }

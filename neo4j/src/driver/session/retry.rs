@@ -46,21 +46,13 @@ use crate::driver::ExecuteQueryBuilder;
 /// /// Function that will always fail with a retryable Neo4jError.
 /// fn fail_retryable() -> Neo4jResult<()> {
 ///     // ...
-///     # Err(ServerError::new(
-///     #     "Neo.TransientError.General.DatabaseUnavailable".into(),
-///     #     "failed".into(),
-///     # )
-///     # .into())
+///     # doc_test_utils::error_retryable()
 /// }
 ///
 /// /// Function that will always fail with a non-retryable Neo4jError.
 /// fn fail_non_retryable() -> Neo4jResult<()> {
 ///     // ...
-///     # Err(ServerError::new(
-///     #     "Neo.DatabaseError.General.UnknownError".into(),
-///     #     "failed".into(),
-///     # )
-///     # .into())
+///     # doc_test_utils::error_non_retryable()
 /// }
 ///
 /// /// Custom retry policy that will never give up. Never gonna let you down.

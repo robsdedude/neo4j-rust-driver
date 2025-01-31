@@ -40,3 +40,35 @@ impl<T> AsRef<T> for RefContainer<'_, T> {
         }
     }
 }
+
+macro_rules! concat_str {
+    ($a:expr, $b:expr) => {{
+        const A: &str = $a;
+        const B: &str = $b;
+        const LEN: usize = A.len() + B.len();
+        const BYTES: [u8; LEN] = {
+            let mut bytes = [0; LEN];
+
+            let mut i = 0;
+            while i < A.len() {
+                bytes[i] = A.as_bytes()[i];
+                i += 1;
+            }
+
+            let mut j = 0;
+            while j < B.len() {
+                bytes[A.len() + j] = B.as_bytes()[j];
+                j += 1;
+            }
+
+            bytes
+        };
+
+        match std::str::from_utf8(&BYTES) {
+            Ok(s) => s,
+            Err(_) => unreachable!(),
+        }
+    }};
+}
+
+pub(crate) use concat_str;

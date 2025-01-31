@@ -25,8 +25,7 @@ use neo4j::address::{Address, AddressResolver, AddressResolverReturn};
 use super::errors::TestKitError;
 use super::requests::Request;
 use super::responses::Response;
-use super::BackendIo;
-use super::Generator;
+use super::{BackendIo, Generator, TestKitResultT};
 
 #[derive(Debug)]
 pub(super) struct TestKitResolver {
@@ -129,7 +128,7 @@ impl TestKitResolver {
     }
 }
 
-fn testkit_to_io_error<T>(res: Result<T, TestKitError>) -> IoResult<T> {
+fn testkit_to_io_error<T>(res: TestKitResultT<T>) -> IoResult<T> {
     res.map_err(|err| {
         error!("TestKit messed up DNS resolution request: {err:?}");
         IoError::new(std::io::ErrorKind::Other, err)

@@ -71,7 +71,7 @@ impl ResponseCallbacks {
             on_record_cb: None,
             on_summary_cb: None,
         }
-        .with_on_failure(|error| Err(error.into()))
+        .with_on_failure(|error| Err(Neo4jError::ServerError { error }))
     }
 
     pub(crate) fn with_on_success<F: FnMut(BoltMeta) -> Result<()> + Send + Sync + 'static>(

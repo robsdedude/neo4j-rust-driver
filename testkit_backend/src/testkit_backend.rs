@@ -49,7 +49,8 @@ use session_holder::SummaryWithQuery;
 const ADDRESS: &str = "0.0.0.0:9876";
 
 type DynError = Box<dyn Error>;
-type TestKitResult = Result<(), TestKitError>;
+type TestKitResultT<T> = Result<T, TestKitError>;
+type TestKitResult = TestKitResultT<()>;
 
 pub(super) fn start_server() {
     let listener = TcpListener::bind(ADDRESS).unwrap();
@@ -174,7 +175,7 @@ impl Backend {
 }
 
 impl BackendIo {
-    fn read_request(&mut self) -> Result<String, TestKitError> {
+    fn read_request(&mut self) -> TestKitResultT<String> {
         let mut in_request = false;
         let mut request = String::new();
         loop {

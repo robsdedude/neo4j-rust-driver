@@ -30,14 +30,14 @@ use neo4j::ValueSend;
 
 use super::backend_id::Generator;
 use super::cypher_value::{CypherValue, CypherValues};
-use super::errors::TestKitError;
+use super::errors::{TestKitDriverError, TestKitError};
 use super::requests::TestKitAuth;
 use super::session_holder::SummaryWithQuery;
-use super::BackendId;
+use super::{BackendId, TestKitResultT};
 
 // [bolt-version-bump] search tag when changing bolt version support
 // https://github.com/rust-lang/rust/issues/85077
-const FEATURE_LIST: [&str; 46] = [
+const FEATURE_LIST: [&str; 47] = [
     // === FUNCTIONAL FEATURES ===
     "Feature:API:BookmarkManager",
     "Feature:API:ConnectionAcquisitionTimeout",
@@ -82,8 +82,9 @@ const FEATURE_LIST: [&str; 46] = [
     "Feature:Bolt:5.4",
     // "Feature:Bolt:5.5",  // unused/deprecated protocol version
     "Feature:Bolt:5.6",
-    // "Feature:Bolt:5.7",
+    "Feature:Bolt:5.7",
     // "Feature:Bolt:5.8",
+    // "Feature:Bolt:HandshakeManifestV1"
     "Feature:Bolt:Patch:UTC",
     "Feature:Impersonation",
     // "Feature:TLS:1.1",  // rustls says no! For a good reason.
@@ -287,6 +288,12 @@ pub(super) enum Response {
         msg: Option<String>,
         code: Option<String>,
         retryable: bool,
+        gql_status: Option<String>,
+        status_description: Option<String>,
+        cause: Option<Box<DriverErrorCause>>,
+        diagnostic_record: Option<HashMap<String, CypherValue>>,
+        classification: Option<GqlErrorClassification>,
+        raw_classification: Option<String>,
     },
     FrontendError {
         msg: String,
@@ -345,7 +352,11 @@ impl TryFrom<neo4j::summary::Summary> for Summary {
         Ok(Self {
             counters: summary.counters.into(),
             database: summary.database,
-            notifications: summary.notifications.into_iter().map(Into::into).collect(),
+            notifications: summary
+                .notifications
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?,
             gql_status_objects: summary
                 .gql_status_objects
                 .into_iter()
@@ -361,7 +372,7 @@ impl TryFrom<neo4j::summary::Summary> for Summary {
                 text: Default::default(),
                 parameters: Default::default(),
             },
-            query_type: summary.query_type.map(Into::into),
+            query_type: summary.query_type.map(TryInto::try_into).transpose()?,
             result_available_after: summary.result_available_after.map(|d| {
                 d.as_millis()
                     .try_into()
@@ -433,19 +444,21 @@ pub(super) struct Notification {
     raw_category: String,
 }
 
-impl From<neo4j::summary::Notification> for Notification {
-    fn from(notification: neo4j::summary::Notification) -> Self {
-        Self {
+impl TryFrom<neo4j::summary::Notification> for Notification {
+    type Error = TestKitError;
+
+    fn try_from(notification: neo4j::summary::Notification) -> Result<Self, Self::Error> {
+        Ok(Self {
             description: notification.description,
             code: notification.code,
             title: notification.title,
             position: notification.position.map(Into::into),
             severity: notification.raw_severity.clone(),
-            severity_level: notification.severity.into(),
+            severity_level: notification.severity.try_into()?,
             raw_severity_level: notification.raw_severity,
-            category: notification.category.into(),
+            category: notification.category.try_into()?,
             raw_category: notification.raw_category,
-        }
+        })
     }
 }
 
@@ -465,22 +478,20 @@ pub(super) struct GqlStatusObject {
 
 impl TryFrom<neo4j::summary::GqlStatusObject> for GqlStatusObject {
     type Error = TestKitError;
+
     fn try_from(status: neo4j::summary::GqlStatusObject) -> Result<Self, Self::Error> {
         Ok(Self {
             gql_status: status.gql_status,
             status_description: status.status_description,
             position: status.position.map(Into::into),
-            classification: status.classification.into(),
+            classification: status.classification.try_into()?,
             raw_classification: status.raw_classification,
-            severity: status.severity.into(),
+            severity: status.severity.try_into()?,
             raw_severity: status.raw_severity,
             diagnostic_record: status
                 .diagnostic_record
                 .into_iter()
-                .map(|(k, v)| match v.try_into() {
-                    Err(e) => Err(e),
-                    Ok(v) => Ok((k, v)),
-                })
+                .map(|(k, v)| v.try_into().map(|v| (k, v)))
                 .collect::<Result<_, _>>()?,
             is_notification: status.is_notification,
         })
@@ -505,27 +516,32 @@ impl From<neo4j::summary::Position> for Position {
 }
 
 #[derive(Serialize, Debug)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(super) enum Severity {
     Warning,
     Information,
     Unknown,
-    Unhandled,
 }
 
-impl From<neo4j::summary::Severity> for Severity {
-    fn from(severity: neo4j::summary::Severity) -> Self {
-        match severity {
+impl TryFrom<neo4j::summary::Severity> for Severity {
+    type Error = TestKitError;
+
+    fn try_from(severity: neo4j::summary::Severity) -> Result<Self, Self::Error> {
+        Ok(match severity {
             neo4j::summary::Severity::Warning => Self::Warning,
             neo4j::summary::Severity::Information => Self::Information,
             neo4j::summary::Severity::Unknown => Self::Unknown,
-            _ => Self::Unhandled,
-        }
+            v => {
+                return Err(TestKitError::backend_err(format!(
+                    "TODO: implement serializing Severity value {v:?}"
+                )))
+            }
+        })
     }
 }
 
 #[derive(Serialize, Debug)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(super) enum Category {
     Hint,
     Unrecognized,
@@ -537,14 +553,15 @@ pub(super) enum Category {
     Topology,
     Schema,
     Unknown,
-    Unhandled,
 }
 
 type Classification = Category;
 
-impl From<neo4j::summary::Category> for Category {
-    fn from(severity: neo4j::summary::Category) -> Self {
-        match severity {
+impl TryFrom<neo4j::summary::Category> for Category {
+    type Error = TestKitError;
+
+    fn try_from(severity: neo4j::summary::Category) -> Result<Self, Self::Error> {
+        Ok(match severity {
             neo4j::summary::Category::Hint => Self::Hint,
             neo4j::summary::Category::Unrecognized => Self::Unrecognized,
             neo4j::summary::Category::Unsupported => Self::Unsupported,
@@ -555,8 +572,12 @@ impl From<neo4j::summary::Category> for Category {
             neo4j::summary::Category::Topology => Self::Topology,
             neo4j::summary::Category::Schema => Self::Schema,
             neo4j::summary::Category::Unknown => Self::Unknown,
-            _ => Self::Unhandled,
-        }
+            v => {
+                return Err(TestKitError::backend_err(format!(
+                    "TODO: implement serializing Category value {v:?}"
+                )))
+            }
+        })
     }
 }
 
@@ -678,19 +699,23 @@ pub(super) enum QueryType {
     ReadWrite,
     #[serde(rename = "s")]
     Schema,
-    #[serde(rename = "???")]
-    Unhandled,
 }
 
-impl From<SummaryQueryType> for QueryType {
-    fn from(value: SummaryQueryType) -> Self {
-        match value {
+impl TryFrom<SummaryQueryType> for QueryType {
+    type Error = TestKitError;
+
+    fn try_from(value: SummaryQueryType) -> Result<Self, Self::Error> {
+        Ok(match value {
             SummaryQueryType::Read => Self::Read,
             SummaryQueryType::Write => Self::Write,
             SummaryQueryType::ReadWrite => Self::ReadWrite,
             SummaryQueryType::Schema => Self::Schema,
-            _ => Self::Unhandled,
-        }
+            v => {
+                return Err(TestKitError::backend_err(format!(
+                    "TODO: implement serializing SummaryQueryType value {v:?}"
+                )))
+            }
+        })
     }
 }
 
@@ -715,6 +740,74 @@ impl From<neo4j::summary::ServerInfo> for ServerInfo {
     }
 }
 
+#[derive(Serialize, Debug)]
+#[serde(tag = "name", content = "data")]
+pub(super) enum DriverErrorCause {
+    #[serde(rename_all = "camelCase")]
+    GqlError {
+        msg: String,
+        gql_status: String,
+        status_description: String,
+        cause: Option<Box<DriverErrorCause>>,
+        diagnostic_record: Option<HashMap<String, CypherValue>>,
+        classification: Option<GqlErrorClassification>,
+        raw_classification: Option<String>,
+    },
+}
+
+impl TryFrom<neo4j::error::GqlErrorCause> for DriverErrorCause {
+    type Error = TestKitError;
+
+    fn try_from(cause: neo4j::error::GqlErrorCause) -> Result<Self, Self::Error> {
+        Ok(Self::GqlError {
+            msg: cause.message,
+            gql_status: cause.gql_status,
+            status_description: cause.gql_status_description,
+            cause: cause
+                .cause
+                .map(|c| (*c).try_into())
+                .transpose()?
+                .map(Box::new),
+            diagnostic_record: Some(
+                cause
+                    .diagnostic_record
+                    .into_iter()
+                    .map(|(k, v)| v.try_into().map(|v| (k, v)))
+                    .collect::<Result<_, _>>()?,
+            ),
+            classification: Some(cause.gql_classification.try_into()?),
+            raw_classification: cause.gql_raw_classification,
+        })
+    }
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(super) enum GqlErrorClassification {
+    ClientError,
+    TransientError,
+    DatabaseError,
+    Unknown,
+}
+
+impl TryFrom<neo4j::error::GqlErrorClassification> for GqlErrorClassification {
+    type Error = TestKitError;
+
+    fn try_from(classification: neo4j::error::GqlErrorClassification) -> Result<Self, Self::Error> {
+        Ok(match classification {
+            neo4j::error::GqlErrorClassification::ClientError => Self::ClientError,
+            neo4j::error::GqlErrorClassification::DatabaseError => Self::DatabaseError,
+            neo4j::error::GqlErrorClassification::TransientError => Self::TransientError,
+            neo4j::error::GqlErrorClassification::Unknown => Self::Unknown,
+            v => {
+                return Err(TestKitError::backend_err(format!(
+                    "TODO: implement serializing GqlErrorClassification value {v:?}"
+                )))
+            }
+        })
+    }
+}
+
 impl TryFrom<EagerResult> for Response {
     type Error = TestKitError;
 
@@ -732,11 +825,10 @@ impl TryFrom<EagerResult> for Response {
                     values: r
                         .into_values()
                         .map(|e| Ok(e.try_into()?))
-                        .collect::<Result<_, TestKitError>>()?,
+                        .collect::<TestKitResultT<_>>()?,
                 })
             })
-            .collect::<Result<_, TestKitError>>()?;
-        // let records: RecordListEntry = result.records.map(|r| {let values = r.entries.map(|e| e.1.try_into()).collect::<Result<Vec<_>, TestKitError>>()?;Ok(RecordListEntry { values }}))
+            .collect::<TestKitResultT<_>>()?;
         let summary = summary.try_into()?;
         Ok(Self::EagerResult {
             keys,
@@ -778,7 +870,7 @@ impl Response {
     pub(super) fn run_sub_test(
         test_name: String,
         arguments: HashMap<String, JsonValue>,
-    ) -> Result<Self, TestKitError> {
+    ) -> TestKitResultT<Self> {
         match test_name.as_str() {
             "neo4j.datatypes.test_temporal_types.TestDataTypes.test_date_time_cypher_created_tz_id" =>
                 Self::run_sub_test_test_date_time_cypher_created_tz_id(arguments),
@@ -792,7 +884,7 @@ impl Response {
 
     fn run_sub_test_test_date_time_cypher_created_tz_id(
         arguments: HashMap<String, JsonValue>,
-    ) -> Result<Self, TestKitError> {
+    ) -> TestKitResultT<Self> {
         let tz_id = arguments
             .get("tz_id")
             .ok_or_else(|| TestKitError::backend_err("expected key `tz_id` in arguments"))?
@@ -807,8 +899,8 @@ impl Response {
 
     fn run_sub_test_test_should_echo_all_timezone_ids(
         mut arguments: HashMap<String, JsonValue>,
-    ) -> Result<Self, TestKitError> {
-        fn get_opt_i64_component(data: &JsonValue, key: &str) -> Result<Option<i64>, TestKitError> {
+    ) -> TestKitResultT<Self> {
+        fn get_opt_i64_component(data: &JsonValue, key: &str) -> TestKitResultT<Option<i64>> {
             match data.get(key) {
                 None => Ok(None),
                 Some(v) => match v.as_i64() {
@@ -820,7 +912,7 @@ impl Response {
             }
         }
 
-        fn get_i64_component(data: &JsonValue, key: &str) -> Result<i64, TestKitError> {
+        fn get_i64_component(data: &JsonValue, key: &str) -> TestKitResultT<i64> {
             get_opt_i64_component(data, key).and_then(|v| {
                 v.ok_or_else(|| {
                     TestKitError::backend_err(format!(
@@ -833,7 +925,7 @@ impl Response {
         fn get_string_opt_component(
             data: &mut JsonValue,
             key: &str,
-        ) -> Result<Option<String>, TestKitError> {
+        ) -> TestKitResultT<Option<String>> {
             match data.get_mut(key) {
                 None => Ok(None),
                 Some(v) => match v {
@@ -892,21 +984,42 @@ impl Response {
     pub(super) fn try_from_testkit_error(
         e: TestKitError,
         id_generator: &Generator,
-    ) -> Result<Response, TestKitError> {
+    ) -> TestKitResultT<Response> {
         Ok(match e {
-            TestKitError::DriverError {
-                error_type,
-                msg,
-                code,
-                id,
-                retryable,
-            } => Response::DriverError {
-                id: id.unwrap_or_else(|| id_generator.next_id()),
-                error_type,
-                msg: Some(msg),
-                code,
-                retryable,
-            },
+            TestKitError::DriverError { error } => {
+                let TestKitDriverError {
+                    error_type,
+                    msg,
+                    code,
+                    gql_status,
+                    status_description,
+                    cause,
+                    diagnostic_record,
+                    classification,
+                    raw_classification,
+                    id,
+                    retryable,
+                } = *error;
+                Response::DriverError {
+                    id: id.unwrap_or_else(|| id_generator.next_id()),
+                    error_type,
+                    msg: Some(msg),
+                    code,
+                    retryable,
+                    gql_status,
+                    status_description,
+                    cause: cause.map(|c| (*c).try_into()).transpose()?.map(Box::new),
+                    diagnostic_record: diagnostic_record
+                        .map(|dr| {
+                            dr.into_iter()
+                                .map(|(k, v)| v.try_into().map(|v| (k, v)))
+                                .collect::<Result<_, _>>()
+                        })
+                        .transpose()?,
+                    classification: classification.map(TryInto::try_into).transpose()?,
+                    raw_classification,
+                }
+            }
             TestKitError::FrontendError { msg } => Response::FrontendError { msg },
             TestKitError::BackendError { msg } => Response::BackendError { msg },
             e @ TestKitError::FatalError { .. } => {

@@ -147,6 +147,7 @@ jobs:
           - 5.9-enterprise-cluster-neo4j
           - 5.13-enterprise-cluster-neo4j
           - 5.23-enterprise-cluster-neo4j
+          - 5.26-enterprise-cluster-neo4j
         include:
           - tests: STUB_TESTS
             config: ""

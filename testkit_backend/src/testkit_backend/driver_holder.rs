@@ -45,6 +45,7 @@ use super::session_holder::{
     RollbackTransaction, RollbackTransactionResult, TransactionFunction, TransactionFunctionResult,
     TransactionRun, TransactionRunResult,
 };
+use super::{TestKitResult, TestKitResultT};
 
 #[derive(Debug)]
 pub(super) struct DriverHolder {
@@ -977,7 +978,7 @@ impl From<GetConnectionPoolMetrics> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct GetConnectionPoolMetricsResult {
-    pub(super) result: Result<ConnectionPoolMetrics, TestKitError>,
+    pub(super) result: TestKitResultT<ConnectionPoolMetrics>,
 }
 
 impl From<GetConnectionPoolMetricsResult> for CommandResult {
@@ -989,7 +990,7 @@ impl From<GetConnectionPoolMetricsResult> for CommandResult {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct VerifyConnectivityResult {
-    pub(super) result: Result<(), TestKitError>,
+    pub(super) result: TestKitResult,
 }
 
 impl From<VerifyConnectivityResult> for CommandResult {
@@ -1001,7 +1002,7 @@ impl From<VerifyConnectivityResult> for CommandResult {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct GetServerInfoResult {
-    pub(super) result: Result<ServerInfo, TestKitError>,
+    pub(super) result: TestKitResultT<ServerInfo>,
 }
 
 impl From<GetServerInfoResult> for CommandResult {
@@ -1013,7 +1014,7 @@ impl From<GetServerInfoResult> for CommandResult {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct SupportsMultiDbResult {
-    pub(super) result: Result<bool, TestKitError>,
+    pub(super) result: TestKitResultT<bool>,
 }
 
 impl From<SupportsMultiDbResult> for CommandResult {
@@ -1036,7 +1037,7 @@ impl From<VerifyAuthentication> for Command {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct VerifyAuthenticationResult {
-    pub(super) result: Result<bool, TestKitError>,
+    pub(super) result: TestKitResultT<bool>,
 }
 
 impl From<VerifyAuthenticationResult> for CommandResult {
@@ -1074,7 +1075,7 @@ pub(super) enum ExecuteQueryBookmarkManager {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct ExecuteQueryResult {
-    pub(super) result: Result<EagerResult, TestKitError>,
+    pub(super) result: TestKitResultT<EagerResult>,
 }
 
 impl From<ExecuteQueryResult> for CommandResult {
@@ -1086,7 +1087,7 @@ impl From<ExecuteQueryResult> for CommandResult {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct SupportsSessionAuthResult {
-    pub(super) result: Result<bool, TestKitError>,
+    pub(super) result: TestKitResultT<bool>,
 }
 
 impl From<SupportsSessionAuthResult> for CommandResult {
@@ -1110,7 +1111,7 @@ impl From<IsEncryptedResult> for CommandResult {
 #[must_use]
 #[derive(Debug)]
 pub(super) struct CloseResult {
-    pub(super) result: Result<(), TestKitError>,
+    pub(super) result: TestKitResult,
 }
 
 impl From<CloseResult> for CommandResult {

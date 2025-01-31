@@ -44,7 +44,7 @@ use super::session_holder::{
     ResultConsume, ResultNext, ResultSingle, RetryableNegative, RetryableOutcome,
     RetryablePositive, RollbackTransaction, TransactionFunction, TransactionRun,
 };
-use super::{Backend, BackendData, BackendId, TestKitResult};
+use super::{Backend, BackendData, BackendId, TestKitResult, TestKitResultT};
 
 #[allow(dead_code)] // reflects TestKit protocol
 #[derive(Deserialize, Debug)]
@@ -370,7 +370,7 @@ impl From<MaybeTestKitAuth> for AuthToken {
 }
 
 impl TestKitAuth {
-    pub(super) fn try_clone_auth_token(auth: &AuthToken) -> Result<Self, TestKitError> {
+    pub(super) fn try_clone_auth_token(auth: &AuthToken) -> TestKitResultT<Self> {
         let mut auth = auth.data().clone();
         let scheme = auth
             .remove("scheme")
@@ -629,7 +629,7 @@ fn load_notification_filter(
     notifications_min_severity: Option<String>,
     notifications_disabled_categories: Option<Vec<String>>,
     notifications_disabled_classifications: Option<Vec<String>>,
-) -> Result<Option<NotificationFilter>, TestKitError> {
+) -> TestKitResultT<Option<NotificationFilter>> {
     if notifications_disabled_categories.is_none()
         && notifications_min_severity.is_none()
         && notifications_disabled_classifications.is_none()
@@ -1597,7 +1597,7 @@ fn handle_retry_outcome(
 fn get_driver<'a>(
     backend_data: &'a BackendData,
     driver_id: &BackendId,
-) -> Result<&'a DriverHolder, TestKitError> {
+) -> TestKitResultT<&'a DriverHolder> {
     backend_data
         .drivers
         .get(driver_id)
@@ -1609,7 +1609,7 @@ fn get_driver<'a>(
 fn get_driver_for_session<'a>(
     backend_data: &'a BackendData,
     session_id: &BackendId,
-) -> Result<(&'a DriverHolder, BackendId), TestKitError> {
+) -> TestKitResultT<(&'a DriverHolder, BackendId)> {
     let driver_id = backend_data
         .session_id_to_driver_id
         .get(session_id)
@@ -1626,13 +1626,11 @@ fn get_driver_for_session<'a>(
 }
 
 fn closed_driver_error() -> TestKitError {
-    TestKitError::DriverError {
-        error_type: String::from("DriverClosed"),
-        msg: String::from("The driver has been closed"),
-        code: None,
-        id: None,
-        retryable: false,
-    }
+    TestKitError::driver_error_client_only(
+        String::from("DriverClosed"),
+        String::from("The driver has been closed"),
+        false,
+    )
 }
 
 fn missing_driver_error(driver_id: &BackendId) -> TestKitError {
@@ -1652,19 +1650,17 @@ fn missing_bookmark_manager_error(bookmark_manager_id: &BackendId) -> TestKitErr
 }
 
 fn closed_session_error() -> TestKitError {
-    TestKitError::DriverError {
-        error_type: String::from("SessionClosed"),
-        msg: String::from("The session  has been closed"),
-        code: None,
-        id: None,
-        retryable: false,
-    }
+    TestKitError::driver_error_client_only(
+        String::from("SessionClosed"),
+        String::from("The session  has been closed"),
+        false,
+    )
 }
 
 fn get_bookmark_manager(
     backend_data: &BackendData,
     bookmark_manager_id: &BackendId,
-) -> Result<Arc<dyn BookmarkManager>, TestKitError> {
+) -> TestKitResultT<Arc<dyn BookmarkManager>> {
     backend_data
         .bookmark_managers
         .get(bookmark_manager_id)
@@ -1678,13 +1674,13 @@ fn missing_session_error(session_id: &BackendId) -> TestKitError {
 
 fn cypher_value_map_to_value_send_map(
     map: HashMap<String, CypherValue>,
-) -> Result<HashMap<String, ValueSend>, TestKitError> {
+) -> TestKitResultT<HashMap<String, ValueSend>> {
     map.into_iter()
         .map(|(k, v)| Ok::<_, TestKitError>((k, v.try_into()?)))
         .collect::<Result<_, _>>()
 }
 
-fn write_record(values: Option<CypherValues>) -> Result<Response, TestKitError> {
+fn write_record(values: Option<CypherValues>) -> TestKitResultT<Response> {
     let response = match values {
         None => Response::NullRecord,
         Some(values) => Response::Record { values },
@@ -1692,19 +1688,17 @@ fn write_record(values: Option<CypherValues>) -> Result<Response, TestKitError> 
     Ok(response)
 }
 
-fn read_transaction_timeout(
-    timeout: Option<i64>,
-) -> Result<Option<TransactionTimeout>, TestKitError> {
+fn read_transaction_timeout(timeout: Option<i64>) -> TestKitResultT<Option<TransactionTimeout>> {
     match timeout {
         None => Ok(None),
         Some(0) => Ok(Some(TransactionTimeout::none())),
         Some(timeout) => TransactionTimeout::from_millis(timeout)
-            .ok_or_else(|| TestKitError::DriverError {
-                error_type: String::from("ConfigureTimeoutError"),
-                msg: String::from("invalid transaction timeout value"),
-                code: None,
-                id: None,
-                retryable: false,
+            .ok_or_else(|| {
+                TestKitError::driver_error_client_only(
+                    String::from("ConfigureTimeoutError"),
+                    String::from("invalid transaction timeout value"),
+                    false,
+                )
             })
             .map(Some),
     }
