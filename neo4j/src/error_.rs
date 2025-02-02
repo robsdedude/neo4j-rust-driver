@@ -83,8 +83,10 @@ pub enum Neo4jError {
     ///    * A temporal value that is out of range.
     ///      The exact conditions for this depend on the protocol version negotiated with the
     ///      server.
-    ///  * Connecting with an incompatible server/using a feature that's not
-    ///    supported over the negotiated protocol version.
+    ///  * Protocol handshake failures:
+    ///    * Connecting with an incompatible server/using a feature that's not
+    ///      supported over the negotiated protocol version.
+    ///    * The server offering a number of versions that overflows [`usize`].
     ///  * Can be generated using [`Neo4jError::from::<GetSingleRecordError>`]
     ///    (the driver itself won't perform this conversion)
     ///  * Trying to use an address resolver ([`DriverConfig::with_resolver()`]) that returns no

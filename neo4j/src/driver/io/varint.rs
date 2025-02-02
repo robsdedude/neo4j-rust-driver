@@ -74,34 +74,6 @@ impl From<IoError> for ReadVarIntError {
     }
 }
 
-fn read_var_int_buffer(mut read: impl Read, buf: &mut [u8]) -> Result<usize, ReadVarIntError> {
-    let mut current_byte = [0u8; 1];
-    let mut i = 0;
-    let mut ignored_padding = false;
-    loop {
-        read.read_exact(&mut current_byte)
-            .map_err(ReadVarIntError::Io)?;
-        if i >= buf.len() {
-            // ignore if only 0 padding
-            if current_byte[0] & 0x7F != 0 {
-                return Err(ReadVarIntError::TooBig);
-            }
-            ignored_padding = true;
-        } else {
-            buf[i] = current_byte[0];
-            i += 1;
-        }
-        if current_byte[0] & 0x80 == 0 {
-            break;
-        }
-    }
-    if ignored_padding {
-        // truncate padding by setting continuation bit of last byte to 0
-        buf[i - 1] &= 0x7F;
-    }
-    Ok(i)
-}
-
 #[cfg(test)]
 mod test {
     use super::*;

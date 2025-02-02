@@ -89,9 +89,9 @@ A bump in MSRV is considered a minor breaking change.
    * [x] 5.4 (telemetry)
    * [x] 5.5 (never released)
    * [x] 5.6 (GQL notifications)
-   * [ ] 5.7
+   * [x] 5.7
      * [x] (GQL errors)
-     * [ ] (new bolt version handshake)
+     * [x] (new bolt version handshake)
    * [ ] 5.8 (home db resolution cache)
  * [x] Types
    * [x] `Null`

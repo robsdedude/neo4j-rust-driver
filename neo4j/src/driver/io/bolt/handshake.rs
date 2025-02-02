@@ -18,12 +18,14 @@ use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
 
+use itertools::Itertools;
 use log::Level::Trace;
 use log::{debug, log_enabled, trace};
 use rustls::ClientConfig;
 use socket2::{Socket as Socket2, TcpKeepalive};
 
 use super::super::deadline::DeadlineIO;
+use super::super::varint::{read_var_int, write_var_int, ReadVarIntError};
 pub(crate) use super::socket::{BufTcpStream, Socket};
 use super::{dbg_extra, socket_debug, Bolt};
 use crate::address_::Address;
@@ -34,11 +36,12 @@ use crate::time::Instant;
 const BOLT_MAGIC_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
 // [bolt-version-bump] search tag when changing bolt version support
 const BOLT_VERSION_OFFER: [u8; 16] = [
+    0, 0, 1, 255, // BOLT Handshake manifest v1
     0, 1, 7, 5, // BOLT 5.7 - 5.6
     0, 4, 4, 5, // BOLT 5.4 - 5.0
     0, 0, 4, 4, // BOLT 4.4
-    0, 0, 0, 0, // -
 ];
+const BOLT_SUPPORTED_CAPABILITIES: u64 = 0;
 
 pub(crate) trait AddressProvider: Debug + Display + ToSocketAddrs + Sized + 'static {
     fn unresolved_host(&self) -> &str;
@@ -224,14 +227,27 @@ pub(crate) fn open<S: SocketProvider>(
         local_port,
         deadline_io.read_exact(&mut negotiated_version),
     )?;
-    socket_debug!(local_port, "S: <BOLT> {:02X?}", negotiated_version);
 
-    let version = wrap_socket_killing(
-        &mut socket_provider,
-        &raw_socket,
-        local_port,
-        decode_version_offer(&negotiated_version),
-    )?;
+    let version = match negotiated_version {
+        [_, _, 1, 255] => {
+            // BOLT Handshake manifest v1
+            handshake_manifest_v1(
+                &mut socket_provider,
+                &mut deadline_io,
+                &raw_socket,
+                local_port,
+            )?
+        }
+        _ => {
+            socket_debug!(local_port, "S: <BOLT> {:02X?}", negotiated_version);
+            wrap_socket_killing(
+                &mut socket_provider,
+                &raw_socket,
+                local_port,
+                decode_version_offer(&negotiated_version),
+            )?
+        }
+    };
 
     Ok(Bolt::new(
         version,
@@ -242,20 +258,100 @@ pub(crate) fn open<S: SocketProvider>(
     ))
 }
 
-// [bolt-version-bump] search tag when changing bolt version support
+fn handshake_manifest_v1<S: SocketProvider>(
+    socket_provider: &mut S,
+    mut read_write: impl Read + Write,
+    raw_socket: &S::RW,
+    local_port: u16,
+) -> Result<(u8, u8)> {
+    let offering_count: usize = match read_var_int(&mut read_write) {
+        Ok(offering_count) => offering_count.try_into().map_err(|_| {
+            Neo4jError::protocol_error(String::from("manifest v1 offered versions count too big"))
+        }),
+        Err(ReadVarIntError::Io(err)) => {
+            wrap_socket_read(socket_provider, raw_socket, local_port, Err(err))
+        }
+        Err(ReadVarIntError::TooBig) => wrap_socket_killing(
+            socket_provider,
+            raw_socket,
+            local_port,
+            Err(Neo4jError::protocol_error(String::from(
+                "manifest v1 offered versions count too big",
+            ))),
+        ),
+    }?;
+    let mut raw_version_offerings = Vec::with_capacity(offering_count);
+    let mut highest_offering = (0, 0);
+    let mut offering_buff = [0u8; 4];
+    for _ in 0..offering_count {
+        wrap_socket_read(
+            socket_provider,
+            raw_socket,
+            local_port,
+            read_write.read_exact(&mut offering_buff),
+        )?;
+        raw_version_offerings.push(u32::from_ne_bytes(offering_buff));
+        let Some(version) = map_version_offer(&offering_buff) else {
+            continue;
+        };
+        if version > highest_offering {
+            highest_offering = version;
+        }
+    }
+    let capabilities = match read_var_int(&mut read_write) {
+        Ok(capabilities) => Ok(capabilities),
+        Err(ReadVarIntError::Io(err)) => {
+            wrap_socket_read(socket_provider, raw_socket, local_port, Err(err))
+        }
+        Err(ReadVarIntError::TooBig) => wrap_socket_killing(
+            socket_provider,
+            raw_socket,
+            local_port,
+            Err(Neo4jError::protocol_error(String::from(
+                "manifest v1 offered versions count too big",
+            ))),
+        ),
+    }?;
+    socket_debug!(
+        local_port,
+        "S: <BOLT> 0x000001FF [{}] {} {:08X?}",
+        offering_count,
+        raw_version_offerings
+            .iter()
+            .map(|offering| format!("{:08X}", offering))
+            .join(" "),
+        capabilities,
+    );
+
+    let selected_capabilities = capabilities & BOLT_SUPPORTED_CAPABILITIES;
+
+    wrap_socket_write(
+        socket_provider,
+        raw_socket,
+        local_port,
+        read_write
+            .write_all(&[0, 0, highest_offering.1, highest_offering.0])
+            .and_then(|_| write_var_int(&mut read_write, selected_capabilities))
+            .and_then(|_| read_write.flush()),
+    )?;
+    socket_debug!(
+        local_port,
+        "C: <BOLT> {:08X?} {:02X?}",
+        u32::from_ne_bytes([0, 0, highest_offering.1, highest_offering.0]),
+        selected_capabilities
+    );
+
+    Ok(highest_offering)
+}
+
 fn decode_version_offer(offer: &[u8; 4]) -> Result<(u8, u8)> {
+    if let Some(version) = map_version_offer(offer) {
+        return Ok(version);
+    }
     match offer {
         [0, 0, 0, 0] => Err(Neo4jError::InvalidConfig {
             message: String::from("server version not supported"),
         }),
-        [_, _, 7, 5] => Ok((5, 7)),
-        [_, _, 6, 5] => Ok((5, 6)),
-        [_, _, 4, 5] => Ok((5, 4)),
-        [_, _, 3, 5] => Ok((5, 3)),
-        [_, _, 2, 5] => Ok((5, 2)),
-        [_, _, 1, 5] => Ok((5, 1)),
-        [_, _, 0, 5] => Ok((5, 0)),
-        [_, _, 4, 4] => Ok((4, 4)),
         [72, 84, 84, 80] => {
             // "HTTP"
             Err(Neo4jError::InvalidConfig {
@@ -268,6 +364,21 @@ fn decode_version_offer(offer: &[u8; 4]) -> Result<(u8, u8)> {
         _ => Err(Neo4jError::InvalidConfig {
             message: format!("unexpected server handshake response {:?}", offer),
         }),
+    }
+}
+
+// [bolt-version-bump] search tag when changing bolt version support
+fn map_version_offer(offer: &[u8; 4]) -> Option<(u8, u8)> {
+    match offer {
+        [_, _, 7, 5] => Some((5, 7)),
+        [_, _, 6, 5] => Some((5, 6)),
+        [_, _, 4, 5] => Some((5, 4)),
+        [_, _, 3, 5] => Some((5, 3)),
+        [_, _, 2, 5] => Some((5, 2)),
+        [_, _, 1, 5] => Some((5, 1)),
+        [_, _, 0, 5] => Some((5, 0)),
+        [_, _, 4, 4] => Some((4, 4)),
+        _ => None,
     }
 }
 
