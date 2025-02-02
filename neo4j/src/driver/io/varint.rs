@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::io::{Error as IoError, Read};
+use std::io::{Error as IoError, Read, Write};
 use std::mem;
 
 use thiserror::Error;
@@ -30,8 +30,19 @@ pub(super) fn read_var_int(mut read: impl Read) -> Result<u64, ReadVarIntError> 
     })
 }
 
-        Err(VarIntError::TooBig) => Err(ReadVarIntError::TooBig),
+pub(super) fn write_var_int<W: Write>(mut write: W, mut val: u64) -> Result<(), IoError> {
+    loop {
+        let mut byte = (val & 0x7F) as u8;
+        val >>= 7;
+        if val != 0 {
+            byte |= 0x80;
+        }
+        write.write_all(&[byte])?;
+        if val == 0 {
+            break;
+        }
     }
+    Ok(())
 }
 
 #[derive(Debug, Error)]
@@ -153,8 +164,6 @@ mod test {
     #[case(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01], u64::MAX)]
     fn test_decode_varint(#[case] input: &[u8], #[case] expected: u64) {
         let res = decode_var_uint(input).unwrap();
-        println!("res: {res:02X?}");
-        println!("expected: {expected:02X?}");
         assert_eq!(res, expected);
     }
 
@@ -215,6 +224,19 @@ mod test {
     fn test_read_var_int_err(#[case] input: impl Read, #[case] expected: ReadVarIntError) {
         let res = read_var_int(input).unwrap_err();
         assert_eq!(res.to_string(), expected.to_string());
+    }
+
+    #[rstest]
+    #[case(0, &[0x00])]
+    #[case(1, &[0x01])]
+    #[case(0xFF, &[0xFF, 0x01])]
+    #[case(0x3FFF, &[0xFF, 0x7F])]
+    #[case(i64::MAX as u64, &[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F])]
+    #[case(u64::MAX, &[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01])]
+    fn test_write_var_int(#[case] input: u64, #[case] expected: &[u8]) {
+        let mut buf = Vec::new();
+        write_var_int(&mut buf, input).unwrap();
+        assert_eq!(buf, expected);
     }
 
     // Helper functions
