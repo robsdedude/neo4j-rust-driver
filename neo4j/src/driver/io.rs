@@ -15,6 +15,7 @@
 pub(crate) mod bolt;
 pub(crate) mod deadline;
 mod pool;
+mod varint;
 
 #[cfg(feature = "_internal_testkit_backend")]
 pub use pool::ConnectionPoolMetrics;
