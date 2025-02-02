@@ -36,7 +36,7 @@ use crate::time::Instant;
 const BOLT_MAGIC_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
 // [bolt-version-bump] search tag when changing bolt version support
 const BOLT_VERSION_OFFER: [u8; 16] = [
-    0, 0, 1, 255, // BOLT Handshake manifest v1
+    0, 0, 1, 255, // BOLT handshake manifest v1
     0, 1, 7, 5, // BOLT 5.7 - 5.6
     0, 4, 4, 5, // BOLT 5.4 - 5.0
     0, 0, 4, 4, // BOLT 4.4
@@ -199,14 +199,30 @@ pub(crate) fn open<S: SocketProvider>(
 
     let mut deadline_io = socket_provider.new_deadline_io(&mut socket, &raw_socket, deadline);
 
-    socket_debug!(local_port, "C: <HANDSHAKE> {:02X?}", BOLT_MAGIC_PREAMBLE);
+    socket_debug!(
+        local_port,
+        "C: <HANDSHAKE> {:#010X?}",
+        u32::from_be_bytes(BOLT_MAGIC_PREAMBLE)
+    );
     wrap_socket_write(
         &mut socket_provider,
         &raw_socket,
         local_port,
         deadline_io.write_all(&BOLT_MAGIC_PREAMBLE),
     )?;
-    socket_debug!(local_port, "C: <BOLT> {:02X?}", BOLT_VERSION_OFFER);
+    socket_debug!(
+        local_port,
+        "C: <BOLT> {}",
+        BOLT_VERSION_OFFER
+            .into_iter()
+            .chunks(4)
+            .into_iter()
+            .map(|chunk| format!(
+                "{:#010X?}",
+                u32::from_be_bytes(chunk.into_iter().collect::<Vec<_>>().try_into().unwrap())
+            ))
+            .join(" ")
+    );
     wrap_socket_write(
         &mut socket_provider,
         &raw_socket,
@@ -230,7 +246,7 @@ pub(crate) fn open<S: SocketProvider>(
 
     let version = match negotiated_version {
         [_, _, 1, 255] => {
-            // BOLT Handshake manifest v1
+            // BOLT handshake manifest v1
             handshake_manifest_v1(
                 &mut socket_provider,
                 &mut deadline_io,
@@ -239,7 +255,11 @@ pub(crate) fn open<S: SocketProvider>(
             )?
         }
         _ => {
-            socket_debug!(local_port, "S: <BOLT> {:02X?}", negotiated_version);
+            socket_debug!(
+                local_port,
+                "S: <BOLT> {:#010X?}",
+                u32::from_be_bytes(negotiated_version)
+            );
             wrap_socket_killing(
                 &mut socket_provider,
                 &raw_socket,
@@ -290,7 +310,7 @@ fn handshake_manifest_v1<S: SocketProvider>(
             local_port,
             read_write.read_exact(&mut offering_buff),
         )?;
-        raw_version_offerings.push(u32::from_ne_bytes(offering_buff));
+        raw_version_offerings.push(u32::from_be_bytes(offering_buff));
         let Some(version) = map_version_offer(&offering_buff) else {
             continue;
         };
@@ -308,17 +328,17 @@ fn handshake_manifest_v1<S: SocketProvider>(
             raw_socket,
             local_port,
             Err(Neo4jError::protocol_error(String::from(
-                "manifest v1 offered versions count too big",
+                "manifest v1 capabilities bit map too big",
             ))),
         ),
     }?;
     socket_debug!(
         local_port,
-        "S: <BOLT> 0x000001FF [{}] {} {:08X?}",
+        "S: <BOLT> 0x000001FF [{}] {} {:#X?}",
         offering_count,
         raw_version_offerings
             .iter()
-            .map(|offering| format!("{:08X}", offering))
+            .map(|offering| format!("{:#010X}", offering))
             .join(" "),
         capabilities,
     );
@@ -336,8 +356,8 @@ fn handshake_manifest_v1<S: SocketProvider>(
     )?;
     socket_debug!(
         local_port,
-        "C: <BOLT> {:08X?} {:02X?}",
-        u32::from_ne_bytes([0, 0, highest_offering.1, highest_offering.0]),
+        "C: <BOLT> {:#010X?} {:#X?}",
+        u32::from_be_bytes([0, 0, highest_offering.1, highest_offering.0]),
         selected_capabilities
     );
 
