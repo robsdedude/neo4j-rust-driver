@@ -13,21 +13,36 @@
 // limitations under the License.
 
 use std::io::{Error as IoError, Read, Write};
-use std::mem;
 
 use thiserror::Error;
 
 pub(super) fn read_var_int(mut read: impl Read) -> Result<u64, ReadVarIntError> {
-    let mut buf = [0u8; varint_buffer_size::<u64>()];
-    let read = read_var_int_buffer(&mut read, &mut buf)?;
-    decode_var_uint(&buf[..read]).map_err(|err| match err {
-        VarIntError::RemainingBytes { .. }
-        | VarIntError::Incomplete(_)
-        | VarIntError::BufferTooBig => {
-            panic!("Should not have passed incorrect buffer: {err:?}");
+    let mut current_byte = [0u8; 1];
+    let mut current_shift = 0u8;
+    let mut res = 0u64;
+    loop {
+        read.read_exact(&mut current_byte)
+            .map_err(ReadVarIntError::Io)?;
+        let part_u8 = current_byte[0] & 0x7F;
+        let part = part_u8 as u64;
+        let continue_flag = current_byte[0] & 0x80;
+
+        let allowed_bits = 64u8.saturating_sub(current_shift);
+        if allowed_bits < 7 {
+            let forbidden_bit_mask = 0xFFu8 << allowed_bits;
+            if part_u8 & forbidden_bit_mask != 0 {
+                return Err(ReadVarIntError::TooBig);
+            }
         }
-        VarIntError::TooBig => ReadVarIntError::TooBig,
-    })
+        if allowed_bits != 0 {
+            res |= part << current_shift;
+            current_shift += 7;
+        }
+        if continue_flag == 0 {
+            break;
+        }
+    }
+    Ok(res)
 }
 
 pub(super) fn write_var_int<W: Write>(mut write: W, mut val: u64) -> Result<(), IoError> {
@@ -51,6 +66,12 @@ pub(super) enum ReadVarIntError {
     Io(IoError),
     #[error("VarInt overflow")]
     TooBig,
+}
+
+impl From<IoError> for ReadVarIntError {
+    fn from(err: IoError) -> Self {
+        ReadVarIntError::Io(err)
+    }
 }
 
 fn read_var_int_buffer(mut read: impl Read, buf: &mut [u8]) -> Result<usize, ReadVarIntError> {
@@ -81,109 +102,11 @@ fn read_var_int_buffer(mut read: impl Read, buf: &mut [u8]) -> Result<usize, Rea
     Ok(i)
 }
 
-pub(super) fn decode_var_uint(bytes: &[u8]) -> Result<u64, VarIntError> {
-    bytes
-        .len()
-        .checked_mul(7)
-        .ok_or(VarIntError::BufferTooBig)?;
-    let mut res = 0u64;
-    let max_bits = mem::size_of::<u64>() * 8;
-    for (i, byte) in bytes.iter().enumerate() {
-        let part_u8 = byte & 0x7F;
-        let part = (part_u8) as u64;
-        let continue_flag = byte & 0x80;
-
-        let shift = i * 7;
-        if (shift + 7) > max_bits {
-            let allowed_bits = max_bits.saturating_sub(shift);
-            let forbidden_bit_mask = 0xFFu8
-                .checked_shl(allowed_bits.try_into().unwrap_or(u32::MAX))
-                .unwrap_or_default();
-            if part_u8 & forbidden_bit_mask != 0 {
-                return Err(VarIntError::TooBig);
-            }
-            if shift < max_bits {
-                res |= part << shift;
-            }
-        } else {
-            res |= part << shift;
-        }
-
-        if continue_flag == 0 {
-            if i == bytes.len() - 1 {
-                return Ok(res);
-            }
-            return Err(VarIntError::RemainingBytes {
-                result: res,
-                read: i + 1,
-            });
-        }
-    }
-    Err(VarIntError::Incomplete(bytes.to_vec()))
-}
-
-#[derive(Debug, Error, Clone, Eq, PartialEq)]
-pub(super) enum VarIntError {
-    #[error("VarInt too big")]
-    TooBig,
-    #[error("VarInt incomplete {0:02X?}")]
-    Incomplete(Vec<u8>),
-    #[error("VarInt buffer length must be <= usize::MAX / 7")]
-    BufferTooBig,
-    #[error("VarInt ended after {read} bytes, before end of buffer")]
-    RemainingBytes { result: u64, read: usize },
-}
-
-const fn varint_buffer_size<T>() -> usize {
-    let max_bits_t = mem::size_of::<T>() * 8;
-    let (mut max_bytes_buf, rem) = (max_bits_t / 7, max_bits_t % 7);
-    if rem > 0 {
-        max_bytes_buf += 1;
-    }
-    max_bytes_buf
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
 
     use rstest::rstest;
-
-    #[rstest]
-    #[case(&[0x00], 0)]
-    #[case(&[0x80, 0x00], 0)] // some 0 padding
-    // 0 padding that exceeds the max bits
-    #[case(&[0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00], 0)]
-    #[case(&[0x01], 1)]
-    #[case(&[0x81, 0x00], 1)] // some 0 padding
-    // 0 padding that exceeds the max bits
-    #[case(&[0x81, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00], 1)]
-    #[case(&[0xFF, 0x01], 0xFF)]
-    #[case(&[0xFF, 0x7F], 0x3FFF)]
-    #[case(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F], i64::MAX as u64)]
-    #[case(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01], u64::MAX)]
-    fn test_decode_varint(#[case] input: &[u8], #[case] expected: u64) {
-        let res = decode_var_uint(input).unwrap();
-        assert_eq!(res, expected);
-    }
-
-    #[rstest]
-    #[case(&[0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02], VarIntError::TooBig)]
-    #[case(&[0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x82], VarIntError::TooBig)]
-    #[case(
-        &[0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80],
-        VarIntError::Incomplete(vec![
-        0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80
-        ])
-    )]
-    #[case(&[0x80], VarIntError::Incomplete(vec![0x80]))]
-    #[case(&[0x01, 0x00], VarIntError::RemainingBytes { result: 1, read: 1 })]
-    #[case(&[0x01, 0xFF], VarIntError::RemainingBytes { result: 1, read: 1 })]
-    #[case(&[0xFF, 0x7F, 0x00], VarIntError::RemainingBytes { result: 0x3FFF, read: 2 })]
-    fn test_decode_varint_err(#[case] input: &[u8], #[case] expected: VarIntError) {
-        let res = decode_var_uint(input).unwrap_err();
-        assert_eq!(res, expected);
-    }
 
     #[rstest]
     #[case(&[0x00], 0, 0)]
