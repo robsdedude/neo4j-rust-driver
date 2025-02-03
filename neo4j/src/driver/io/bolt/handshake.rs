@@ -285,9 +285,16 @@ fn handshake_manifest_v1<S: SocketProvider>(
     local_port: u16,
 ) -> Result<(u8, u8)> {
     let offering_count: usize = match read_var_int(&mut read_write) {
-        Ok(offering_count) => offering_count.try_into().map_err(|_| {
-            Neo4jError::protocol_error(String::from("manifest v1 offered versions count too big"))
-        }),
+        Ok(offering_count) => wrap_socket_killing(
+            socket_provider,
+            raw_socket,
+            local_port,
+            offering_count.try_into().map_err(|_| {
+                Neo4jError::protocol_error(String::from(
+                    "manifest v1 offered versions count too big (didn't fit usize)",
+                ))
+            }),
+        ),
         Err(ReadVarIntError::Io(err)) => {
             wrap_socket_read(socket_provider, raw_socket, local_port, Err(err))
         }
@@ -296,7 +303,7 @@ fn handshake_manifest_v1<S: SocketProvider>(
             raw_socket,
             local_port,
             Err(Neo4jError::protocol_error(String::from(
-                "manifest v1 offered versions count too big",
+                "manifest v1 offered versions count too big (didn't fit u64)",
             ))),
         ),
     }?;
@@ -517,8 +524,6 @@ fn wrap_socket_read<S: SocketProvider, T>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::any::Any;
     use std::cell::RefCell;
     use std::collections::VecDeque;
@@ -528,6 +533,8 @@ mod tests {
     use std::vec;
 
     use rstest::*;
+
+    use super::*;
 
     // [bolt-version-bump] search tag when changing bolt version support
     #[rstest]
