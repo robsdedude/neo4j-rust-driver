@@ -311,13 +311,14 @@ fn handshake_manifest_v1<S: SocketProvider>(
             read_write.read_exact(&mut offering_buff),
         )?;
         raw_version_offerings.push(u32::from_be_bytes(offering_buff));
-        let Some(version) = map_version_offer(&offering_buff) else {
+        let Some(version) = map_version_offer_range(&offering_buff) else {
             continue;
         };
         if version > highest_offering {
             highest_offering = version;
         }
     }
+
     let capabilities = match read_var_int(&mut read_write) {
         Ok(capabilities) => Ok(capabilities),
         Err(ReadVarIntError::Io(err)) => {
@@ -342,6 +343,17 @@ fn handshake_manifest_v1<S: SocketProvider>(
             .join(" "),
         capabilities,
     );
+
+    if highest_offering == (0, 0) {
+        return wrap_socket_killing(
+            socket_provider,
+            raw_socket,
+            local_port,
+            Err(Neo4jError::InvalidConfig {
+                message: String::from("server version not supported"),
+            }),
+        );
+    }
 
     let selected_capabilities = capabilities & BOLT_SUPPORTED_CAPABILITIES;
 
@@ -388,18 +400,31 @@ fn decode_version_offer(offer: &[u8; 4]) -> Result<(u8, u8)> {
 }
 
 // [bolt-version-bump] search tag when changing bolt version support
+const BOLT_VERSIONS: [(u8, u8); 8] = [
+    // important: ordered by descending preference
+    (5, 7),
+    (5, 6),
+    (5, 4),
+    (5, 3),
+    (5, 2),
+    (5, 1),
+    (5, 0),
+    (4, 4),
+];
+
 fn map_version_offer(offer: &[u8; 4]) -> Option<(u8, u8)> {
-    match offer {
-        [_, _, 7, 5] => Some((5, 7)),
-        [_, _, 6, 5] => Some((5, 6)),
-        [_, _, 4, 5] => Some((5, 4)),
-        [_, _, 3, 5] => Some((5, 3)),
-        [_, _, 2, 5] => Some((5, 2)),
-        [_, _, 1, 5] => Some((5, 1)),
-        [_, _, 0, 5] => Some((5, 0)),
-        [_, _, 4, 4] => Some((4, 4)),
-        _ => None,
-    }
+    let [_, _, minor, major] = *offer;
+    let version = (major, minor);
+    BOLT_VERSIONS.iter().contains(&version).then_some(version)
+}
+
+fn map_version_offer_range(offer: &[u8; 4]) -> Option<(u8, u8)> {
+    let [_, range, minor, major] = *offer;
+    let offer_range = (major, minor.saturating_sub(range))..=(major, minor);
+    BOLT_VERSIONS
+        .iter()
+        .find(|version| offer_range.contains(version))
+        .copied()
 }
 
 fn combine_connection_timout(
