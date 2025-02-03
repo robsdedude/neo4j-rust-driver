@@ -22,6 +22,7 @@
    - The invariants of `Path` were changed for the above reason, too.
    - New methods `Path::new()`, `Path::new_unchecked()`, and `Path::verify_invariants()`.
  - Fix connection hint `connection.recv_timeout_seconds` should only be applied to reads, not writes.
+ - Fix superfluous spaces in bolt debug logs.
 
 
 ## 0.1.0
