@@ -14,6 +14,7 @@
    - ⚠️ `neo4j::error::ServerError::new(...)` has been removed.  
      User-code should not need to create arbitrary `ServerError`s.
      In return, `ServerError` now implements `Clone`.
+ - Add support for bolt handshake manifest v1.
 
 **🔧 Fixes**
  - Rework `neo4j::value::graph::Path`
