@@ -152,7 +152,7 @@ impl<T: BoltStructTranslator> Bolt5x0<T> {
     ) -> Result<()> {
         serializer.write_string(key)?;
         serializer.write_string(value)?;
-        debug_buf!(log_buf, " {}", {
+        debug_buf!(log_buf, "{}", {
             dbg_serializer.write_string(key).unwrap();
             dbg_serializer.write_string(value).unwrap();
             dbg_serializer.flush()
@@ -169,7 +169,7 @@ impl<T: BoltStructTranslator> Bolt5x0<T> {
     ) -> Result<()> {
         serializer.write_string(key)?;
         serializer.write_int(value)?;
-        debug_buf!(log_buf, " {}", {
+        debug_buf!(log_buf, "{}", {
             dbg_serializer.write_string(key).unwrap();
             dbg_serializer.write_int(value).unwrap();
             dbg_serializer.flush()
@@ -188,7 +188,7 @@ impl<T: BoltStructTranslator> Bolt5x0<T> {
     ) -> Result<()> {
         serializer.write_string(key)?;
         data.serialize_dict(serializer, &self.translator, value)?;
-        debug_buf!(log_buf, " {}", {
+        debug_buf!(log_buf, "{}", {
             dbg_serializer.write_string(key).unwrap();
             data.serialize_dict(dbg_serializer, &self.translator, value)
                 .unwrap();

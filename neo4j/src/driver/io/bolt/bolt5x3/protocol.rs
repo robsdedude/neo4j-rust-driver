@@ -67,7 +67,7 @@ impl<T: BoltStructTranslator> Bolt5x3<T> {
         serializer.write_string(BOLT_AGENT_LANGUAGE)?;
         serializer.write_string("language_details")?;
         serializer.write_string(BOLT_AGENT_LANGUAGE_DETAILS)?;
-        debug_buf!(log_buf, " {}", {
+        debug_buf!(log_buf, "{}", {
             dbg_serializer.write_string("bolt_agent").unwrap();
             dbg_serializer.write_dict_header(4).unwrap();
             dbg_serializer.write_string("product").unwrap();
