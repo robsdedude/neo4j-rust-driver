@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
-
 use super::spatial;
 use super::time;
 use super::value_receive::ValueReceive;
 use super::ValueConversionError;
+use itertools::Itertools;
+use std::collections::HashMap;
 
 // imports for docs
 #[allow(unused)]
@@ -73,7 +73,8 @@ impl ValueSend {
             ValueSend::Map(v1) => match other {
                 ValueSend::Map(v2) if v1.len() == v2.len() => v1
                     .iter()
-                    .zip(v2.iter())
+                    .sorted_by(|(k1, _), (k2, _)| k1.cmp(k2))
+                    .zip(v2.iter().sorted_by(|(k1, _), (k2, _)| k1.cmp(k2)))
                     .all(|((k1, v1), (k2, v2))| k1 == k2 && v1.eq_data(v2)),
                 _ => false,
             },

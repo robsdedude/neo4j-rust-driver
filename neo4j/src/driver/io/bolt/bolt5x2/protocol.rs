@@ -17,7 +17,6 @@ use std::fmt::Debug;
 use std::io::{Read, Write};
 
 use crate::driver::notification::NotificationFilter;
-use log::{debug, log_enabled, Level};
 use usize_cast::FromUsize;
 
 use super::super::bolt5x0::Bolt5x0;
@@ -33,8 +32,8 @@ use super::super::packstream::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
 use super::super::{
-    bolt_debug_extra, dbg_extra, debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltProtocol,
-    BoltResponse, BoltStructTranslator, OnServerErrorCb, ResponseCallbacks, ResponseMessage,
+    debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltProtocol, BoltResponse,
+    BoltStructTranslator, OnServerErrorCb, ResponseCallbacks, ResponseMessage,
 };
 use crate::error_::Result;
 use crate::value::ValueReceive;
@@ -301,7 +300,12 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x2<T> {
             mode,
         )?;
 
-        Bolt5x0::<T>::write_db_entry(log_buf.as_mut(), &mut serializer, &mut dbg_serializer, db)?;
+        Bolt5x0::<T>::write_db_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            db.as_deref().map(String::as_str),
+        )?;
 
         Bolt5x0::<T>::write_imp_user_entry(
             log_buf.as_mut(),
@@ -436,11 +440,11 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x2<T> {
         if let Some(db) = db {
             debug_buf!(log_buf, "{}", {
                 dbg_serializer.write_string("db").unwrap();
-                dbg_serializer.write_string(db).unwrap();
+                dbg_serializer.write_string(&db).unwrap();
                 dbg_serializer.flush()
             });
             serializer.write_string("db")?;
-            serializer.write_string(db)?;
+            serializer.write_string(&db)?;
         }
 
         if let Some(imp_user) = imp_user {

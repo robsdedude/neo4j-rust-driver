@@ -249,7 +249,10 @@ impl<'driver> InnerTransaction<'driver> {
             false,
             Some(Arc::clone(&self.error_propagator)),
         );
-        record_stream.run(RunParameters::new_transaction_run(query, Some(parameters)))?;
+        record_stream.run(
+            RunParameters::new_transaction_run(query, Some(parameters)),
+            None,
+        )?;
         Ok(record_stream)
     }
 

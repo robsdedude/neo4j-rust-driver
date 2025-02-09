@@ -14,6 +14,7 @@
 
 pub(crate) mod config;
 pub(crate) mod eager_result;
+mod home_db_cache;
 pub(crate) mod io;
 pub(crate) mod record;
 pub mod record_stream;
@@ -40,10 +41,11 @@ pub use config::{
     InvalidRoutingContextError, KeepAliveConfig, TlsConfigError,
 };
 pub use eager_result::{EagerResult, ScalarError};
+use home_db_cache::HomeDbCache;
 use io::bolt::message_parameters::TelemetryAPI;
 #[cfg(feature = "_internal_testkit_backend")]
 pub use io::ConnectionPoolMetrics;
-use io::{AcquireConfig, Pool, PoolConfig, PooledBolt, SessionAuth, UpdateRtArgs};
+use io::{AcquireConfig, Pool, PoolConfig, PooledBolt, SessionAuth, UpdateRtArgs, UpdateRtDb};
 use notification::NotificationFilter;
 pub use record::Record;
 use record_stream::RecordStream;
@@ -76,8 +78,9 @@ pub mod notification {
 ///  * [`Driver::session()`] for several mechanisms offering more advance patterns.
 #[derive(Debug)]
 pub struct Driver {
-    pub(crate) config: ReducedDriverConfig,
-    pub(crate) pool: Pool,
+    config: ReducedDriverConfig,
+    pool: Pool,
+    home_db_cache: Arc<HomeDbCache>,
     capability_check_config: SessionConfig,
     execute_query_bookmark_manager: Arc<dyn BookmarkManager>,
 }
@@ -120,6 +123,7 @@ impl Driver {
                 idle_time_before_connection_test: config.idle_time_before_connection_test,
             },
             pool: Pool::new(Arc::new(connection_config.address), pool_config),
+            home_db_cache: Default::default(),
             capability_check_config: SessionConfig::default()
                 .with_database(Arc::new(String::from("system"))),
             execute_query_bookmark_manager: Arc::new(bookmark_managers::simple(None)),
@@ -169,7 +173,12 @@ impl Driver {
             idle_time_before_connection_test: self.config.idle_time_before_connection_test,
             eager_begin: true,
         };
-        Session::new(config, &self.pool, &self.config)
+        Session::new(
+            config,
+            &self.pool,
+            Arc::clone(&self.home_db_cache),
+            &self.config,
+        )
     }
 
     fn execute_query_session(
@@ -197,7 +206,12 @@ impl Driver {
             idle_time_before_connection_test: self.config.idle_time_before_connection_test,
             eager_begin: false,
         };
-        Session::new(config, &self.pool, &self.config)
+        Session::new(
+            config,
+            &self.pool,
+            Arc::clone(&self.home_db_cache),
+            &self.config,
+        )
     }
 
     /// Execute a single query inside a transaction.
@@ -329,7 +343,13 @@ impl Driver {
             idle_time_before_connection_test: Some(Duration::ZERO),
             eager_begin: true,
         };
-        Session::new(config, &self.pool, &self.config)
+        let mut session = Session::new(
+            config,
+            &self.pool,
+            Arc::clone(&self.home_db_cache),
+            &self.config,
+        );
+        session
             .acquire_connection(RoutingControl::Read)
             .and_then(|mut con| {
                 con.write_all(None)?;
@@ -380,11 +400,21 @@ impl Driver {
         self.pool.acquire(AcquireConfig {
             mode: RoutingControl::Read,
             update_rt_args: UpdateRtArgs {
-                db: self.capability_check_config.database.as_ref(),
+                db: self
+                    .capability_check_config
+                    .database
+                    .as_ref()
+                    .map(|db| UpdateRtDb {
+                        db: Arc::clone(db),
+                        guess: false,
+                    })
+                    .as_ref(),
                 bookmarks: None,
                 imp_user: None,
+                deadline: self.pool.config.connection_acquisition_deadline(),
                 session_auth: SessionAuth::None,
                 idle_time_before_connection_test: None,
+                db_resolution_cb: None,
             },
         })
     }

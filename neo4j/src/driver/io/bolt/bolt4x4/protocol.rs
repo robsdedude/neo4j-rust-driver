@@ -21,7 +21,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
-use log::{debug, log_enabled, warn, Level};
+use log::warn;
 use usize_cast::FromUsize;
 
 use super::super::bolt5x0::Bolt5x0;
@@ -36,9 +36,8 @@ use super::super::packstream::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
 use super::super::{
-    bolt_debug_extra, dbg_extra, debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltProtocol,
-    BoltResponse, BoltStructTranslatorWithUtcPatch, OnServerErrorCb, ResponseCallbacks,
-    ResponseMessage,
+    debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltProtocol, BoltResponse,
+    BoltStructTranslatorWithUtcPatch, OnServerErrorCb, ResponseCallbacks, ResponseMessage,
 };
 use crate::error_::Result;
 use crate::value::ValueReceive;

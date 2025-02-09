@@ -17,7 +17,6 @@ use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::sync::Arc;
 
-use log::{debug, log_enabled, Level};
 use usize_cast::FromUsize;
 
 use super::super::bolt5x0::Bolt5x0;
@@ -32,9 +31,8 @@ use super::super::packstream::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
 use super::super::{
-    bolt_debug, bolt_debug_extra, dbg_extra, debug_buf, debug_buf_end, debug_buf_start, BoltData,
-    BoltProtocol, BoltResponse, BoltStructTranslator, OnServerErrorCb, ResponseCallbacks,
-    ResponseMessage,
+    bolt_debug, debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltProtocol, BoltResponse,
+    BoltStructTranslator, OnServerErrorCb, ResponseCallbacks, ResponseMessage,
 };
 use crate::driver::config::auth::AuthToken;
 use crate::error_::Result;

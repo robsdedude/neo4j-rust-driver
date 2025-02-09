@@ -15,6 +15,8 @@
      User-code should not need to create arbitrary `ServerError`s.
      In return, `ServerError` now implements `Clone`.
  - Add support for bolt handshake manifest v1.
+ - Add support for Bolt 5.8 (home database resolution cache)
+   - Includes an optimization where the driver uses a home/default database cache to perform optimistic routing under certain circumstances, saving a full round trip. See the [PR description](https://github.com/robsdedude/neo4j-rust-driver/pull/28) for more details.
 
 **🔧 Fixes**
  - Rework `neo4j::value::graph::Path`

@@ -37,7 +37,7 @@ use super::{BackendId, TestKitResultT};
 
 // [bolt-version-bump] search tag when changing bolt version support
 // https://github.com/rust-lang/rust/issues/85077
-const FEATURE_LIST: [&str; 48] = [
+const FEATURE_LIST: [&str; 52] = [
     // === FUNCTIONAL FEATURES ===
     "Feature:API:BookmarkManager",
     "Feature:API:ConnectionAcquisitionTimeout",
@@ -45,9 +45,7 @@ const FEATURE_LIST: [&str; 48] = [
     // "Feature:API:Driver.ExecuteQuery:WithAuth",
     "Feature:API:Driver:GetServerInfo",
     "Feature:API:Driver.IsEncrypted",
-    // "Feature:API:Driver:MaxConnectionLifetime",
-    // Even tough the driver does not support notification config,
-    // TestKit uses this flag to change assertions on the notification objects
+    "Feature:API:Driver:MaxConnectionLifetime",
     "Feature:API:Driver:NotificationsConfig",
     "Feature:API:Driver.VerifyAuthentication",
     "Feature:API:Driver.VerifyConnectivity",
@@ -83,7 +81,7 @@ const FEATURE_LIST: [&str; 48] = [
     // "Feature:Bolt:5.5",  // unused/deprecated protocol version
     "Feature:Bolt:5.6",
     "Feature:Bolt:5.7",
-    // "Feature:Bolt:5.8",
+    "Feature:Bolt:5.8",
     "Feature:Bolt:HandshakeManifestV1",
     "Feature:Bolt:Patch:UTC",
     "Feature:Impersonation",
@@ -97,8 +95,8 @@ const FEATURE_LIST: [&str; 48] = [
     "Optimization:ConnectionReuse",
     "Optimization:EagerTransactionBegin",
     "Optimization:ExecuteQueryPipelining",
-    // "Optimization:HomeDatabaseCache",
-    // "Optimization:HomeDbCacheBasicPrincipalIsImpersonatedUser",
+    "Optimization:HomeDatabaseCache",
+    "Optimization:HomeDbCacheBasicPrincipalIsImpersonatedUser",
     "Optimization:ImplicitDefaultArguments",
     "Optimization:MinimalBookmarksSet",
     "Optimization:MinimalResets",
@@ -130,6 +128,14 @@ fn get_plain_skipped_tests() -> &'static HashMap<&'static str, &'static str> {
             (
                 "stub.summary.test_summary.TestSummaryNotifications4x4.test_no_notifications",
                 "An empty list is returned when there are no notifications",
+            ),
+            (
+                "stub.driver_parameters.test_connection_acquisition_timeout_ms.TestConnectionAcquisitionTimeoutMs.test_does_not_encompass_router_route_response",
+                "Pending driver unification: only some drivers consider a single connection acquisition timeout for all operations on acquisition (like fetching routing table) and some consider a separate timeout for each operation",
+            ),
+            (
+                "stub.driver_parameters.test_connection_acquisition_timeout_ms.TestConnectionAcquisitionTimeoutMs.test_router_handshake_has_own_timeout_in_time",
+                "Pending driver unification: only some drivers consider a single connection acquisition timeout for all operations on acquisition (like fetching routing table) and some consider a separate timeout for each operation",
             ),
             (
                 "neo4j.test_summary.TestSummary.test_no_notification_info",

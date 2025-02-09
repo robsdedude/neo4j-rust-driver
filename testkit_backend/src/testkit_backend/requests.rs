@@ -75,6 +75,7 @@ pub(super) enum Request {
         fetch_size: Option<i64>,
         max_tx_retry_time_ms: Option<u64>,
         liveness_check_timeout_ms: Option<u64>,
+        max_connection_lifetime_ms: Option<u64>,
         max_connection_pool_size: Option<usize>,
         connection_acquisition_timeout_ms: Option<u64>,
         #[serde(rename = "clientCertificate")]
@@ -818,6 +819,7 @@ impl Request {
             fetch_size,
             max_tx_retry_time_ms,
             liveness_check_timeout_ms,
+            max_connection_lifetime_ms,
             max_connection_pool_size,
             connection_acquisition_timeout_ms,
             client_certificate,
@@ -884,6 +886,10 @@ impl Request {
         if let Some(timeout) = liveness_check_timeout_ms {
             driver_config =
                 driver_config.with_idle_time_before_connection_test(Duration::from_millis(timeout));
+        }
+        if let Some(timeout) = max_connection_lifetime_ms {
+            driver_config =
+                driver_config.with_max_connection_lifetime(Duration::from_millis(timeout));
         }
         if let Some(max_connection_pool_size) = max_connection_pool_size {
             driver_config = driver_config.with_max_connection_pool_size(max_connection_pool_size);

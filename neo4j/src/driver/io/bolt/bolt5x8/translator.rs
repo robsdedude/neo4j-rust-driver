@@ -12,13 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub(crate) mod bolt;
-pub(crate) mod deadline;
-mod pool;
-mod varint;
+use super::super::bolt5x7::Bolt5x7StructTranslator;
 
-#[cfg(feature = "_internal_testkit_backend")]
-pub use pool::ConnectionPoolMetrics;
-pub(crate) use pool::{
-    AcquireConfig, Pool, PoolConfig, PooledBolt, SessionAuth, UpdateRtArgs, UpdateRtDb,
-};
+pub(crate) type Bolt5x8StructTranslator = Bolt5x7StructTranslator;

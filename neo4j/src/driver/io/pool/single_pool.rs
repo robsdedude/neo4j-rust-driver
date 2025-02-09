@@ -22,12 +22,12 @@ use parking_lot::lock_api::MutexGuard;
 use parking_lot::{Condvar, Mutex, RawMutex};
 
 use super::super::bolt::message_parameters::{HelloParameters, ReauthParameters};
-use super::super::bolt::{self, OnServerErrorCb, TcpBolt, TcpRW};
+use super::super::bolt::{self, AuthResetHandle, OnServerErrorCb, TcpBolt, TcpRW};
+use super::super::pool::ssr_tracker::SsrTracker;
 use super::PoolConfig;
 use crate::address_::Address;
 use crate::driver::config::auth::{auth_managers, AuthToken};
 use crate::driver::config::AuthConfig;
-use crate::driver::io::bolt::AuthResetHandle;
 use crate::error_::{Neo4jError, Result};
 use crate::time::Instant;
 use crate::util::RefContainer;
@@ -38,6 +38,7 @@ type PoolElement = TcpBolt;
 pub(crate) struct InnerPool {
     address: Arc<Address>,
     config: Arc<PoolConfig>,
+    ssr_tracker: Arc<SsrTracker>,
     synced: Mutex<InnerPoolSyncedData>,
     made_room_condition: Condvar,
 }
@@ -51,7 +52,7 @@ struct InnerPoolSyncedData {
 }
 
 impl InnerPool {
-    fn new(address: Arc<Address>, config: Arc<PoolConfig>) -> Self {
+    fn new(address: Arc<Address>, config: Arc<PoolConfig>, ssr_tracker: Arc<SsrTracker>) -> Self {
         let raw_pool = VecDeque::with_capacity(config.max_connection_pool_size);
         // allow: `AuthResetHandle::hash` hashes by pointer address, not value
         #[allow(clippy::mutable_key_type)]
@@ -65,6 +66,7 @@ impl InnerPool {
         Self {
             address,
             config,
+            ssr_tracker,
             synced,
             made_room_condition: Condvar::new(),
         }
@@ -122,6 +124,7 @@ impl InnerPool {
         }
         connection.write_all(deadline)?;
         connection.read_all(deadline, None)?;
+        self.ssr_tracker.add_connection(&connection);
         Ok(connection)
     }
 
@@ -164,8 +167,12 @@ impl InnerPool {
 pub(crate) struct SimplePool(Arc<InnerPool>);
 
 impl SimplePool {
-    pub(crate) fn new(address: Arc<Address>, config: Arc<PoolConfig>) -> Self {
-        Self(Arc::new(InnerPool::new(address, config)))
+    pub(crate) fn new(
+        address: Arc<Address>,
+        config: Arc<PoolConfig>,
+        ssr_tracker: Arc<SsrTracker>,
+    ) -> Self {
+        Self(Arc::new(InnerPool::new(address, config, ssr_tracker)))
     }
 
     pub(crate) fn acquire(&self, deadline: Option<Instant>) -> Result<UnpreparedSinglePooledBolt> {
@@ -261,11 +268,6 @@ impl SimplePool {
     }
 
     fn release(inner_pool: &Arc<InnerPool>, mut connection: PoolElement) {
-        let mut lock = inner_pool.synced.lock();
-        lock.borrowed -= 1;
-        assert!(lock
-            .borrowed_auth_reset
-            .remove(&connection.auth_reset_handler()));
         if connection.needs_reset() {
             let res = connection
                 .reset()
@@ -275,10 +277,19 @@ impl SimplePool {
                 info!("ignoring failure during reset, dropping connection");
             }
         }
-        if !connection.closed() {
+        let mut lock = inner_pool.synced.lock();
+        assert!(lock
+            .borrowed_auth_reset
+            .remove(&connection.auth_reset_handler()));
+        lock.borrowed -= 1;
+        if connection.closed() {
+            inner_pool.made_room_condition.notify_one();
+            drop(lock);
+            inner_pool.ssr_tracker.remove_connection(&connection);
+        } else {
             lock.raw_pool.push_back(connection);
+            inner_pool.made_room_condition.notify_one();
         }
-        inner_pool.made_room_condition.notify_one();
     }
 
     #[cfg(feature = "_internal_testkit_backend")]
@@ -330,6 +341,7 @@ impl UnpreparedSinglePooledBolt {
                     if connection.is_older_than(max_lifetime) {
                         connection.debug_log(|| String::from("connection reached max lifetime"));
                         connection.close();
+                        self.bolt = Some(connection);
                         return Ok(None);
                     }
                 }
@@ -343,7 +355,7 @@ impl UnpreparedSinglePooledBolt {
                             on_server_error,
                         ) {
                             connection.debug_log(|| format!("liveness check failed: {}", err));
-                            SimplePool::release(&self.pool, connection);
+                            self.bolt = Some(connection);
                             return Ok(None);
                         }
                     }

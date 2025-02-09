@@ -40,8 +40,8 @@ pub(crate) struct RoutingTable {
 impl RoutingTable {
     pub(crate) fn new(initial_router: Arc<Address>) -> Self {
         Self {
-            routers: Vec::new(),
-            readers: vec![initial_router],
+            routers: vec![initial_router],
+            readers: Vec::new(),
             writers: Vec::new(),
             database: None,
             initialized_without_writers: true,

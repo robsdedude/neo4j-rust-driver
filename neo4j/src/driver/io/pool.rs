@@ -14,18 +14,20 @@
 
 mod routing;
 mod single_pool;
+mod ssr_tracker;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Formatter};
 use std::io::{Read, Write};
-use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{fmt, mem};
 
 use atomic_refcell::AtomicRefCell;
 use itertools::Itertools;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use parking_lot::{Condvar, Mutex, RwLockReadGuard};
 use rustls::ClientConfig;
 
@@ -47,6 +49,7 @@ use routing::RoutingTable;
 pub use single_pool::ConnectionPoolMetrics;
 pub(crate) use single_pool::SessionAuth;
 use single_pool::{SimplePool, SinglePooledBolt, UnpreparedSinglePooledBolt};
+use ssr_tracker::SsrTracker;
 
 // 7 is a reasonable common upper bound for the size of clusters
 // this is, however, not a hard limit
@@ -170,15 +173,21 @@ impl PoolConfig {
 
 #[derive(Debug)]
 pub(crate) struct Pool {
-    config: Arc<PoolConfig>,
+    pub(crate) config: Arc<PoolConfig>,
+    ssr_tracker: Arc<SsrTracker>,
     pools: Pools,
 }
 
 impl Pool {
     pub(crate) fn new(address: Arc<Address>, config: PoolConfig) -> Self {
         let config = Arc::new(config);
-        let pools = Pools::new(address, Arc::clone(&config));
-        Self { config, pools }
+        let ssr_tracker = Arc::new(SsrTracker::new());
+        let pools = Pools::new(address, Arc::clone(&config), Arc::clone(&ssr_tracker));
+        Self {
+            config,
+            ssr_tracker,
+            pools,
+        }
     }
 
     #[inline]
@@ -189,6 +198,11 @@ impl Pool {
     #[inline]
     pub(crate) fn is_encrypted(&self) -> bool {
         self.config.tls_config.is_some()
+    }
+
+    #[inline]
+    pub(crate) fn ssr_enabled(&self) -> bool {
+        self.ssr_tracker.ssr_enabled()
     }
 
     #[cfg(feature = "_internal_testkit_backend")]
@@ -220,10 +234,9 @@ impl Pool {
             bolt: Some(match &self.pools {
                 Pools::Direct(single_pool) => {
                     let mut connection = None;
-                    let deadline = self.config.connection_acquisition_deadline();
                     while connection.is_none() {
-                        connection = single_pool.acquire(deadline)?.prepare(
-                            deadline,
+                        connection = single_pool.acquire(args.update_rt_args.deadline)?.prepare(
+                            args.update_rt_args.deadline,
                             args.update_rt_args.idle_time_before_connection_test,
                             args.update_rt_args.session_auth,
                             None,
@@ -275,10 +288,10 @@ enum PoolsRef<'a> {
 }
 
 impl Pools {
-    fn new(address: Arc<Address>, config: Arc<PoolConfig>) -> Self {
+    fn new(address: Arc<Address>, config: Arc<PoolConfig>, ssr_tracker: Arc<SsrTracker>) -> Self {
         match config.routing_context {
-            None => Pools::Direct(SimplePool::new(address, config)),
-            Some(_) => Pools::Routing(RoutingPool::new(address, config)),
+            None => Pools::Direct(SimplePool::new(address, config, ssr_tracker)),
+            Some(_) => Pools::Routing(RoutingPool::new(address, config, ssr_tracker)),
         }
     }
 
@@ -307,10 +320,11 @@ struct RoutingPool {
     routing_tables: MostlyRLock<RoutingTables>,
     address: Arc<Address>,
     config: Arc<PoolConfig>,
+    ssr_tracker: Arc<SsrTracker>,
 }
 
 impl RoutingPool {
-    fn new(address: Arc<Address>, config: Arc<PoolConfig>) -> Self {
+    fn new(address: Arc<Address>, config: Arc<PoolConfig>, ssr_tracker: Arc<SsrTracker>) -> Self {
         assert!(config.routing_context.is_some());
         Self {
             pools: MostlyRLock::new(HashMap::with_capacity(DEFAULT_CLUSTER_SIZE)),
@@ -318,12 +332,21 @@ impl RoutingPool {
             routing_tables: MostlyRLock::new(HashMap::new()),
             address,
             config,
+            ssr_tracker,
         }
     }
 
     fn acquire(&self, args: AcquireConfig) -> Result<SinglePooledBolt> {
+        debug!(
+            "acquiring {:?} connection towards {}",
+            args.mode,
+            args.update_rt_args
+                .db
+                .map(|db| format!("{:?}", db))
+                .unwrap_or(String::from("default database"))
+        );
         let (mut targets, db) = self.choose_addresses_from_fresh_rt(args)?;
-        let deadline = self.config.connection_acquisition_deadline();
+        let deadline = args.update_rt_args.deadline;
         'target: for target in &targets {
             while let Some(connection) = self.acquire_routing_address_no_wait(target) {
                 let mut on_server_error =
@@ -435,19 +458,18 @@ impl RoutingPool {
         args: UpdateRtArgs,
     ) -> Result<SinglePooledBolt> {
         let mut connection = None;
-        let deadline = self.config.connection_acquisition_deadline();
         while connection.is_none() {
             let unprepared_connection = {
                 let pools = self.ensure_pool_exists(target);
                 pools
                     .get(target)
                     .expect("just created above")
-                    .acquire(deadline)
+                    .acquire(args.deadline)
             }?;
             let mut on_server_error =
                 |bolt_data: &mut _, error: &mut _| self.handle_server_error(bolt_data, error);
             connection = unprepared_connection.prepare(
-                deadline,
+                args.deadline,
                 args.idle_time_before_connection_test,
                 args.session_auth,
                 Some(&mut on_server_error),
@@ -463,7 +485,11 @@ impl RoutingPool {
                 |mut rt| {
                     rt.insert(
                         Arc::clone(target),
-                        SimplePool::new(Arc::clone(target), Arc::clone(&self.config)),
+                        SimplePool::new(
+                            Arc::clone(target),
+                            Arc::clone(&self.config),
+                            Arc::clone(&self.ssr_tracker),
+                        ),
                     );
                     Ok(())
                 },
@@ -476,16 +502,22 @@ impl RoutingPool {
         args: AcquireConfig,
     ) -> Result<(RwLockReadGuard<RoutingTables>, Option<Arc<String>>)> {
         let rt_args = args.update_rt_args;
-        let db_name = RefCell::new(rt_args.db.cloned());
+        let db_key = rt_args.rt_key();
+        let db_name = RefCell::new(rt_args.db_name());
         let db_name_ref = &db_name;
         let lock = self.routing_tables.maybe_write(
             |rts| {
-                rts.get(&*db_name_ref.borrow())
+                let needs_update = rts
+                    .get(&db_key)
                     .map(|rt| !rt.is_fresh(args.mode))
-                    .unwrap_or(true)
+                    .unwrap_or(true);
+                if !needs_update {
+                    mem::swap(&mut *db_name_ref.borrow_mut(), &mut db_key.clone());
+                }
+                needs_update
             },
             |mut rts| {
-                let key = rt_args.db.cloned();
+                let key = rt_args.rt_key();
                 let rt = rts.entry(key).or_insert_with(|| self.empty_rt());
                 if !rt.is_fresh(args.mode) {
                     let mut new_db = self.update_rts(rt_args, &mut rts)?;
@@ -522,7 +554,8 @@ impl RoutingPool {
         args: UpdateRtArgs,
         rts: &mut RoutingTables,
     ) -> Result<Option<Arc<String>>> {
-        let rt_key = args.db.cloned();
+        debug!("Fetching new routing table for {:?}", args.db);
+        let rt_key = args.rt_key();
         let rt = rts.entry(rt_key).or_insert_with(|| self.empty_rt());
         let pref_init_router = rt.initialized_without_writers;
         let mut new_rt: Result<RoutingTable>;
@@ -544,23 +577,35 @@ impl RoutingPool {
             }
         }
         match new_rt {
-            Err(err) => Err(Neo4jError::disconnect(format!(
-                "unable to retrieve routing information; last error: {}",
-                err
-            ))),
+            Err(err) => {
+                error!("failed to update routing table; last error: {}", err);
+                Err(Neo4jError::disconnect(format!(
+                    "unable to retrieve routing information; last error: {}",
+                    err
+                )))
+            }
             Ok(mut new_rt) => {
-                if args.db.is_some() {
-                    let db = args.db.cloned();
-                    new_rt.database.clone_from(&db);
-                    rts.insert(db.clone(), new_rt);
-                    self.clean_up_pools(rts);
-                    Ok(db)
-                } else {
-                    let db = new_rt.database.clone();
-                    rts.insert(db.clone(), new_rt);
-                    self.clean_up_pools(rts);
-                    Ok(db)
+                let db = match args.db {
+                    Some(args_db) if !args_db.guess => {
+                        let db = Some(Arc::clone(&args_db.db));
+                        new_rt.database.clone_from(&db);
+                        debug!("Storing new routing table for {:?}: {:?}", db, new_rt);
+                        rts.insert(db.as_ref().map(Arc::clone), new_rt);
+                        self.clean_up_pools(rts);
+                        db
+                    }
+                    _ => {
+                        let db = new_rt.database.clone();
+                        debug!("Storing new routing table for {:?}: {:?}", db, new_rt);
+                        rts.insert(db.clone(), new_rt);
+                        self.clean_up_pools(rts);
+                        db
+                    }
+                };
+                if let Some(cb) = args.db_resolution_cb {
+                    cb(db.as_ref().map(Arc::clone));
                 }
+                Ok(db)
             }
         }
     }
@@ -588,10 +633,9 @@ impl RoutingPool {
                 self.deactivate_server_locked_rts(&resolved, rts);
             }
         }
-        Ok(Err(match last_err {
-            None => Neo4jError::disconnect("no known routers left"),
-            Some(err) => err,
-        }))
+        Ok(Err(last_err.unwrap_or_else(|| {
+            Neo4jError::disconnect("no known routers left")
+        })))
     }
 
     fn fetch_rt_from_router(
@@ -604,7 +648,7 @@ impl RoutingPool {
             RouteParameters::new(
                 self.config.routing_context.as_ref().unwrap(),
                 args.bookmarks,
-                args.db.as_ref().map(|db| db.as_str()),
+                args.db_request_str(),
                 args.imp_user,
             ),
             ResponseCallbacks::new().with_on_success({
@@ -830,11 +874,58 @@ pub(crate) struct AcquireConfig<'a> {
     pub(crate) update_rt_args: UpdateRtArgs<'a>,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub(crate) struct UpdateRtArgs<'a> {
-    pub(crate) db: Option<&'a Arc<String>>,
+    pub(crate) db: Option<&'a UpdateRtDb>,
     pub(crate) bookmarks: Option<&'a Bookmarks>,
     pub(crate) imp_user: Option<&'a str>,
     pub(crate) session_auth: SessionAuth<'a>,
+    pub(crate) deadline: Option<Instant>,
     pub(crate) idle_time_before_connection_test: Option<Duration>,
+    pub(crate) db_resolution_cb: Option<&'a dyn Fn(Option<Arc<String>>)>,
+}
+
+impl Debug for UpdateRtArgs<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpdateRtArgs")
+            .field("db", &self.db)
+            .field("bookmarks", &self.bookmarks)
+            .field("imp_user", &self.imp_user)
+            .field("session_auth", &self.session_auth)
+            .field(
+                "idle_time_before_connection_test",
+                &self.idle_time_before_connection_test,
+            )
+            .field(
+                "db_resolution_cb",
+                &self.db_resolution_cb.as_ref().map(|_| "..."),
+            )
+            .finish()
+    }
+}
+
+impl UpdateRtArgs<'_> {
+    fn rt_key(&self) -> Option<Arc<String>> {
+        self.db.as_ref().map(|db| Arc::clone(&db.db))
+    }
+
+    fn db_request_str(&self) -> Option<&str> {
+        self.db.as_ref().and_then(|db| match db.guess {
+            true => None,
+            false => Some(db.db.as_str()),
+        })
+    }
+
+    fn db_name(&self) -> Option<Arc<String>> {
+        self.db.as_ref().and_then(|db| match db.guess {
+            true => None,
+            false => Some(Arc::clone(&db.db)),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct UpdateRtDb {
+    pub(crate) db: Arc<String>,
+    pub(crate) guess: bool,
 }

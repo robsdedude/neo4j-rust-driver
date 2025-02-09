@@ -738,7 +738,7 @@ pub fn neo4j::session::Session<'driver>::last_bookmarks(&self) -> alloc::sync::A
 pub fn neo4j::session::Session<'driver>::transaction<'session>(&'session mut self) -> neo4j::session::TransactionBuilder<'driver, 'session, alloc::string::String, std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueSend>>
 impl<'driver> core::fmt::Debug for neo4j::session::Session<'driver>
 pub fn neo4j::session::Session<'driver>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<'driver> core::marker::Freeze for neo4j::session::Session<'driver>
+impl<'driver> !core::marker::Freeze for neo4j::session::Session<'driver>
 impl<'driver> core::marker::Send for neo4j::session::Session<'driver>
 impl<'driver> core::marker::Sync for neo4j::session::Session<'driver>
 impl<'driver> core::marker::Unpin for neo4j::session::Session<'driver>
