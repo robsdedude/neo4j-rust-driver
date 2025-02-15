@@ -409,7 +409,7 @@ mod test {
     fn get_invalid_path_even_index_out_of_range_3() -> Path {
         let mut path = get_path();
         let rel_len_i: isize = path.relationships.len().try_into().unwrap();
-        path.indices[2] = rel_len_i * -1 - 1;
+        path.indices[2] = -rel_len_i - 1;
         path
     }
 
@@ -434,13 +434,13 @@ mod test {
     #[test]
     fn test_path_traverse() {
         let path = get_path();
-        let expected_node_ids = vec!["n1", "n2", "n1", "n3"];
-        let expected_directions = vec![
+        let expected_node_ids = ["n1", "n2", "n1", "n3"];
+        let expected_directions = [
             RelationshipDirection::From,
             RelationshipDirection::To,
             RelationshipDirection::To,
         ];
-        let expected_relationship_ids = vec!["r1", "r2", "r1"];
+        let expected_relationship_ids = ["r1", "r2", "r1"];
 
         let (start_node, hops) = path.traverse();
         assert_eq!(start_node.element_id, expected_node_ids[0]);
