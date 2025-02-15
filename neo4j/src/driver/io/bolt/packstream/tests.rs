@@ -39,7 +39,7 @@ fn decode_raw(input: Vec<u8>) -> (Result<ValueReceive, PackStreamDeserializeErro
     let mut reader = input.as_slice();
     let mut deserializer = PackStreamDeserializerImpl::new(&mut reader);
     let result = deserializer.load(&translator);
-    let rest = reader.iter().cloned().collect();
+    let rest = reader.to_vec();
     (result, rest)
 }
 

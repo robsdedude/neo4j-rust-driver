@@ -32,14 +32,14 @@ repos:
         language: system
         types: [rust]
       - id: clippy driver
-        name: cargo clippy (driver)
-        entry: cargo clippy -p neo4j -- -D warnings
+        name: cargo clipcpy (driver)
+        entry: cargo clippy --tests -p neo4j -- -D warnings
         language: system
         types: [rust]
         pass_filenames: false
       - id: clippy all
         name: cargo clippy (all)
-        entry: cargo clippy --all --all-features -- -D warnings
+        entry: cargo clippy --all --all-features --tests -- -D warnings
         language: system
         types: [rust]
         pass_filenames: false
