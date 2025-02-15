@@ -4,7 +4,25 @@ repos:
     hooks:
       - id: check
         name: cargo check
-        entry: cargo check --
+        entry: cargo +stable check --all --tests --
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: check-msrv-all-features
+        name: cargo check (all features)
+        entry: cargo +stable check --all --tests --all-features --
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: check-msrv
+        name: cargo check MSRV
+        entry: cargo +1.70 check --all --tests --
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: check-msrv-all-features
+        name: cargo check MSRV (all features)
+        entry: cargo +1.70 check --all --tests --all-features --
         language: system
         types: [rust]
         pass_filenames: false
