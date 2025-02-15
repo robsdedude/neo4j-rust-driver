@@ -226,19 +226,21 @@ impl SessionAuthKey {
 
 impl HomeDbCacheKey {
     pub(super) fn new(user: Option<&Arc<String>>, session_auth: Option<&Arc<AuthToken>>) -> Self {
-        if let Some(user) = user {
-            HomeDbCacheKey::FixedUser(Arc::clone(user))
-        } else if let Some(auth) = session_auth {
-            if let Some(ValueSend::String(scheme)) = auth.data.get("scheme") {
-                if scheme == "basic" {
-                    if let Some(ValueSend::String(user)) = auth.data.get("principal") {
-                        return HomeDbCacheKey::FixedUser(Arc::new(user.clone()));
-                    }
-                }
+        fn get_basic_auth_principal(auth: &AuthToken) -> Option<&str> {
+            let scheme = auth.data.get("scheme")?.as_string()?.as_str();
+            if scheme != "basic" {
+                return None;
             }
-            HomeDbCacheKey::SessionAuth(SessionAuthKey(Arc::clone(auth)))
-        } else {
-            HomeDbCacheKey::DriverUser
+            Some(auth.data.get("principal")?.as_string()?.as_str())
+        }
+
+        match (user, session_auth) {
+            (Some(user), _) => HomeDbCacheKey::FixedUser(Arc::clone(user)),
+            (None, Some(auth)) => match get_basic_auth_principal(auth) {
+                Some(user) => HomeDbCacheKey::FixedUser(Arc::new(user.to_string())),
+                None => HomeDbCacheKey::SessionAuth(SessionAuthKey(Arc::clone(auth))),
+            },
+            (None, None) => HomeDbCacheKey::DriverUser,
         }
     }
 }

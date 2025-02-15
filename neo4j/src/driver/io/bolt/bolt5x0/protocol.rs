@@ -709,12 +709,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
 
         Self::write_mode_entry(log_buf.as_mut(), &mut serializer, &mut dbg_serializer, mode)?;
 
-        Self::write_db_entry(
-            log_buf.as_mut(),
-            &mut serializer,
-            &mut dbg_serializer,
-            db.as_deref().map(String::as_str),
-        )?;
+        Self::write_db_entry(log_buf.as_mut(), &mut serializer, &mut dbg_serializer, db)?;
 
         Self::write_imp_user_entry(
             log_buf.as_mut(),

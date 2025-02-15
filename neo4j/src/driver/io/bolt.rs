@@ -523,15 +523,15 @@ trait BoltProtocol: Debug {
 #[enum_dispatch(BoltProtocol)]
 #[derive(Debug)]
 enum BoltProtocolVersion {
-    V5x8(Bolt5x8<Bolt5x8StructTranslator>),
-    V5x7(Bolt5x7<Bolt5x7StructTranslator>),
-    V5x6(Bolt5x6<Bolt5x6StructTranslator>),
-    V5x4(Bolt5x4<Bolt5x4StructTranslator>),
-    V5x3(Bolt5x3<Bolt5x3StructTranslator>),
-    V5x2(Bolt5x2<Bolt5x2StructTranslator>),
-    V5x1(Bolt5x1<Bolt5x1StructTranslator>),
-    V5x0(Bolt5x0<Bolt5x0StructTranslator>),
     V4x4(Bolt4x4<Bolt4x4StructTranslator>),
+    V5x0(Bolt5x0<Bolt5x0StructTranslator>),
+    V5x1(Bolt5x1<Bolt5x1StructTranslator>),
+    V5x2(Bolt5x2<Bolt5x2StructTranslator>),
+    V5x3(Bolt5x3<Bolt5x3StructTranslator>),
+    V5x4(Bolt5x4<Bolt5x4StructTranslator>),
+    V5x6(Bolt5x6<Bolt5x6StructTranslator>),
+    V5x7(Bolt5x7<Bolt5x7StructTranslator>),
+    V5x8(Bolt5x8<Bolt5x8StructTranslator>),
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]

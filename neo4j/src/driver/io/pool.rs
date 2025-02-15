@@ -503,7 +503,7 @@ impl RoutingPool {
     ) -> Result<(RwLockReadGuard<RoutingTables>, Option<Arc<String>>)> {
         let rt_args = args.update_rt_args;
         let db_key = rt_args.rt_key();
-        let db_name = RefCell::new(rt_args.db_name());
+        let db_name = RefCell::new(rt_args.db_request());
         let db_name_ref = &db_name;
         let lock = self.routing_tables.maybe_write(
             |rts| {
@@ -589,19 +589,13 @@ impl RoutingPool {
                     Some(args_db) if !args_db.guess => {
                         let db = Some(Arc::clone(&args_db.db));
                         new_rt.database.clone_from(&db);
-                        debug!("Storing new routing table for {:?}: {:?}", db, new_rt);
-                        rts.insert(db.as_ref().map(Arc::clone), new_rt);
-                        self.clean_up_pools(rts);
                         db
                     }
-                    _ => {
-                        let db = new_rt.database.clone();
-                        debug!("Storing new routing table for {:?}: {:?}", db, new_rt);
-                        rts.insert(db.clone(), new_rt);
-                        self.clean_up_pools(rts);
-                        db
-                    }
+                    _ => new_rt.database.clone(),
                 };
+                debug!("Storing new routing table for {:?}: {:?}", db, new_rt);
+                rts.insert(db.as_ref().map(Arc::clone), new_rt);
+                self.clean_up_pools(rts);
                 if let Some(cb) = args.db_resolution_cb {
                     cb(db.as_ref().map(Arc::clone));
                 }
@@ -916,7 +910,7 @@ impl UpdateRtArgs<'_> {
         })
     }
 
-    fn db_name(&self) -> Option<Arc<String>> {
+    fn db_request(&self) -> Option<Arc<String>> {
         self.db.as_ref().and_then(|db| match db.guess {
             true => None,
             false => Some(Arc::clone(&db.db)),

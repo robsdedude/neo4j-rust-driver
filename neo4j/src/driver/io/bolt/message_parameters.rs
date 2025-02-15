@@ -84,7 +84,7 @@ pub(crate) struct RunParameters<'a, KP: Borrow<str> + Debug, KM: Borrow<str> + D
     pub(super) tx_timeout: Option<i64>,
     pub(super) tx_metadata: Option<&'a HashMap<KM, ValueSend>>,
     pub(super) mode: Option<&'a str>,
-    pub(super) db: Option<Arc<String>>,
+    pub(super) db: Option<&'a str>,
     pub(super) imp_user: Option<&'a str>,
     pub(super) notification_filter: Option<&'a NotificationFilter>,
 }
@@ -98,7 +98,7 @@ impl<'a, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug> RunParameters<'a, KP,
         tx_timeout: Option<i64>,
         tx_metadata: Option<&'a HashMap<KM, ValueSend>>,
         mode: Option<&'a str>,
-        db: Option<Arc<String>>,
+        db: Option<&'a str>,
         imp_user: Option<&'a str>,
         notification_filter: &'a NotificationFilter,
     ) -> Self {

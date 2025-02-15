@@ -169,7 +169,7 @@ impl<'driver> Session<'driver> {
                     builder.timeout.raw(),
                     Some(builder.meta.borrow()),
                     builder.mode.as_protocol_str(),
-                    target_db,
+                    target_db.as_deref().map(String::as_str),
                     self.config
                         .config
                         .as_ref()

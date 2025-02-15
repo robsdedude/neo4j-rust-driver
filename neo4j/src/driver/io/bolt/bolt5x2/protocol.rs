@@ -300,12 +300,7 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x2<T> {
             mode,
         )?;
 
-        Bolt5x0::<T>::write_db_entry(
-            log_buf.as_mut(),
-            &mut serializer,
-            &mut dbg_serializer,
-            db.as_deref().map(String::as_str),
-        )?;
+        Bolt5x0::<T>::write_db_entry(log_buf.as_mut(), &mut serializer, &mut dbg_serializer, db)?;
 
         Bolt5x0::<T>::write_imp_user_entry(
             log_buf.as_mut(),
