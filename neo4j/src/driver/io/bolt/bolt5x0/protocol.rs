@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use atomic_refcell::AtomicRefCell;
-use log::{debug, log_enabled, warn, Level};
+use log::warn;
 use usize_cast::FromUsize;
 
 use super::super::bolt_common::{unsupported_protocol_feature_error, ServerAwareBoltVersion};
@@ -38,9 +38,9 @@ use super::super::packstream::{
     PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
 use super::super::{
-    assert_response_field_count, bolt_debug, bolt_debug_extra, dbg_extra, debug_buf, debug_buf_end,
-    debug_buf_start, BoltData, BoltMeta, BoltProtocol, BoltResponse, BoltStructTranslator,
-    ConnectionState, OnServerErrorCb, ResponseCallbacks, ResponseMessage,
+    assert_response_field_count, bolt_debug, debug_buf, debug_buf_end, debug_buf_start, BoltData,
+    BoltMeta, BoltProtocol, BoltResponse, BoltStructTranslator, ConnectionState, OnServerErrorCb,
+    ResponseCallbacks, ResponseMessage,
 };
 use crate::driver::config::auth::AuthToken;
 use crate::driver::config::notification::NotificationFilter;
@@ -833,7 +833,12 @@ impl<T: BoltStructTranslator> BoltProtocol for Bolt5x0<T> {
 
         Self::write_mode_entry(log_buf.as_mut(), &mut serializer, &mut dbg_serializer, mode)?;
 
-        Self::write_db_entry(log_buf.as_mut(), &mut serializer, &mut dbg_serializer, db)?;
+        Self::write_db_entry(
+            log_buf.as_mut(),
+            &mut serializer,
+            &mut dbg_serializer,
+            db.as_deref().map(String::as_str),
+        )?;
 
         Self::write_imp_user_entry(
             log_buf.as_mut(),

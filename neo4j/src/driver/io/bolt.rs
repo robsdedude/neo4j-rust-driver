@@ -22,6 +22,7 @@ mod bolt5x3;
 mod bolt5x4;
 mod bolt5x6;
 mod bolt5x7;
+mod bolt5x8;
 mod bolt_state;
 mod chunk;
 mod handshake;
@@ -45,7 +46,6 @@ use std::time::Duration;
 
 use atomic_refcell::AtomicRefCell;
 use enum_dispatch::enum_dispatch;
-use log::debug;
 use usize_cast::FromUsize;
 
 use super::deadline::DeadlineIO;
@@ -63,6 +63,7 @@ use bolt5x3::{Bolt5x3, Bolt5x3StructTranslator};
 use bolt5x4::{Bolt5x4, Bolt5x4StructTranslator};
 use bolt5x6::{Bolt5x6, Bolt5x6StructTranslator};
 use bolt5x7::{Bolt5x7, Bolt5x7StructTranslator};
+use bolt5x8::{Bolt5x8, Bolt5x8StructTranslator};
 use bolt_state::{BoltState, BoltStateTracker};
 use chunk::{Chunker, Dechunker};
 pub(crate) use handshake::{open, TcpConnector};
@@ -80,70 +81,99 @@ pub(crate) use socket::{BufTcpStream, Socket};
 
 macro_rules! debug_buf_start {
     ($name:ident) => {
-        let mut $name: Option<String> = match log_enabled!(Level::Debug) {
-            true => Some(String::new()),
-            false => None,
-        };
+        let mut $name = None;
+        {
+            #![allow(unused_imports)]
+            use log::{log_enabled, Level};
+
+            if log_enabled!(Level::Debug) {
+                $name = Some(String::new());
+            }
+        }
     };
 }
 pub(crate) use debug_buf_start;
 
 macro_rules! debug_buf {
-    ($name:ident, $($args:tt)+) => {
+    ($name:ident, $($args:tt)+) => {{
+        #![allow(unused_imports)]
+        use log::{log_enabled, Level};
+
         if log_enabled!(Level::Debug) {
             $name.as_mut().unwrap().push_str(&format!($($args)*))
         };
-    }
+    }}
 }
 pub(crate) use debug_buf;
 
 macro_rules! bolt_debug_extra {
     ($meta:expr, $local_port:expr) => {
         'a: {
-            let meta = $meta;
-            // ugly format because rust-fmt is broken
-            let Ok(meta) = meta else {
-                break 'a dbg_extra($local_port, Some("!!!!"));
-            };
-            let Some(ValueReceive::String(id)) = meta.get("connection_id") else {
-                break 'a dbg_extra($local_port, None);
-            };
-            dbg_extra($local_port, Some(id))
+            {
+                #![allow(unused_imports)]
+                use crate::driver::io::bolt::dbg_extra;
+
+                use crate::value::ValueReceive;
+
+                let meta = $meta;
+                let Ok(meta) = meta else {
+                    break 'a dbg_extra($local_port, Some("!!!!"));
+                };
+                let Some(ValueReceive::String(id)) = meta.get("connection_id") else {
+                    break 'a dbg_extra($local_port, None);
+                };
+                dbg_extra($local_port, Some(id))
+            }
         }
     };
 }
 pub(crate) use bolt_debug_extra;
 
 macro_rules! debug_buf_end {
-    ($bolt:expr, $name:ident) => {
+    ($bolt:expr, $name:ident) => {{
+        #![allow(unused_imports)]
+        use log::debug;
+
+        use crate::driver::io::bolt::bolt_debug_extra;
+
         debug!(
             "{}{}",
             bolt_debug_extra!($bolt.meta.try_borrow(), $bolt.local_port),
             $name.as_ref().map(|s| s.as_str()).unwrap_or("")
         );
-    };
+    }};
 }
 pub(crate) use debug_buf_end;
 
 macro_rules! bolt_debug {
-    ($bolt:expr, $($args:tt)+) => {
+    ($bolt:expr, $($args:tt)+) => {{
+        #![allow(unused_imports)]
+        use log::debug;
+
+        use crate::driver::io::bolt::bolt_debug_extra;
+
         debug!(
             "{}{}",
             bolt_debug_extra!($bolt.meta.try_borrow(), $bolt.local_port),
             format!($($args)*)
         );
-    };
+    }};
 }
 pub(crate) use bolt_debug;
 
 macro_rules! socket_debug {
-    ($local_port:expr, $($args:tt)+) => {
+    ($local_port:expr, $($args:tt)+) => {{
+        #![allow(unused_imports)]
+        use log::debug;
+
+        use crate::driver::io::bolt::dbg_extra;
+
         debug!(
             "{}{}",
             dbg_extra(Some($local_port), None),
             format!($($args)*)
         );
-    };
+    }};
 }
 pub(crate) use socket_debug;
 
@@ -179,6 +209,7 @@ impl<RW: Read + Write> Bolt<RW> {
             data: BoltData::new(version, stream, socket, local_port, address),
             // [bolt-version-bump] search tag when changing bolt version support
             protocol: match version {
+                (5, 8) => Bolt5x8::<Bolt5x8StructTranslator>::default().into(),
                 (5, 7) => Bolt5x7::<Bolt5x7StructTranslator>::default().into(),
                 (5, 6) => Bolt5x6::<Bolt5x6StructTranslator>::default().into(),
                 (5, 4) => Bolt5x4::<Bolt5x4StructTranslator>::default().into(),
@@ -392,6 +423,10 @@ impl<RW: Read + Write> Bolt<RW> {
         self.data.set_telemetry_enabled(enabled)
     }
 
+    pub(crate) fn ssr_enabled(&self) -> bool {
+        self.data.ssr_enabled()
+    }
+
     #[inline(always)]
     pub(crate) fn debug_log(&self, msg: impl FnOnce() -> String) {
         bolt_debug!(self.data, "{}", msg());
@@ -496,6 +531,7 @@ enum BoltProtocolVersion {
     V5x4(Bolt5x4<Bolt5x4StructTranslator>),
     V5x6(Bolt5x6<Bolt5x6StructTranslator>),
     V5x7(Bolt5x7<Bolt5x7StructTranslator>),
+    V5x8(Bolt5x8<Bolt5x8StructTranslator>),
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -517,6 +553,7 @@ pub(crate) struct BoltData<RW: Read + Write> {
     meta: Arc<AtomicRefCell<HashMap<String, ValueReceive>>>,
     server_agent: Arc<AtomicRefCell<Arc<String>>>,
     telemetry_enabled: Arc<AtomicRefCell<bool>>,
+    ssr_enabled: Arc<AtomicRefCell<bool>>,
     address: Arc<Address>,
     last_qid: Arc<AtomicRefCell<Option<i64>>>,
     auth: Option<Arc<AuthToken>>,
@@ -547,6 +584,7 @@ impl<RW: Read + Write> BoltData<RW> {
             meta: Default::default(),
             server_agent: Default::default(),
             telemetry_enabled: Default::default(),
+            ssr_enabled: Default::default(),
             address,
             last_qid: Default::default(),
             auth: None,
@@ -713,6 +751,10 @@ impl<RW: Read + Write> BoltData<RW> {
 
     fn set_telemetry_enabled(&mut self, enabled: bool) {
         *self.telemetry_enabled.borrow_mut() = enabled;
+    }
+
+    fn ssr_enabled(&self) -> bool {
+        *(*self.ssr_enabled).borrow()
     }
 }
 

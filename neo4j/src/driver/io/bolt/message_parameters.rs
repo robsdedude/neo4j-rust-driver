@@ -76,7 +76,7 @@ impl ResetParameters {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct RunParameters<'a, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug> {
     pub(super) query: &'a str,
     pub(super) parameters: Option<&'a HashMap<KP, ValueSend>>,
@@ -159,13 +159,13 @@ impl PullParameters {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct BeginParameters<'a, K: Borrow<str> + Debug> {
     pub(super) bookmarks: Option<&'a Bookmarks>,
     pub(super) tx_timeout: Option<i64>,
     pub(super) tx_metadata: Option<&'a HashMap<K, ValueSend>>,
     pub(super) mode: Option<&'a str>,
-    pub(super) db: Option<&'a str>,
+    pub(super) db: Option<Arc<String>>,
     pub(super) imp_user: Option<&'a str>,
     pub(super) notification_filter: &'a NotificationFilter,
 }
@@ -176,7 +176,7 @@ impl<'a, K: Borrow<str> + Debug> BeginParameters<'a, K> {
         tx_timeout: Option<i64>,
         tx_metadata: Option<&'a HashMap<K, ValueSend>>,
         mode: Option<&'a str>,
-        db: Option<&'a str>,
+        db: Option<Arc<String>>,
         imp_user: Option<&'a str>,
         notification_filter: &'a NotificationFilter,
     ) -> Self {

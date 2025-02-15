@@ -18,7 +18,7 @@ use std::fmt::Debug;
 use std::io::{Read, Write};
 
 use crate::error::ServerError;
-use log::{debug, warn};
+use log::warn;
 
 use super::super::bolt5x6::Bolt5x6;
 use super::super::bolt_common::ServerAwareBoltVersion;
@@ -30,8 +30,8 @@ use super::super::message_parameters::{
 };
 use super::super::response::BoltMeta;
 use super::super::{
-    assert_response_field_count, bolt_debug, bolt_debug_extra, dbg_extra, BoltData, BoltProtocol,
-    BoltStructTranslator, OnServerErrorCb, ResponseCallbacks,
+    assert_response_field_count, bolt_debug, BoltData, BoltProtocol, BoltStructTranslator,
+    OnServerErrorCb, ResponseCallbacks,
 };
 use crate::error_::Result;
 use crate::value::ValueReceive;

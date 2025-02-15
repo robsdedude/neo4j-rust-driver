@@ -87,13 +87,13 @@ impl<'tcp, S: Read + Write> DeadlineIO<'tcp, S> {
         };
         let old_timeout =
             self.wrap_io_error(get_socket_timeout(socket), ReaderErrorDuring::GetTimeout)?;
-        let timeout = match deadline.checked_duration_since(Instant::now()) {
-            // deadline in the past
-            // => we set a tiny timeout to trigger a timeout error on pretty much any blocking
-            None => Duration::from_nanos(1),
-            // deadline in the future
-            Some(timeout) => timeout,
-        };
+        let timeout = deadline
+            .checked_duration_since(Instant::now())
+            .unwrap_or_else(|| {
+                // deadline in the past
+                // => we set a tiny timeout to trigger a timeout error on pretty much any blocking
+                Duration::from_nanos(1)
+            });
         if let Some(old_timeout) = old_timeout {
             if timeout >= old_timeout {
                 let res = work(self);

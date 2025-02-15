@@ -25,23 +25,25 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::result::Result as StdResult;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use log::{debug, info};
 
 use super::config::auth::AuthToken;
+use super::home_db_cache::{HomeDbCache, HomeDbCacheKey};
 use super::io::bolt::message_parameters::{
     BeginParameters, RunParameters, TelemetryAPI, TelemetryParameters,
 };
-use super::io::bolt::ResponseCallbacks;
-use super::io::{AcquireConfig, Pool, PooledBolt, UpdateRtArgs};
+use super::io::bolt::{BoltMeta, ResponseCallbacks};
+use super::io::{AcquireConfig, Pool, PooledBolt, UpdateRtArgs, UpdateRtDb};
 use super::record_stream::{ErrorPropagator, RecordStream, SharedErrorPropagator};
 use super::transaction::{Transaction, TransactionTimeout};
 use super::{EagerResult, ReducedDriverConfig, RoutingControl};
 use crate::driver::io::SessionAuth;
 use crate::error_::{Neo4jError, Result};
+use crate::time::Instant;
 use crate::transaction::InnerTransaction;
-use crate::value::ValueSend;
+use crate::value::{ValueReceive, ValueSend};
 use bookmarks::{bookmark_managers, BookmarkManager, Bookmarks};
 use config::InternalSessionConfig;
 pub use config::SessionConfig;
@@ -75,25 +77,35 @@ use super::Driver;
 pub struct Session<'driver> {
     config: InternalSessionConfig,
     pool: &'driver Pool,
+    home_db_cache: Arc<HomeDbCache>,
     driver_config: &'driver ReducedDriverConfig,
-    resolved_db: Option<Arc<String>>,
+    target_db: Arc<AtomicRefCell<SessionTargetDb>>,
+    home_db_cache_key: OnceLock<HomeDbCacheKey>,
     session_bookmarks: SessionBookmarks,
+    current_acquisition_deadline: Option<Instant>,
 }
 
 impl<'driver> Session<'driver> {
-    pub(crate) fn new(
+    pub(super) fn new(
         config: InternalSessionConfig,
         pool: &'driver Pool,
+        home_db_cache: Arc<HomeDbCache>,
         driver_config: &'driver ReducedDriverConfig,
     ) -> Self {
         let bookmarks = config.config.bookmarks.clone();
         let manager = config.config.as_ref().bookmark_manager.clone();
+        let target_db = Arc::new(AtomicRefCell::new(SessionTargetDb::new_init(
+            config.config.database.clone(),
+        )));
         Session {
             config,
             pool,
+            home_db_cache,
             driver_config,
-            resolved_db: None,
+            target_db,
+            home_db_cache_key: Default::default(),
             session_bookmarks: SessionBookmarks::new(bookmarks, manager),
+            current_acquisition_deadline: None,
         }
     }
 
@@ -147,23 +159,27 @@ impl<'driver> Session<'driver> {
             true,
             None,
         );
+        let target_db = AtomicRefCell::borrow(&self.target_db).as_db();
         let res = record_stream
-            .run(RunParameters::new_auto_commit_run(
-                builder.query.as_ref(),
-                Some(builder.param.borrow()),
-                Some(&*self.session_bookmarks.get_bookmarks_for_work()?),
-                builder.timeout.raw(),
-                Some(builder.meta.borrow()),
-                builder.mode.as_protocol_str(),
-                self.resolved_db().as_ref().map(|db| db.as_str()),
-                self.config
-                    .config
-                    .as_ref()
-                    .impersonated_user
-                    .as_ref()
-                    .map(|imp| imp.as_str()),
-                &self.config.config.notification_filter,
-            ))
+            .run(
+                RunParameters::new_auto_commit_run(
+                    builder.query.as_ref(),
+                    Some(builder.param.borrow()),
+                    Some(&*self.session_bookmarks.get_bookmarks_for_work()?),
+                    builder.timeout.raw(),
+                    Some(builder.meta.borrow()),
+                    builder.mode.as_protocol_str(),
+                    target_db.as_deref().map(String::as_str),
+                    self.config
+                        .config
+                        .as_ref()
+                        .impersonated_user
+                        .as_ref()
+                        .map(|imp| imp.as_str()),
+                    &self.config.config.notification_filter,
+                ),
+                Some(Box::new(self.make_db_meta_resolution_cb())),
+            )
             .and_then(|_| (builder.receiver)(&mut record_stream));
         let res = match res {
             Ok(r) => {
@@ -228,7 +244,7 @@ impl<'driver> Session<'driver> {
             builder.timeout.raw(),
             Some(builder.meta.borrow()),
             builder.mode.as_protocol_str(),
-            self.resolved_db().as_ref().map(|db| db.as_str()),
+            AtomicRefCell::borrow(&self.target_db).as_db(),
             self.config
                 .config
                 .impersonated_user
@@ -236,10 +252,18 @@ impl<'driver> Session<'driver> {
                 .map(|imp| imp.as_str()),
             &self.config.config.notification_filter,
         );
+
         tx.begin(
             parameters,
             self.config.eager_begin,
             ResponseCallbacks::new()
+                .with_on_success({
+                    let db_cb = self.make_db_meta_resolution_cb();
+                    move |mut meta| {
+                        db_cb(&mut meta);
+                        Ok(())
+                    }
+                })
                 .with_on_failure(ErrorPropagator::make_on_error_cb(error_propagator)),
         )?;
         let res = receiver(Transaction::new(&mut tx));
@@ -267,9 +291,38 @@ impl<'driver> Session<'driver> {
     }
 
     fn resolve_db(&mut self) -> Result<()> {
-        if self.resolved_db().is_none() && self.pool.is_routing() {
-            debug!("Resolving home db");
-            self.resolved_db = self.pool.resolve_home_db(UpdateRtArgs {
+        let mut target_db = AtomicRefCell::borrow_mut(&self.target_db);
+        if target_db.pinned
+            || target_db
+                .target
+                .as_ref()
+                .map(|t| !t.guess)
+                .unwrap_or_default()
+            || !self.pool.is_routing()
+        {
+            debug!(
+                "Targeting fixed db: {:?}",
+                target_db.target.as_ref().map(|t| t.db.as_str())
+            );
+            target_db.pinned = true;
+            return Ok(());
+        }
+        if self.pool.ssr_enabled() {
+            if let Some(cached_db) = self.home_db_cache.get(self.home_db_cache_key()) {
+                debug!("Targeting cached home db: {:?}", cached_db.as_str());
+                *target_db = SessionTargetDb::new_guess(cached_db);
+                return Ok(());
+            }
+        }
+        drop(target_db);
+
+        self.resolve_db_forced()
+    }
+
+    fn resolve_db_forced(&mut self) -> Result<()> {
+        debug!("Resolving home db");
+        self.pool
+            .resolve_home_db(UpdateRtArgs {
                 db: None,
                 bookmarks: Some(&*self.session_bookmarks.get_bookmarks_for_work()?),
                 imp_user: self
@@ -279,40 +332,132 @@ impl<'driver> Session<'driver> {
                     .as_ref()
                     .map(|imp| imp.as_str()),
                 session_auth: self.session_auth(),
+                deadline: self.current_acquisition_deadline,
                 idle_time_before_connection_test: self.config.idle_time_before_connection_test,
-            })?;
-            debug!("Resolved home db to {:?}", &self.resolved_db);
-        }
-        Ok(())
+                db_resolution_cb: Some(&self.make_db_resolution_cb()),
+            })
+            .map(|_| ())
     }
 
-    #[inline]
-    fn resolved_db(&self) -> &Option<Arc<String>> {
-        match self.resolved_db {
-            None => &self.config.config.database,
-            Some(_) => &self.resolved_db,
+    fn make_db_meta_resolution_cb(&self) -> impl Fn(&mut BoltMeta) + Send + Sync + 'static {
+        let base_cb = self.make_db_resolution_cb();
+        move |meta| {
+            let db = match meta.remove("db") {
+                Some(ValueReceive::String(db)) => Some(Arc::new(db)),
+                _ => None,
+            };
+            base_cb(db);
         }
+    }
+
+    fn make_db_resolution_cb_if_needed(
+        &self,
+    ) -> Option<impl Fn(Option<Arc<String>>) + Send + Sync + 'static> {
+        if !self.pool.is_routing() {
+            return None;
+        }
+        {
+            let target_db = AtomicRefCell::borrow(&self.target_db);
+            if target_db.pinned || !target_db.target.as_ref().map(|t| t.guess).unwrap_or(true) {
+                return None;
+            }
+        };
+        Some(self.make_db_resolution_cb())
+    }
+
+    fn make_db_resolution_cb(&self) -> impl Fn(Option<Arc<String>>) + Send + Sync + 'static {
+        let cache = Arc::clone(&self.home_db_cache);
+        let target_db = Arc::clone(&self.target_db);
+        let key = self.home_db_cache_key().clone();
+        move |db| {
+            if let Some(db) = db.as_ref() {
+                cache.update(key.clone(), Arc::clone(db));
+            }
+            {
+                let mut target_db = AtomicRefCell::borrow_mut(&target_db);
+                if !target_db.pinned {
+                    debug!("Pinning db: {:?}", db.as_ref().map(|d| d.as_str()));
+                    *target_db = SessionTargetDb::new_pinned(db);
+                }
+            }
+        }
+    }
+
+    fn home_db_cache_key(&self) -> &HomeDbCacheKey {
+        self.home_db_cache_key.get_or_init(|| {
+            HomeDbCacheKey::new(
+                self.config.config.impersonated_user.as_ref(),
+                self.config.config.auth.as_ref(),
+            )
+        })
     }
 
     pub(super) fn acquire_connection(
         &mut self,
         mode: RoutingControl,
     ) -> Result<PooledBolt<'driver>> {
+        self.acquire_connection_args(mode, AcquireArgs::default())
+    }
+
+    fn acquire_connection_args(
+        &mut self,
+        mode: RoutingControl,
+        args: AcquireArgs,
+    ) -> Result<PooledBolt<'driver>> {
+        self.current_acquisition_deadline = self.pool.config.connection_acquisition_deadline();
         self.resolve_db()?;
         let bookmarks = self.session_bookmarks.get_bookmarks_for_work()?;
+        let target = AtomicRefCell::borrow(&self.target_db).target.clone();
+        let connection = self.no_resolve_acquire_connection(
+            mode,
+            Some(&*bookmarks),
+            target.as_ref(),
+            args.session_auth.unwrap_or_else(|| self.session_auth()),
+        )?;
+        if target.as_ref().map(|t| t.guess).unwrap_or_default() && !connection.ssr_enabled() {
+            debug!(
+                "Used db cached, received connection without SSR => \
+                    returning connection and falling back to explicit db resolution"
+            );
+            drop(connection);
+            self.resolve_db_forced()?;
+            let target = AtomicRefCell::borrow(&self.target_db).target.clone();
+            self.no_resolve_acquire_connection(
+                mode,
+                Some(&*bookmarks),
+                target.as_ref(),
+                args.session_auth.unwrap_or_else(|| self.session_auth()),
+            )
+        } else {
+            Ok(connection)
+        }
+    }
+
+    fn no_resolve_acquire_connection(
+        &self,
+        mode: RoutingControl,
+        bookmarks: Option<&Bookmarks>,
+        db: Option<&UpdateRtDb>,
+        session_auth: SessionAuth,
+    ) -> Result<PooledBolt<'driver>> {
         self.pool.acquire(AcquireConfig {
             mode,
             update_rt_args: UpdateRtArgs {
-                db: self.resolved_db().as_ref(),
-                bookmarks: Some(&*bookmarks),
+                db,
+                bookmarks,
                 imp_user: self
                     .config
                     .config
                     .impersonated_user
                     .as_ref()
                     .map(|imp| imp.as_str()),
-                session_auth: self.session_auth(),
+                session_auth,
+                deadline: self.current_acquisition_deadline,
                 idle_time_before_connection_test: self.config.idle_time_before_connection_test,
+                db_resolution_cb: self
+                    .make_db_resolution_cb_if_needed()
+                    .as_ref()
+                    .map(|cb| cb as _),
             },
         })
     }
@@ -338,23 +483,10 @@ impl<'driver> Session<'driver> {
     }
 
     fn forced_auth(&mut self, auth: &Arc<AuthToken>) -> Result<()> {
-        self.resolve_db()?;
-        let bookmarks = self.session_bookmarks.get_bookmarks_for_work()?;
-        let mut connection = self.pool.acquire(AcquireConfig {
-            mode: RoutingControl::Read,
-            update_rt_args: UpdateRtArgs {
-                db: self.resolved_db().as_ref(),
-                bookmarks: Some(&*bookmarks),
-                imp_user: self
-                    .config
-                    .config
-                    .impersonated_user
-                    .as_ref()
-                    .map(|imp| imp.as_str()),
-                session_auth: SessionAuth::Forced(auth),
-                idle_time_before_connection_test: self.config.idle_time_before_connection_test,
-            },
-        })?;
+        let args = AcquireArgs {
+            session_auth: Some(SessionAuth::Forced(auth)),
+        };
+        let mut connection = self.acquire_connection_args(RoutingControl::Read, args)?;
         connection.write_all(None)?;
         connection.read_all(None)
     }
@@ -1133,5 +1265,47 @@ impl SessionBookmarks {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+struct AcquireArgs<'a> {
+    session_auth: Option<SessionAuth<'a>>,
+}
+
+#[derive(Debug, Default)]
+struct SessionTargetDb {
+    target: Option<UpdateRtDb>,
+    pinned: bool,
+}
+
+impl SessionTargetDb {
+    fn new_init(target: Option<Arc<String>>) -> Self {
+        Self {
+            target: target.map(|db| UpdateRtDb { db, guess: false }),
+            pinned: false,
+        }
+    }
+
+    fn new_guess(db: Arc<String>) -> Self {
+        Self {
+            target: Some(UpdateRtDb { db, guess: true }),
+            pinned: false,
+        }
+    }
+
+    fn new_pinned(target: Option<Arc<String>>) -> Self {
+        Self {
+            target: target.map(|db| UpdateRtDb { db, guess: false }),
+            pinned: true,
+        }
+    }
+
+    fn as_db(&self) -> Option<Arc<String>> {
+        if self.pinned || self.target.as_ref().map(|t| !t.guess).unwrap_or_default() {
+            self.target.as_ref().map(|t| Arc::clone(&t.db))
+        } else {
+            None
+        }
     }
 }

@@ -22,7 +22,7 @@ use std::net::TcpStream;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use log::{debug, log_enabled, warn, Level};
+use log::warn;
 
 use super::super::bolt5x0::Bolt5x0;
 use super::super::bolt5x2::Bolt5x2;
@@ -38,9 +38,8 @@ use super::super::packstream::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
 use super::super::{
-    bolt_debug_extra, dbg_extra, debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltMeta,
-    BoltProtocol, BoltResponse, BoltStructTranslator, OnServerErrorCb, ResponseCallbacks,
-    ResponseMessage,
+    debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltMeta, BoltProtocol, BoltResponse,
+    BoltStructTranslator, OnServerErrorCb, ResponseCallbacks, ResponseMessage,
 };
 use crate::error_::Result;
 use crate::value::ValueReceive;

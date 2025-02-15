@@ -114,9 +114,7 @@ pub(super) enum ServerAwareBoltVersion {
     V5x3,
     V5x4,
     V5x6,
-    #[allow(dead_code)] // bolt versions exists, not yet implemented
     V5x7,
-    #[allow(dead_code)]
     V5x8,
 }
 
@@ -124,30 +122,29 @@ impl ServerAwareBoltVersion {
     #[inline]
     fn protocol_version(&self) -> &'static str {
         match self {
-            ServerAwareBoltVersion::V4x4 => "4.4",
-            ServerAwareBoltVersion::V5x0 => "5.0",
-            ServerAwareBoltVersion::V5x1 => "5.1",
-            ServerAwareBoltVersion::V5x2 => "5.2",
-            ServerAwareBoltVersion::V5x3 => "5.3",
-            ServerAwareBoltVersion::V5x4 => "5.4",
-            ServerAwareBoltVersion::V5x6 => "5.6",
-            ServerAwareBoltVersion::V5x7 => "5.7",
-            ServerAwareBoltVersion::V5x8 => "5.8",
+            Self::V4x4 => "4.4",
+            Self::V5x0 => "5.0",
+            Self::V5x1 => "5.1",
+            Self::V5x2 => "5.2",
+            Self::V5x3 => "5.3",
+            Self::V5x4 => "5.4",
+            Self::V5x6 => "5.6",
+            Self::V5x7 => "5.7",
+            Self::V5x8 => "5.8",
         }
     }
 
     #[inline]
     fn min_server_version(&self) -> &'static str {
         match self {
-            ServerAwareBoltVersion::V4x4 => "4.4",
-            ServerAwareBoltVersion::V5x0 => "5.0",
-            ServerAwareBoltVersion::V5x1 => "5.5",
-            ServerAwareBoltVersion::V5x2 => "5.7",
-            ServerAwareBoltVersion::V5x3 => "5.9",
-            ServerAwareBoltVersion::V5x4 => "5.13",
-            ServerAwareBoltVersion::V5x6 => "5.23",
-            ServerAwareBoltVersion::V5x7 => "5.26",
-            ServerAwareBoltVersion::V5x8 => "5.26",
+            Self::V4x4 => "4.4",
+            Self::V5x0 => "5.0",
+            Self::V5x1 => "5.5",
+            Self::V5x2 => "5.7",
+            Self::V5x3 => "5.9",
+            Self::V5x4 => "5.13",
+            Self::V5x6 => "5.23",
+            Self::V5x7 | Self::V5x8 => "5.26",
         }
     }
 }

@@ -44,6 +44,8 @@ pub struct RecordStream<'driver> {
     listener: Arc<AtomicRefCell<RecordListener>>,
 }
 
+type BoltMetaCb = Box<dyn FnMut(&mut BoltMeta) + Send + Sync + 'static>;
+
 impl<'driver> RecordStream<'driver> {
     pub(crate) fn new(
         connection: Rc<RefCell<PooledBolt<'driver>>>,
@@ -71,6 +73,7 @@ impl<'driver> RecordStream<'driver> {
     pub(crate) fn run<KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
         &mut self,
         parameters: RunParameters<KP, KM>,
+        mut db_resolution_cb: Option<BoltMetaCb>,
     ) -> Result<()> {
         if let RecordListenerState::ForeignError(e) = &(*self.listener).borrow().state {
             return Err(Neo4jError::ServerError {
@@ -80,7 +83,10 @@ impl<'driver> RecordStream<'driver> {
 
         let mut callbacks = self.failure_callbacks();
         let listener = Arc::downgrade(&self.listener);
-        callbacks = callbacks.with_on_success(move |meta| {
+        callbacks = callbacks.with_on_success(move |mut meta| {
+            if let Some(db_resolution_cb) = db_resolution_cb.as_mut() {
+                db_resolution_cb(&mut meta)
+            }
             if let Some(listener) = listener.upgrade() {
                 return listener.borrow_mut().run_success_cb(meta);
             }
