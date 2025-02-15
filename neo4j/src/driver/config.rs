@@ -795,7 +795,7 @@ impl ConnectionConfig {
                 }
             }
             Some(query) => {
-                if query == "" {
+                if query.is_empty() {
                     Some(HashMap::new())
                 } else {
                     if !routing {

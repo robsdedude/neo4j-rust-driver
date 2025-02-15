@@ -34,7 +34,7 @@ jobs:
       - name: cargo fmt
         run: cargo +nightly fmt --all -- --check
       - name: clippy all
-        run: cargo clippy --all --all-features -- -D warnings
+        run: cargo clippy --all --all-features --tests -- -D warnings
       - name: clippy driver
         run: cargo clippy -p neo4j -- -D warnings
       - name:  Check exported dependencies
