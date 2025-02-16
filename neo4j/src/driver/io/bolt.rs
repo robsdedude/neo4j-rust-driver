@@ -23,6 +23,7 @@ mod bolt5x4;
 mod bolt5x6;
 mod bolt5x7;
 mod bolt5x8;
+mod bolt_handler;
 mod bolt_state;
 mod chunk;
 mod handshake;
@@ -51,7 +52,6 @@ use usize_cast::FromUsize;
 use super::deadline::DeadlineIO;
 use crate::address_::Address;
 use crate::driver::auth::AuthToken;
-use crate::driver::io::bolt::message_parameters::ResetParameters;
 use crate::error_::{Neo4jError, Result, ServerError};
 use crate::time::Instant;
 use crate::value::{ValueReceive, ValueSend};
@@ -64,14 +64,20 @@ use bolt5x4::{Bolt5x4, Bolt5x4StructTranslator};
 use bolt5x6::{Bolt5x6, Bolt5x6StructTranslator};
 use bolt5x7::{Bolt5x7, Bolt5x7StructTranslator};
 use bolt5x8::{Bolt5x8, Bolt5x8StructTranslator};
+use bolt_common::ServerAwareBoltVersion;
+use bolt_handler::{
+    BeginHandler, CommitHandler, DiscardHandler, GoodbyeHandler, HandleResponseHandler,
+    HelloHandler, LoadValueHandler, PullHandler, ReauthHandler, ResetHandler, RollbackHandler,
+    RouteHandler, RunHandler, TelemetryHandler,
+};
 use bolt_state::{BoltState, BoltStateTracker};
 use chunk::{Chunker, Dechunker};
 pub(crate) use handshake::{open, TcpConnector};
 use message::BoltMessage;
 use message_parameters::{
     BeginParameters, CommitParameters, DiscardParameters, GoodbyeParameters, HelloParameters,
-    PullParameters, ReauthParameters, RollbackParameters, RouteParameters, RunParameters,
-    TelemetryParameters,
+    PullParameters, ReauthParameters, ResetParameters, RollbackParameters, RouteParameters,
+    RunParameters, TelemetryParameters,
 };
 use packstream::PackStreamSerializer;
 pub(crate) use response::{
@@ -194,7 +200,7 @@ pub(crate) type OnServerErrorCb<'a, 'b, RW> =
 #[derive(Debug)]
 pub(crate) struct Bolt<RW: Read + Write> {
     data: BoltData<RW>,
-    protocol: BoltProtocolVersion,
+    protocol: BoltProtocol,
 }
 
 impl<RW: Read + Write> Bolt<RW> {
@@ -205,22 +211,54 @@ impl<RW: Read + Write> Bolt<RW> {
         local_port: Option<u16>,
         address: Arc<Address>,
     ) -> Self {
-        Self {
-            data: BoltData::new(version, stream, socket, local_port, address),
-            // [bolt-version-bump] search tag when changing bolt version support
-            protocol: match version {
-                (5, 8) => Bolt5x8::<Bolt5x8StructTranslator>::default().into(),
-                (5, 7) => Bolt5x7::<Bolt5x7StructTranslator>::default().into(),
-                (5, 6) => Bolt5x6::<Bolt5x6StructTranslator>::default().into(),
-                (5, 4) => Bolt5x4::<Bolt5x4StructTranslator>::default().into(),
-                (5, 3) => Bolt5x3::<Bolt5x3StructTranslator>::default().into(),
-                (5, 2) => Bolt5x2::<Bolt5x2StructTranslator>::default().into(),
-                (5, 1) => Bolt5x1::<Bolt5x1StructTranslator>::default().into(),
-                (5, 0) => Bolt5x0::<Bolt5x0StructTranslator>::default().into(),
-                (4, 4) => Bolt4x4::<Bolt4x4StructTranslator>::default().into(),
-                _ => panic!("implement protocol for version {:?}", version),
-            },
-        }
+        let (protocol_version, protocol) = match version {
+            (5, 8) => (
+                ServerAwareBoltVersion::V5x8,
+                Bolt5x8::<Bolt5x0StructTranslator>::default().into(),
+            ),
+            (5, 7) => (
+                ServerAwareBoltVersion::V5x7,
+                Bolt5x7::<Bolt5x0StructTranslator>::default().into(),
+            ),
+            (5, 6) => (
+                ServerAwareBoltVersion::V5x6,
+                Bolt5x6::<Bolt5x0StructTranslator>::default().into(),
+            ),
+            (5, 4) => (
+                ServerAwareBoltVersion::V5x4,
+                Bolt5x4::<Bolt5x0StructTranslator>::default().into(),
+            ),
+            (5, 3) => (
+                ServerAwareBoltVersion::V5x3,
+                Bolt5x3::<Bolt5x0StructTranslator>::default().into(),
+            ),
+            (5, 2) => (
+                ServerAwareBoltVersion::V5x2,
+                Bolt5x2::<Bolt5x0StructTranslator>::default().into(),
+            ),
+            (5, 1) => (
+                ServerAwareBoltVersion::V5x1,
+                Bolt5x1::<Bolt5x0StructTranslator>::default().into(),
+            ),
+            (5, 0) => (
+                ServerAwareBoltVersion::V5x0,
+                Bolt5x0::<Bolt5x0StructTranslator>::default().into(),
+            ),
+            (4, 4) => (
+                ServerAwareBoltVersion::V4x4,
+                Bolt4x4::<Bolt4x4StructTranslator>::default().into(),
+            ),
+            _ => panic!("implement protocol for version {:?}", version),
+        };
+        let data = BoltData::new(
+            version,
+            protocol_version,
+            stream,
+            socket,
+            local_port,
+            address,
+        );
+        Self { data, protocol }
     }
 
     pub(crate) fn close(&mut self) {
@@ -439,90 +477,25 @@ impl<RW: Read + Write> Drop for Bolt<RW> {
     }
 }
 
-#[enum_dispatch]
-trait BoltProtocol: Debug {
-    fn hello<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: HelloParameters,
-    ) -> Result<()>;
-    fn reauth<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: ReauthParameters,
-    ) -> Result<()>;
-    fn supports_reauth(&self) -> bool;
-    fn goodbye<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: GoodbyeParameters,
-    ) -> Result<()>;
-    fn reset<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: ResetParameters,
-    ) -> Result<()>;
-    fn run<RW: Read + Write, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: RunParameters<KP, KM>,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()>;
-    fn discard<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: DiscardParameters,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()>;
-    fn pull<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: PullParameters,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()>;
-    fn begin<RW: Read + Write, K: Borrow<str> + Debug>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: BeginParameters<K>,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()>;
-    fn commit<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: CommitParameters,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()>;
-    fn rollback<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: RollbackParameters,
-    ) -> Result<()>;
-    fn route<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: RouteParameters,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()>;
-    fn telemetry<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: TelemetryParameters,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()>;
-
-    fn load_value<R: Read>(&mut self, reader: &mut R) -> Result<ValueReceive>;
-    fn handle_response<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        message: BoltMessage<ValueReceive>,
-        on_server_error: OnServerErrorCb<RW>,
-    ) -> Result<()>;
-}
-
 // [bolt-version-bump] search tag when changing bolt version support
-#[enum_dispatch(BoltProtocol)]
+#[enum_dispatch(
+    HelloHandler,
+    BeginHandler,
+    CommitHandler,
+    DiscardHandler,
+    GoodbyeHandler,
+    PullHandler,
+    ReauthHandler,
+    ResetHandler,
+    RollbackHandler,
+    RouteHandler,
+    RunHandler,
+    TelemetryHandler,
+    HandleResponseHandler,
+    LoadValueHandler
+)]
 #[derive(Debug)]
-enum BoltProtocolVersion {
+enum BoltProtocol {
     V4x4(Bolt4x4<Bolt4x4StructTranslator>),
     V5x0(Bolt5x0<Bolt5x0StructTranslator>),
     V5x1(Bolt5x1<Bolt5x1StructTranslator>),
@@ -548,6 +521,7 @@ pub(crate) struct BoltData<RW: Read + Write> {
     socket: Arc<Option<TcpStream>>,
     local_port: Option<u16>,
     version: (u8, u8),
+    protocol_version: ServerAwareBoltVersion,
     connection_state: ConnectionState,
     bolt_state: BoltStateTracker,
     meta: Arc<AtomicRefCell<HashMap<String, ValueReceive>>>,
@@ -566,6 +540,7 @@ pub(crate) struct BoltData<RW: Read + Write> {
 impl<RW: Read + Write> BoltData<RW> {
     fn new(
         version: (u8, u8),
+        protocol_version: ServerAwareBoltVersion,
         stream: RW,
         socket: Arc<Option<TcpStream>>,
         local_port: Option<u16>,
@@ -579,6 +554,7 @@ impl<RW: Read + Write> BoltData<RW> {
             socket,
             local_port,
             version,
+            protocol_version,
             connection_state: ConnectionState::Healthy,
             bolt_state: BoltStateTracker::new(version),
             meta: Default::default(),
@@ -833,17 +809,4 @@ impl<T: BoltStructTranslator> BoltStructTranslator for Arc<AtomicRefCell<T>> {
 
 pub(crate) trait BoltStructTranslatorWithUtcPatch: BoltStructTranslator {
     fn enable_utc_patch(&mut self);
-}
-
-fn assert_response_field_count<T>(name: &str, fields: &[T], expected_count: usize) -> Result<()> {
-    if fields.len() == expected_count {
-        Ok(())
-    } else {
-        Err(Neo4jError::protocol_error(format!(
-            "{} response should have {} field(s) but found {:?}",
-            name,
-            expected_count,
-            fields.len()
-        )))
-    }
 }

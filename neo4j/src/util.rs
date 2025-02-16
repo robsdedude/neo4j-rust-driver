@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::ops::Deref;
+
 pub(crate) fn truncate_string(string: &str, start: usize, end: usize) -> &str {
     let mut chars = string.chars();
     for _ in 0..start {
@@ -38,6 +40,14 @@ impl<T> AsRef<T> for RefContainer<'_, T> {
             RefContainer::Owned(t) => t,
             RefContainer::Borrowed(t) => t,
         }
+    }
+}
+
+impl<T> Deref for RefContainer<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
     }
 }
 

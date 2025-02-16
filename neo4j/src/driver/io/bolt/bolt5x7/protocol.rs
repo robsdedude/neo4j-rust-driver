@@ -12,253 +12,42 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Borrow;
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::io::{Read, Write};
-
-use crate::error::ServerError;
-use log::warn;
-
-use super::super::bolt5x6::Bolt5x6;
-use super::super::bolt_common::ServerAwareBoltVersion;
-use super::super::message::BoltMessage;
-use super::super::message_parameters::{
-    BeginParameters, CommitParameters, DiscardParameters, GoodbyeParameters, HelloParameters,
-    PullParameters, ReauthParameters, ResetParameters, RollbackParameters, RouteParameters,
-    RunParameters, TelemetryParameters,
+use super::super::bolt_handler::{
+    begin_5x2::BeginHandler5x2, commit_5x0::CommitHandler5x0, goodbye_5x0::GoodbyeHandler5x0,
+    hello_5x4::HelloHandler5x4, impl_begin, impl_commit, impl_discard, impl_goodbye, impl_hello,
+    impl_load_value, impl_pull, impl_reauth, impl_reset, impl_response, impl_rollback, impl_route,
+    impl_run, impl_telemetry, pull_discard_5x6::DiscardHandler5x6,
+    pull_discard_5x6::PullHandler5x6, reauth_5x1::ReauthHandler5x1,
+    res_failure_5x7::ResultFailureHandler5x7, res_ignored_5x0::ResultIgnoredHandler5x0,
+    res_record_5x0::ResultRecordHandler5x0, res_success_5x0::ResultSuccessHandler5x0,
+    reset_5x0::ResetHandler5x0, rollback_5x0::RollbackHandler5x0, route_5x0::RouteHandler5x0,
+    run_5x6::RunHandler5x6, telemetry5x4::TelemetryHandler5x4,
 };
-use super::super::response::BoltMeta;
-use super::super::{
-    assert_response_field_count, bolt_debug, BoltData, BoltProtocol, BoltStructTranslator,
-    OnServerErrorCb, ResponseCallbacks,
-};
-use crate::error_::Result;
-use crate::value::ValueReceive;
-use crate::Neo4jError;
+use super::super::BoltStructTranslator;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct Bolt5x7<T: BoltStructTranslator> {
-    pub(in super::super) bolt5x6: Bolt5x6<T>,
+    translator: T,
 }
 
-impl<T: BoltStructTranslator> Bolt5x7<T> {
-    pub(in super::super) fn new(protocol_version: ServerAwareBoltVersion) -> Self {
-        Self {
-            bolt5x6: Bolt5x6::new(protocol_version),
-        }
-    }
-
-    pub(in super::super) fn try_parse_error(meta: ValueReceive) -> Result<ServerError> {
-        let meta = meta
-            .try_into_map()
-            .map_err(|_| Neo4jError::protocol_error("FAILURE meta was not a Dictionary"))?;
-        Ok(ServerError::from_meta_gql(meta))
-    }
-
-    pub(in super::super) fn enrich_failure_diag_record(mut meta: &mut BoltMeta) {
-        loop {
-            if let Some(diag_record) = meta
-                .entry(String::from("diagnostic_record"))
-                .or_insert_with(|| ValueReceive::Map(HashMap::with_capacity(3)))
-                .as_map_mut()
-            {
-                for (key, value) in &[
-                    ("OPERATION", ""),
-                    ("OPERATION_CODE", "0"),
-                    ("CURRENT_SCHEMA", "/"),
-                ] {
-                    diag_record
-                        .entry(String::from(*key))
-                        .or_insert_with(|| ValueReceive::String(String::from(*value)));
-                }
-            }
-            match meta.get_mut("cause").and_then(ValueReceive::as_map_mut) {
-                None => break,
-                Some(cause) => meta = cause,
-            };
-        }
-    }
-}
-
-impl<T: BoltStructTranslator> Default for Bolt5x7<T> {
-    fn default() -> Self {
-        Self::new(ServerAwareBoltVersion::V5x7)
-    }
-}
-
-impl<T: BoltStructTranslator> BoltProtocol for Bolt5x7<T> {
-    #[inline]
-    fn hello<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: HelloParameters,
-    ) -> Result<()> {
-        self.bolt5x6.hello(data, parameters)
-    }
-
-    #[inline]
-    fn reauth<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: ReauthParameters,
-    ) -> Result<()> {
-        self.bolt5x6.reauth(data, parameters)
-    }
-
-    #[inline]
-    fn supports_reauth(&self) -> bool {
-        self.bolt5x6.supports_reauth()
-    }
-
-    #[inline]
-    fn goodbye<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: GoodbyeParameters,
-    ) -> Result<()> {
-        self.bolt5x6.goodbye(data, parameters)
-    }
-
-    #[inline]
-    fn reset<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: ResetParameters,
-    ) -> Result<()> {
-        self.bolt5x6.reset(data, parameters)
-    }
-
-    #[inline]
-    fn run<RW: Read + Write, KP: Borrow<str> + Debug, KM: Borrow<str> + Debug>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: RunParameters<KP, KM>,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()> {
-        self.bolt5x6.run(data, parameters, callbacks)
-    }
-
-    #[inline]
-    fn discard<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: DiscardParameters,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()> {
-        self.bolt5x6.discard(data, parameters, callbacks)
-    }
-
-    #[inline]
-    fn pull<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: PullParameters,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()> {
-        self.bolt5x6.pull(data, parameters, callbacks)
-    }
-
-    #[inline]
-    fn begin<RW: Read + Write, K: Borrow<str> + Debug>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: BeginParameters<K>,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()> {
-        self.bolt5x6.begin(data, parameters, callbacks)
-    }
-
-    #[inline]
-    fn commit<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: CommitParameters,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()> {
-        self.bolt5x6.commit(data, parameters, callbacks)
-    }
-
-    #[inline]
-    fn rollback<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: RollbackParameters,
-    ) -> Result<()> {
-        self.bolt5x6.rollback(data, parameters)
-    }
-
-    #[inline]
-    fn route<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: RouteParameters,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()> {
-        self.bolt5x6.route(data, parameters, callbacks)
-    }
-
-    #[inline]
-    fn telemetry<RW: Read + Write>(
-        &mut self,
-        data: &mut BoltData<RW>,
-        parameters: TelemetryParameters,
-        callbacks: ResponseCallbacks,
-    ) -> Result<()> {
-        self.bolt5x6.telemetry(data, parameters, callbacks)
-    }
-
-    #[inline]
-    fn load_value<R: Read>(&mut self, reader: &mut R) -> Result<ValueReceive> {
-        self.bolt5x6.load_value(reader)
-    }
-
-    #[inline]
-    fn handle_response<RW: Read + Write>(
-        &mut self,
-        bolt_data: &mut BoltData<RW>,
-        message: BoltMessage<ValueReceive>,
-        on_server_error: OnServerErrorCb<RW>,
-    ) -> Result<()> {
-        match message {
-            BoltMessage {
-                tag: 0x7F,
-                mut fields,
-            } => {
-                // FAILURE
-                let mut response = bolt_data
-                    .responses
-                    .pop_front()
-                    .expect("called Bolt::read_one with empty response queue");
-
-                assert_response_field_count("FAILURE", &fields, 1)?;
-                let mut meta = fields.pop().unwrap();
-                bolt_debug!(bolt_data, "S: FAILURE {}", meta.dbg_print());
-                meta.as_map_mut().map(Self::enrich_failure_diag_record);
-                let mut error = Self::try_parse_error(meta)?;
-                bolt_data.bolt_state.failure();
-                match on_server_error {
-                    None => response.callbacks.on_failure(error),
-                    Some(cb) => {
-                        let res1 = cb(bolt_data, &mut error);
-                        let res2 = response.callbacks.on_failure(error);
-                        match res1 {
-                            Ok(()) => res2,
-                            Err(e1) => {
-                                if let Err(e2) = res2 {
-                                    warn!(
-                                        "server error swallowed because of user callback error: {e2}"
-                                    );
-                                }
-                                Err(e1)
-                            }
-                        }
-                    }
-                }
-            }
-            message => self
-                .bolt5x6
-                .handle_response(bolt_data, message, on_server_error),
-        }
-    }
-}
+impl_hello!((BoltStructTranslator), Bolt5x7<T>, HelloHandler5x4);
+impl_reauth!((BoltStructTranslator), Bolt5x7<T>, ReauthHandler5x1);
+impl_goodbye!((BoltStructTranslator), Bolt5x7<T>, GoodbyeHandler5x0);
+impl_reset!((BoltStructTranslator), Bolt5x7<T>, ResetHandler5x0);
+impl_run!((BoltStructTranslator), Bolt5x7<T>, RunHandler5x6);
+impl_discard!((BoltStructTranslator), Bolt5x7<T>, DiscardHandler5x6);
+impl_pull!((BoltStructTranslator), Bolt5x7<T>, PullHandler5x6);
+impl_begin!((BoltStructTranslator), Bolt5x7<T>, BeginHandler5x2);
+impl_commit!((BoltStructTranslator), Bolt5x7<T>, CommitHandler5x0);
+impl_rollback!((BoltStructTranslator), Bolt5x7<T>, RollbackHandler5x0);
+impl_route!((BoltStructTranslator), Bolt5x7<T>, RouteHandler5x0);
+impl_telemetry!((BoltStructTranslator), Bolt5x7<T>, TelemetryHandler5x4);
+impl_response!(
+    (BoltStructTranslator),
+    Bolt5x7<T>,
+    (0x70, ResultSuccessHandler5x0),
+    (0x7E, ResultIgnoredHandler5x0),
+    (0x7F, ResultFailureHandler5x7),
+    (0x71, ResultRecordHandler5x0)
+);
+impl_load_value!((BoltStructTranslator), Bolt5x7<T>);
