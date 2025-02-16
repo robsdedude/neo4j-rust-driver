@@ -80,7 +80,7 @@ A bump in MSRV is considered a minor breaking change.
      * [x] most basic functionality
      * [ ] ergonomic way to access by key
  * [x] Bookmark Management
- * [ ] Protocol Versions (including features introduced to the official drivers with each version)
+ * [x] Protocol Versions (including features introduced to the official drivers with each version)
    * [x] 4.4
    * [x] 5.0 (utc fix)
    * [x] 5.1 (re-auth)
@@ -92,7 +92,7 @@ A bump in MSRV is considered a minor breaking change.
    * [x] 5.7
      * [x] (GQL errors)
      * [x] (new bolt version handshake)
-   * [ ] 5.8 (home db resolution cache)
+   * [x] 5.8 (home db resolution cache)
  * [x] Types
    * [x] `Null`
    * [x] `Integer`
