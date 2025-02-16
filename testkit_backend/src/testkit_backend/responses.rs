@@ -18,7 +18,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
-use lazy_regex::Regex;
+use lazy_regex::{regex, Regex};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
@@ -126,10 +126,6 @@ fn get_plain_skipped_tests() -> &'static HashMap<&'static str, &'static str> {
         HashMap::from([
             // ("path.to.skipped_test", "reason"),
             (
-                "stub.summary.test_summary.TestSummaryNotifications4x4.test_no_notifications",
-                "An empty list is returned when there are no notifications",
-            ),
-            (
                 "stub.driver_parameters.test_connection_acquisition_timeout_ms.TestConnectionAcquisitionTimeoutMs.test_does_not_encompass_router_route_response",
                 "Pending driver unification: only some drivers consider a single connection acquisition timeout for all operations on acquisition (like fetching routing table) and some consider a separate timeout for each operation",
             ),
@@ -147,10 +143,10 @@ fn get_plain_skipped_tests() -> &'static HashMap<&'static str, &'static str> {
 
 fn get_regex_skipped_tests() -> &'static [(&'static Regex, &'static str)] {
     REGEX_SKIPPED_TESTS.get_or_init(|| {
-        vec![
-            // use lazy_regex::regex;
-            // (regex!(r"^test_.*$"), "reason"),
-        ]
+        vec![(
+            regex!(r"^stub\.summary\.test_summary\.TestSummaryNotifications4x4(Discard)?\.test_no_notifications$"),
+            "An empty list is returned when there are no notifications",
+        )]
     })
 }
 
