@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
-
 pub(crate) fn truncate_string(string: &str, start: usize, end: usize) -> &str {
     let mut chars = string.chars();
     for _ in 0..start {
@@ -27,28 +25,6 @@ pub(crate) fn truncate_string(string: &str, start: usize, end: usize) -> &str {
         }
     }
     chars.as_str()
-}
-
-pub(crate) enum RefContainer<'a, T> {
-    Owned(T),
-    Borrowed(&'a T),
-}
-
-impl<T> AsRef<T> for RefContainer<'_, T> {
-    fn as_ref(&self) -> &T {
-        match self {
-            RefContainer::Owned(t) => t,
-            RefContainer::Borrowed(t) => t,
-        }
-    }
-}
-
-impl<T> Deref for RefContainer<'_, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_ref()
-    }
 }
 
 macro_rules! concat_str {

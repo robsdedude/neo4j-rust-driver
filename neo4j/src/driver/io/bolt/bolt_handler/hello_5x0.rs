@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::mem;
@@ -34,7 +35,6 @@ use super::super::{
 };
 use super::common::{check_no_notification_filter, write_auth_entries, write_str_entry};
 use crate::error_::Result;
-use crate::util::RefContainer;
 use crate::value::{ValueReceive, ValueSend};
 
 pub(super) const SERVER_AGENT_KEY: &str = "server";
@@ -184,14 +184,14 @@ impl HelloHandler5x0 {
 
     pub(super) fn extract_connection_hints(
         meta: &BoltMeta,
-    ) -> RefContainer<'_, HashMap<String, ValueReceive>> {
+    ) -> Cow<'_, HashMap<String, ValueReceive>> {
         match meta.get(HINTS_KEY) {
-            Some(ValueReceive::Map(hints)) => RefContainer::Borrowed(hints),
+            Some(ValueReceive::Map(hints)) => Cow::Borrowed(hints),
             Some(value) => {
                 warn!("Server sent unexpected {HINTS_KEY} type {:?}", value);
-                RefContainer::Owned(HashMap::new())
+                Cow::Owned(HashMap::new())
             }
-            None => RefContainer::Owned(HashMap::new()),
+            None => Cow::Owned(HashMap::new()),
         }
     }
 
