@@ -21,7 +21,7 @@ For details of bolt protocol compatibility, see the [official Neo4j documentatio
 
 ### Basic Example
 
-> [!NOTE]
+> [!NOTE]  
 > You can find the full documentation on [docs.rs](https://docs.rs/neo4j/) as well as more examples in the [examples folder](neo4j/examples).
 
 ```rust
