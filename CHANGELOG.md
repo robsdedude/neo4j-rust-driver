@@ -4,6 +4,10 @@
 
 ## NEXT
 ***
+
+
+## 0.2.0
+***
 **⭐️ New Features**
  - Add support for Bolt 5.6 (GQL compatible notifications/result statuses)
    - ⚠️ `neo4j::driver::notification::NotificationFilter`'s API has been completely reworked to support this new feature and enable more internal changes in the future without breaking the API again.
