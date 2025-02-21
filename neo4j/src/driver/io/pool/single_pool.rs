@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use log::{info, log_enabled, Level};
+use std::borrow::Cow;
 use std::collections::{HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::Duration;
 
+use log::{info, log_enabled, Level};
 use parking_lot::lock_api::MutexGuard;
 use parking_lot::{Condvar, Mutex, RawMutex};
 
@@ -30,7 +31,6 @@ use crate::driver::config::auth::{auth_managers, AuthToken};
 use crate::driver::config::AuthConfig;
 use crate::error_::{Neo4jError, Result};
 use crate::time::Instant;
-use crate::util::RefContainer;
 
 type PoolElement = TcpBolt;
 
@@ -95,13 +95,13 @@ impl InnerPool {
     ) -> Result<PoolElement> {
         let auth = match session_auth {
             SessionAuth::None => match &self.config.auth {
-                AuthConfig::Static(auth) => RefContainer::Borrowed(auth),
+                AuthConfig::Static(auth) => Cow::Borrowed(auth),
                 AuthConfig::Manager(manager) => {
-                    RefContainer::Owned(auth_managers::get_auth(manager.as_ref())?)
+                    Cow::Owned(auth_managers::get_auth(manager.as_ref())?)
                 }
             },
-            SessionAuth::Reauth(auth) => RefContainer::Borrowed(auth),
-            SessionAuth::Forced(auth) => RefContainer::Borrowed(auth),
+            SessionAuth::Reauth(auth) => Cow::Borrowed(auth),
+            SessionAuth::Forced(auth) => Cow::Borrowed(auth),
         };
 
         let address = Arc::clone(&self.address);
@@ -386,9 +386,9 @@ impl UnpreparedSinglePooledBolt {
         match session_auth {
             SessionAuth::None => {
                 let new_auth = match &self.pool.config.auth {
-                    AuthConfig::Static(auth) => RefContainer::Borrowed(auth),
+                    AuthConfig::Static(auth) => Cow::Borrowed(auth),
                     AuthConfig::Manager(manager) => {
-                        RefContainer::Owned(auth_managers::get_auth(manager.as_ref())?)
+                        Cow::Owned(auth_managers::get_auth(manager.as_ref())?)
                     }
                 };
                 let reauth_params = ReauthParameters::new(new_auth.as_ref(), false);
