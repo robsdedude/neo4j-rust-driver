@@ -29,25 +29,25 @@ _internal_public_api = [
 atomic_refcell = "0.1.13"
 chrono = "0.4.37"
 chrono-tz = "0.9.0"
-duplicate = "1.0.0"
+duplicate = "2.0.0"
 enum_dispatch = "0.3.13"
-itertools = "0.12.1"
+itertools = "0.14.0"
 log = "0.4.21"
 mockall_double = "0.3.1"
 parking_lot = "0.12.1"
-rand = "0.8.5"
-rustls = "0.23.4"
-rustls-native-certs = "0.7.0"
+rand = "0.9.0"
+rustls = "0.23.19"
+rustls-platform-verifier = "0.4.0"
 rustls-pemfile = "2.1.2"
 rustls-pki-types = "1.4.1"
 socket2 = "0.5.6"
-thiserror = "1.0.58"
+thiserror = "2.0.11"
 uriparse = "0.6.4"
 usize_cast = "1.1.0"
 
 rustup-toolchain = { version = "0.1.6", optional = true }
 rustdoc-json = { version = "0.9.4", optional = true }
-public-api = { version = "0.42.0", optional = true }
+public-api = { version = "0.44.1", optional = true }
 expect-test = { version = "1.5.1", optional = true }
 
 [dev-dependencies]
@@ -55,7 +55,7 @@ doc_test_utils = { path = "../doc_test_utils" }
 env_logger = "0.10.2"
 lazy_static = "1.4.0"
 mockall = "0.12.1"
-rstest = "0.18.2"
+rstest = "0.24.0"
 
 [package.metadata.cargo_check_external_types]
 allowed_external_types = [

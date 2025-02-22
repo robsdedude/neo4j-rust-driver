@@ -4,6 +4,12 @@
 
 ## NEXT
 ***
+**👏️ Improvements**
+ - ⚠️ Switching from [`rustls-native-certs`](https://crates.io/crates/rustls-native-certs) to [`rustls-platform-verifier`](https://crates.io/crates/rustls-platform-verifier) for loading system certificates.  
+   This might imply subtle behavior changes when using `ConnectionConfig::with_encryption_trust_default_cas` or equivalent configurations.
+
+**🧼️ Maintenance**
+ - Bump dependencies. 
 
 
 ## 0.2.0
@@ -22,7 +28,7 @@
  - Add support for Bolt 5.8 (home database resolution cache)
    - Includes an optimization where the driver uses a home/default database cache to perform optimistic routing under certain circumstances, saving a full round trip. See the [PR description](https://github.com/robsdedude/neo4j-rust-driver/pull/28) for more details.
 
-**🔧 Fixes**
+**🔧️ Fixes**
  - Rework `neo4j::value::graph::Path`
    - `Path`s now properly validate data received from the server (as documented)
    - ⚠️ The return type of `Path::traverse()` was changed to reflect that paths with only one node and no relationships exist.
@@ -63,7 +69,7 @@
 
 ## 0.0.2
 ***
-**👏 Improvements**
+**👏️ Improvements**
  - Impl `FromStr` for `neo4j::driver::ConnectionConfig` (besides `TryFrom<&str>`).
 
 **🧹️ Clean-up**
