@@ -225,7 +225,7 @@ impl RetryPolicy for &ExponentialBackoff {
         let mut time_start = None;
         let mut errors = None;
         let mut current_delay = self.initial_delay.as_secs_f64();
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         loop {
             let res = work();
             if time_start.is_none() {
@@ -246,7 +246,7 @@ impl RetryPolicy for &ExponentialBackoff {
                 }
                 .into());
             }
-            let jitter_factor = 1.0 + rng.gen_range(-self.jitter..=self.jitter);
+            let jitter_factor = 1.0 + rng.random_range(-self.jitter..=self.jitter);
             let jittered_delay = current_delay * jitter_factor;
             warn!(
                 "Transaction failed and will be retired in {:.4} seconds: {}",
