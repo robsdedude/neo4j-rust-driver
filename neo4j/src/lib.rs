@@ -250,7 +250,7 @@ mod private {
 
 #[cfg(test)]
 mod test {
-    #[cfg(feature = "public-api")]
+    #[cfg(feature = "_internal_public_api")]
     #[test]
     fn public_api() {
         // Install a compatible nightly toolchain if it is missing

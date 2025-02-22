@@ -82,7 +82,7 @@ for mut record in result.records {
 
 
 ## MSRV
-Currently, this crate's minimum supported Rust version is `1.70`.
+Currently, this crate's minimum supported Rust version is `1.71`.
 A bump in MSRV is considered a minor breaking change.
 
 

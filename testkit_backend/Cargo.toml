@@ -1,22 +1,22 @@
 [package]
 name = "testkit_backend"
 version = "0.0.0"
-edition = "2021"
-rust-version = "1.70"
+edition = { workspace = true }
+rust-version = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 neo4j = { path = "../neo4j", features = ["_internal_testkit_backend"] }
 
-atomic_refcell = "0.1.13"
-chrono = "0.4.37"
-fern = "0.6.2"
-flume = "0.11.0"
-itertools = "0.12.1"
-lazy-regex = "3.1.0"
-log = "0.4.21"
-serde = { version = "1.0.197", features = ["derive"] }
-serde_json = "1.0.115"
-thiserror = "1.0.58"
-rustls = { version = "0.23.4", features = ["ring"] }
+atomic_refcell = { workspace = true }
+chrono = { workspace = true }
+fern = { workspace = true }
+flume = { workspace = true }
+itertools = { workspace = true }
+lazy-regex = { workspace = true }
+log = { workspace = true }
+rustls = { workspace = true, features = ["ring"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
