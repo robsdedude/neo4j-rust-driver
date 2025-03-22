@@ -4,6 +4,8 @@
 
 ## NEXT
 ***
+**👏️ Improvements**
+ - Reduce network latency in some cases by setting `TCP_NODELAY`.
 
 
 ## 0.2.0

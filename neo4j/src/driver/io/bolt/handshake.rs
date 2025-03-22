@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use itertools::Itertools;
 use log::Level::Trace;
-use log::{debug, log_enabled, trace};
+use log::{debug, log_enabled, trace, warn};
 use rustls::ClientConfig;
 use socket2::{Socket as Socket2, TcpKeepalive};
 
@@ -52,7 +52,6 @@ impl AddressProvider for Address {
     fn unresolved_host(&self) -> &str {
         self.unresolved_host()
     }
-
     fn into_address(self: Arc<Self>) -> Arc<Address> {
         self
     }
@@ -85,13 +84,24 @@ pub(crate) trait SocketProvider {
 
 pub(crate) struct TcpConnector;
 
+impl TcpConnector {
+    fn setup_socket(socket: &TcpStream) -> io::Result<()> {
+        if let Err(e) = socket.set_nodelay(true) {
+            warn!("Failed to set nodelay: {e}");
+        }
+        Ok(())
+    }
+}
+
 impl SocketProvider for TcpConnector {
     type RW = TcpStream;
     type BuffRW = BufTcpStream;
 
     #[inline]
     fn connect(&mut self, addr: &Arc<impl AddressProvider>) -> io::Result<Self::RW> {
-        TcpStream::connect(&**addr)
+        let socket = TcpStream::connect(&**addr)?;
+        Self::setup_socket(&socket)?;
+        Ok(socket)
     }
 
     #[inline]
@@ -103,7 +113,9 @@ impl SocketProvider for TcpConnector {
 
     #[inline]
     fn connect_timeout(&mut self, addr: &SocketAddr, timeout: Duration) -> io::Result<Self::RW> {
-        TcpStream::connect_timeout(addr, timeout)
+        let socket = TcpStream::connect_timeout(addr, timeout)?;
+        Self::setup_socket(&socket)?;
+        Ok(socket)
     }
 
     #[inline]
@@ -364,21 +376,20 @@ fn handshake_manifest_v1<S: SocketProvider>(
 
     let selected_capabilities = capabilities & BOLT_SUPPORTED_CAPABILITIES;
 
-    wrap_socket_write(
-        socket_provider,
-        raw_socket,
-        local_port,
-        read_write
-            .write_all(&[0, 0, highest_offering.1, highest_offering.0])
-            .and_then(|_| write_var_int(&mut read_write, selected_capabilities))
-            .and_then(|_| read_write.flush()),
-    )?;
     socket_debug!(
         local_port,
         "C: <BOLT> {:#010X?} {:#X?}",
         u32::from_be_bytes([0, 0, highest_offering.1, highest_offering.0]),
         selected_capabilities
     );
+    wrap_socket_write(
+        socket_provider,
+        raw_socket,
+        local_port,
+        read_write
+            .write_all(&[0, 0, highest_offering.1, highest_offering.0])
+            .and_then(|_| write_var_int(&mut read_write, selected_capabilities)),
+    )?;
 
     Ok(highest_offering)
 }
