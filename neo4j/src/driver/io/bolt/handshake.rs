@@ -169,17 +169,9 @@ pub(crate) fn open<S: SocketProvider>(
     tls_config: Option<Arc<ClientConfig>>,
 ) -> Result<Bolt<Socket<S::BuffRW>>> {
     if log_enabled!(Trace) {
-        trace!(
-            "{}{}",
-            dbg_extra(None, None),
-            format!("C: <OPEN> {address:?}")
-        );
+        trace!("{}C: <OPEN> {address:?}", dbg_extra(None, None),);
     } else {
-        debug!(
-            "{}{}",
-            dbg_extra(None, None),
-            format!("C: <OPEN> {address}")
-        );
+        debug!("{}C: <OPEN> {address}", dbg_extra(None, None),);
     }
 
     let timeout = combine_connection_timout(connect_timeout, deadline);
