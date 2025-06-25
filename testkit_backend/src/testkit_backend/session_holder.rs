@@ -1292,7 +1292,7 @@ impl RecordBuffer {
                     .expect("result stream exhausted above => cannot fail on consume")
                     .map(Arc::new);
             }
-            RecordBuffer::Transaction { .. } => {
+            RecordBuffer::Transaction => {
                 panic!("cannot buffer record stream in transaction")
             }
         }
@@ -1314,7 +1314,7 @@ impl RecordBuffer {
                     Err(e) => records.push_back(Err(Arc::new(e))),
                 }
             }
-            RecordBuffer::Transaction { .. } => {
+            RecordBuffer::Transaction => {
                 panic!("cannot consume record stream in transaction")
             }
         }
@@ -1335,7 +1335,7 @@ impl RecordBuffer {
                         .and_then(|r| r.map(TryInto::try_into).transpose())
                 }
             }
-            RecordBuffer::Transaction { .. } => Err(result_out_of_scope_error()),
+            RecordBuffer::Transaction => Err(result_out_of_scope_error()),
         }
     }
 
@@ -1370,7 +1370,7 @@ impl RecordBuffer {
                     }
                 }
             }
-            RecordBuffer::Transaction { .. } => Err(result_out_of_scope_error()),
+            RecordBuffer::Transaction => Err(result_out_of_scope_error()),
         }
     }
 
