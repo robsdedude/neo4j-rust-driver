@@ -126,7 +126,7 @@ impl From<Neo4jError> for TestKitError {
                     diagnostic_record,
                     cause,
                     ..
-                } = error;
+                } = *error;
                 TestKitDriverError {
                     error_type: String::from("ServerError"),
                     msg: message,

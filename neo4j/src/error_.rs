@@ -104,7 +104,7 @@ pub enum Neo4jError {
     ///  * the server returns an error.
     #[error("{error}")]
     #[non_exhaustive]
-    ServerError { error: ServerError },
+    ServerError { error: Box<ServerError> },
 
     /// Used when
     ///  * connection acquisition timed out
