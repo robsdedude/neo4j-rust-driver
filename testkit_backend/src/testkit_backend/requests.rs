@@ -645,8 +645,7 @@ fn load_notification_filter(
             "WARNING" => MinimumSeverity::Warning,
             _ => {
                 return Err(TestKitError::backend_err(format!(
-                    "unknown minimum notification severity: {severity:?}",
-                    severity = severity
+                    "unknown minimum notification severity: {severity:?}"
                 )))
             }
         }),
@@ -668,8 +667,7 @@ fn load_notification_filter(
                         "SCHEMA" => DisabledCategory::Schema,
                         _ => {
                             return Err(TestKitError::backend_err(format!(
-                                "unknown disabled notification category: {cat:?}",
-                                cat = category
+                                "unknown disabled notification category: {category:?}"
                             )))
                         }
                     })
@@ -694,8 +692,7 @@ fn load_notification_filter(
                         "SCHEMA" => DisabledClassification::Schema,
                         _ => {
                             return Err(TestKitError::backend_err(format!(
-                                "unknown disabled notification classification: {cls:?}",
-                                cls = classification
+                                "unknown disabled notification classification: {classification:?}"
                             )))
                         }
                     })
@@ -792,8 +789,7 @@ impl Request {
             Request::FakeTimeUninstall { .. } => self.fake_time_uninstall(backend)?,
             _ => {
                 return Err(TestKitError::backend_err(format!(
-                    "Unhandled request {:?}",
-                    self
+                    "Unhandled request {self:?}"
                 )))
             }
         }
@@ -802,8 +798,7 @@ impl Request {
 
     fn unexpected_resolution(self) -> TestKitResult {
         Err(TestKitError::backend_err(format!(
-            "Resolution {:?} not expected (the backend didn't ask for it).",
-            self
+            "Resolution {self:?} not expected (the backend didn't ask for it)."
         )))
     }
 

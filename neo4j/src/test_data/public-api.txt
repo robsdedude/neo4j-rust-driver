@@ -1880,7 +1880,7 @@ pub neo4j::Neo4jError::InvalidConfig::message: alloc::string::String
 #[non_exhaustive] pub neo4j::Neo4jError::ProtocolError
 pub neo4j::Neo4jError::ProtocolError::message: alloc::string::String
 #[non_exhaustive] pub neo4j::Neo4jError::ServerError
-pub neo4j::Neo4jError::ServerError::error: neo4j::error::ServerError
+pub neo4j::Neo4jError::ServerError::error: alloc::boxed::Box<neo4j::error::ServerError>
 #[non_exhaustive] pub neo4j::Neo4jError::Timeout
 pub neo4j::Neo4jError::Timeout::message: alloc::string::String
 #[non_exhaustive] pub neo4j::Neo4jError::UserCallback

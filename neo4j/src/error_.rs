@@ -104,7 +104,7 @@ pub enum Neo4jError {
     ///  * the server returns an error.
     #[error("{error}")]
     #[non_exhaustive]
-    ServerError { error: ServerError },
+    ServerError { error: Box<ServerError> },
 
     /// Used when
     ///  * connection acquisition timed out
@@ -154,7 +154,7 @@ impl Neo4jError {
     }
 
     pub(crate) fn read_err(err: io::Error) -> Self {
-        info!("read error: {}", err);
+        info!("read error: {err}");
         Self::Disconnect {
             message: String::from("failed to read"),
             source: Some(err),
@@ -170,7 +170,7 @@ impl Neo4jError {
     }
 
     pub(crate) fn write_error(err: io::Error) -> Neo4jError {
-        info!("write error: {}", err);
+        info!("write error: {err}");
         Self::Disconnect {
             message: String::from("failed to write"),
             source: Some(err),
@@ -427,7 +427,7 @@ impl Display for ServerError {
             self.message, self.code, self.gql_status,
         )?;
         if let Some(cause) = &self.cause {
-            write!(f, "\ncaused by: {}", cause)?;
+            write!(f, "\ncaused by: {cause}")?;
         }
         Ok(())
     }
@@ -540,7 +540,7 @@ impl Display for GqlErrorCause {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)?;
         if let Some(cause) = &self.cause {
-            write!(f, "\ncaused by: {}", cause)?;
+            write!(f, "\ncaused by: {cause}")?;
         }
         Ok(())
     }

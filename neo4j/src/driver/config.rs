@@ -753,9 +753,8 @@ impl ConnectionConfig {
             "bolt+ssc" => (false, Some(tls_helper::self_signed_tls_config())),
             scheme => {
                 return Err(ConnectionConfigParseError(format!(
-                    "unknown scheme in URI {} expected `neo4j`, `neo4j`, `neo4j+s`, `neo4j+ssc`, \
-                         `bolt`, `bolt+s`, or `bolt+ssc`",
-                    scheme
+                    "unknown scheme in URI {scheme} expected `neo4j`, `neo4j`, `neo4j+s`, \
+                     `neo4j+ssc`, `bolt`, `bolt+s`, or `bolt+ssc`"
                 )))
             }
         };
@@ -801,8 +800,7 @@ impl ConnectionConfig {
                     if !routing {
                         return Err(ConnectionConfigParseError(format!(
                             "URI with bolt scheme cannot contain a query \
-                                                  (routing context), found: {}",
-                            query,
+                             (routing context), found: {query}",
                         )));
                     }
                     Some(Self::parse_query(query)?)
@@ -812,8 +810,7 @@ impl ConnectionConfig {
 
         if let Some(fragment) = uri.fragment() {
             return Err(ConnectionConfigParseError(format!(
-                "URI cannot contain a fragment, found: {}",
-                fragment
+                "URI cannot contain a fragment, found: {fragment}"
             )));
         }
 
@@ -834,16 +831,14 @@ impl ConnectionConfig {
             let mut elements: Vec<_> = key_value.split('=').take(3).collect();
             if elements.len() != 2 {
                 return Err(ConnectionConfigParseError(format!(
-                    "couldn't parse key=value pair '{}' in '{}'",
-                    key_value, query
+                    "couldn't parse key=value pair '{key_value}' in '{query}'"
                 )));
             }
             let value = elements.pop().unwrap();
             let key = elements.pop().unwrap();
             if key == "address" {
                 return Err(ConnectionConfigParseError(format!(
-                    "routing context cannot contain key 'address', found: {}",
-                    value
+                    "routing context cannot contain key 'address', found: {value}"
                 )));
             }
             result.insert(key.into(), value.into());
@@ -1316,7 +1311,7 @@ mod tests {
         #[case] uri_query: &str,
         #[case] routing_context: HashMap<String, ValueSend>,
     ) {
-        let uri: String = format!("{}{}", uri_base, uri_query);
+        let uri: String = format!("{uri_base}{uri_query}");
         dbg!(&uri, &routing_context);
         let connection_config = ConnectionConfig::try_from(uri.as_str());
         let connection_config = connection_config.unwrap();

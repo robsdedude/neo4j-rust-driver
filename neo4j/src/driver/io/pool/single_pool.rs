@@ -143,13 +143,13 @@ impl InnerPool {
                     ) {
                         Ok(connection) => return Ok(connection),
                         Err(err) => {
-                            info!("failed to open connection: {}", err);
+                            info!("failed to open connection: {err}");
                             Some(Err(err))
                         }
                     }
                 }
                 Err(err) => {
-                    info!("failed to resolve address: {}", err);
+                    info!("failed to resolve address: {err}");
                     Some(Err(Neo4jError::connect_error(err)))
                 }
             }
@@ -354,7 +354,7 @@ impl UnpreparedSinglePooledBolt {
                             deadline,
                             on_server_error,
                         ) {
-                            connection.debug_log(|| format!("liveness check failed: {}", err));
+                            connection.debug_log(|| format!("liveness check failed: {err}"));
                             self.bolt = Some(connection);
                             return Ok(None);
                         }

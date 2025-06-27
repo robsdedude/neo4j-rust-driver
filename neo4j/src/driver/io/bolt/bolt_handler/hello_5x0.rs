@@ -164,7 +164,7 @@ impl HelloHandler5x0 {
         if let Some((key, value)) = meta.remove_entry(SERVER_AGENT_KEY) {
             match value {
                 ValueReceive::String(value) => {
-                    mem::swap(&mut *bolt_server_agent.borrow_mut(), &mut Arc::new(value));
+                    *bolt_server_agent.borrow_mut() = Arc::new(value);
                 }
                 _ => {
                     warn!("Server sent unexpected server_agent type {:?}", &value);
@@ -188,7 +188,7 @@ impl HelloHandler5x0 {
         match meta.get(HINTS_KEY) {
             Some(ValueReceive::Map(hints)) => Cow::Borrowed(hints),
             Some(value) => {
-                warn!("Server sent unexpected {HINTS_KEY} type {:?}", value);
+                warn!("Server sent unexpected {HINTS_KEY} type {value:?}");
                 Cow::Owned(HashMap::new())
             }
             None => Cow::Owned(HashMap::new()),

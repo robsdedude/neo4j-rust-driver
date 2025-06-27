@@ -54,15 +54,14 @@ impl TestKitAuthManagers {
                 Request::BasicAuthTokenProviderCompleted { request_id, auth } => {
                     if request_id != id {
                         return Err(Box::new(TestKitError::backend_err(format!(
-                            "expected BasicAuthTokenProviderCompleted for id {}, received for {}",
-                            id, request_id
+                            "expected BasicAuthTokenProviderCompleted for id {id}, \
+                             received for {request_id}"
                         ))));
                     }
                     Ok(auth.into())
                 }
                 _ => Err(Box::new(TestKitError::backend_err(format!(
-                    "expected BasicAuthTokenProviderCompleted, received {:?}",
-                    request
+                    "expected BasicAuthTokenProviderCompleted, received {request:?}"
                 )))),
             }
         }));
@@ -92,8 +91,8 @@ impl TestKitAuthManagers {
                 Request::BearerAuthTokenProviderCompleted { request_id, auth } => {
                     if request_id != id {
                         return Err(Box::new(TestKitError::backend_err(format!(
-                            "expected BearerAuthTokenProviderCompleted for id {}, received for {}",
-                            id, request_id
+                            "expected BearerAuthTokenProviderCompleted for id {id}, \
+                             received for {request_id}"
                         ))));
                     }
                     let AuthTokenAndExpiration::AuthTokenAndExpiration {
@@ -119,8 +118,7 @@ impl TestKitAuthManagers {
                     Ok((auth.into(), expires))
                 }
                 _ => Err(Box::new(TestKitError::backend_err(format!(
-                    "expected BearerAuthTokenProviderCompleted, received {:?}",
-                    request
+                    "expected BearerAuthTokenProviderCompleted, received {request:?}"
                 )))),
             }
         }));
@@ -168,15 +166,14 @@ impl AuthManager for TestKitCustomAuthManager {
             Request::AuthTokenManagerGetAuthCompleted { request_id, auth } => {
                 if request_id != id {
                     return Err(Box::new(TestKitError::backend_err(format!(
-                        "expected AuthTokenManagerGetAuthCompleted for id {}, received for {}",
-                        id, request_id
+                        "expected AuthTokenManagerGetAuthCompleted for id {id}, \
+                         received for {request_id}"
                     ))));
                 }
                 Ok(Arc::new(auth.into()))
             }
             _ => Err(Box::new(TestKitError::backend_err(format!(
-                "expected AuthTokenManagerGetAuthCompleted, received {:?}",
-                request
+                "expected AuthTokenManagerGetAuthCompleted, received {request:?}"
             )))),
         }
     }
@@ -206,15 +203,14 @@ impl AuthManager for TestKitCustomAuthManager {
             } => {
                 if request_id != id {
                     return Err(Box::new(TestKitError::backend_err(format!(
-                        "expected AuthTokenManagerHandleSecurityExceptionCompleted for id {}, received for {}",
-                        id, request_id
+                        "expected AuthTokenManagerHandleSecurityExceptionCompleted for id {id}, \
+                         received for {request_id}"
                     ))));
                 }
                 Ok(handled)
             }
             _ => Err(Box::new(TestKitError::backend_err(format!(
-                "expected AuthTokenManagerGetAuthCompleted, received {:?}",
-                request
+                "expected AuthTokenManagerGetAuthCompleted, received {request:?}"
             )))),
         }
     }

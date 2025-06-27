@@ -116,7 +116,7 @@ pub fn error_retryable() -> Neo4jResult<()> {
         Ok(()) => panic!("Expected an error"),
         Err(err) if err.is_retryable() => Err(err),
         Err(err) => {
-            panic!("Expected a retryable error, got: {}", err);
+            panic!("Expected a retryable error, got: {err}");
         }
     }
 }
@@ -134,7 +134,7 @@ pub fn error_non_retryable() -> Neo4jResult<()> {
         Ok(()) => panic!("Expected an error"),
         Err(err) if !err.is_retryable() => Err(err),
         Err(err) => {
-            panic!("Expected a non-retryable error, got: {}", err);
+            panic!("Expected a non-retryable error, got: {err}");
         }
     }
 }

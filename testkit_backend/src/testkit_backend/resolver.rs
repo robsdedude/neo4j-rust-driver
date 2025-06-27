@@ -69,16 +69,15 @@ impl TestKitResolver {
             } => {
                 if request_id != id {
                     return Err(Box::new(TestKitError::backend_err(format!(
-                        "expected ResolverResolutionCompleted for id {}, received for {}",
-                        id, request_id
+                        "expected ResolverResolutionCompleted for id {id}, \
+                         received for {request_id}"
                     ))));
                 }
                 addresses
             }
             _ => {
                 return Err(Box::new(TestKitError::backend_err(format!(
-                    "expected ResolverResolutionCompleted, received {:?}",
-                    request
+                    "expected ResolverResolutionCompleted, received {request:?}"
                 ))))
             }
         };
@@ -108,8 +107,8 @@ impl TestKitResolver {
             } => {
                 if request_id != id {
                     return testkit_to_io_error(Err(TestKitError::backend_err(format!(
-                        "expected DomainNameResolutionCompleted for id {}, received for {}",
-                        id, request_id
+                        "expected DomainNameResolutionCompleted for id {id}, \
+                         received for {request_id}"
                     ))));
                 }
                 addresses

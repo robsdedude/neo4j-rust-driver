@@ -39,7 +39,7 @@ impl FromStr for BackendId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         u64::from_str(s)
-            .map_err(|err| format!("Invalid BackendId: {}", err))
+            .map_err(|err| format!("Invalid BackendId: {err}"))
             .map(BackendId)
     }
 }

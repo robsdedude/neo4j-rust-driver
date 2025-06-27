@@ -109,27 +109,27 @@ impl BoltStateTracker {
                 }
             }
             BoltState::Failed => {}
-            _ => panic!("unexpected hello for {:?}", self),
+            _ => panic!("unexpected hello for {self:?}"),
         }
     }
 
     fn update_logon(&mut self) {
         match self.state {
             BoltState::Authenticating => self.state = BoltState::Ready,
-            _ => panic!("unexpected logon for {:?}", self),
+            _ => panic!("unexpected logon for {self:?}"),
         }
     }
 
     fn update_logoff(&mut self) {
         match self.state {
             BoltState::Ready => self.state = BoltState::Authenticating,
-            _ => panic!("unexpected logoff for {:?}", self),
+            _ => panic!("unexpected logoff for {self:?}"),
         }
     }
 
     fn update_reset(&mut self) {
         match self.state {
-            BoltState::Connected => panic!("unexpected reset for {:?}", self),
+            BoltState::Connected => panic!("unexpected reset for {self:?}"),
             _ => self.state = BoltState::Ready,
         }
     }
@@ -138,7 +138,7 @@ impl BoltStateTracker {
             BoltState::Ready => self.state = BoltState::Streaming,
             BoltState::TxReady => self.state = BoltState::TxMaybeStreaming,
             BoltState::TxMaybeStreaming => {} // stay in same state
-            _ => panic!("unexpected run for {:?}", self),
+            _ => panic!("unexpected run for {self:?}"),
         }
     }
 
@@ -146,7 +146,7 @@ impl BoltStateTracker {
         match self.state {
             BoltState::Streaming => self.state = BoltState::Ready,
             BoltState::TxMaybeStreaming => {} // stay in same state
-            _ => panic!("unexpected discard for {:?}", self),
+            _ => panic!("unexpected discard for {self:?}"),
         }
     }
 
@@ -154,35 +154,35 @@ impl BoltStateTracker {
         match self.state {
             BoltState::Streaming => self.state = BoltState::Ready,
             BoltState::TxMaybeStreaming => {} // stay in same state
-            _ => panic!("unexpected discard for {:?}", self),
+            _ => panic!("unexpected discard for {self:?}"),
         }
     }
 
     fn update_begin(&mut self) {
         match self.state {
             BoltState::Ready => self.state = BoltState::TxReady,
-            _ => panic!("unexpected begin for {:?}", self),
+            _ => panic!("unexpected begin for {self:?}"),
         }
     }
 
     fn update_commit(&mut self) {
         match self.state {
             BoltState::TxReady | BoltState::TxMaybeStreaming => self.state = BoltState::Ready,
-            _ => panic!("unexpected commit for {:?}", self),
+            _ => panic!("unexpected commit for {self:?}"),
         }
     }
 
     fn update_rollback(&mut self) {
         match self.state {
             BoltState::TxReady | BoltState::TxMaybeStreaming => self.state = BoltState::Ready,
-            _ => panic!("unexpected rollback for {:?}", self),
+            _ => panic!("unexpected rollback for {self:?}"),
         }
     }
 
     fn update_route(&mut self) {
         match self.state {
             BoltState::Ready => {} // stay in same state
-            _ => panic!("unexpected route for {:?}", self),
+            _ => panic!("unexpected route for {self:?}"),
         }
     }
 }

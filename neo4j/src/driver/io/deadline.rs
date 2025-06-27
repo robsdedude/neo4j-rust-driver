@@ -107,7 +107,7 @@ impl<'tcp, S: Read + Write> DeadlineIO<'tcp, S> {
         let res = work(self);
         let res = self.wrap_io_error(res, ReaderErrorDuring::IO);
         if let Err(err) = set_socket_timeout(socket, old_timeout) {
-            warn!("failed to restore timeout: {}", err)
+            warn!("failed to restore timeout: {err}")
         }
         res
     }

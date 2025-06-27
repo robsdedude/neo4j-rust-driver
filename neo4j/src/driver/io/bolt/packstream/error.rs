@@ -41,7 +41,7 @@ impl From<&str> for PackStreamSerializeError {
 
 impl From<io::Error> for PackStreamSerializeError {
     fn from(err: io::Error) -> Self {
-        let mut e: Self = format!("IO error while serializing: {}", err).into();
+        let mut e: Self = format!("IO error while serializing: {err}").into();
         e.cause = Some(err);
         e
     }
@@ -93,7 +93,7 @@ impl From<&str> for PackStreamDeserializeError {
 
 impl From<io::Error> for PackStreamDeserializeError {
     fn from(err: io::Error) -> Self {
-        let mut e: Self = format!("IO error while deserializing: {}", err).into();
+        let mut e: Self = format!("IO error while deserializing: {err}").into();
         e.cause = Some(err);
         e
     }

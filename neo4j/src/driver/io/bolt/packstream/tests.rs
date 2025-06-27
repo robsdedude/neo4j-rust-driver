@@ -520,7 +520,7 @@ fn test_encode_long_dict(#[case] size: usize, #[case] header: Vec<u8>) {
     let mut input = HashMap::with_capacity(size);
     let mut bytes = Vec::with_capacity(6);
     for i in 0..size {
-        let key = format!("{:04X}", i);
+        let key = format!("{i:04X}");
         let value = i % 100;
         input.insert(key.clone(), ValueSend::Integer(value as i64));
 

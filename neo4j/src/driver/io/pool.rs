@@ -342,7 +342,7 @@ impl RoutingPool {
             args.mode,
             args.update_rt_args
                 .db
-                .map(|db| format!("{:?}", db))
+                .map(|db| format!("{db:?}"))
                 .unwrap_or(String::from("default database"))
         );
         let (mut targets, db) = self.choose_addresses_from_fresh_rt(args)?;
@@ -512,7 +512,7 @@ impl RoutingPool {
                     .map(|rt| !rt.is_fresh(args.mode))
                     .unwrap_or(true);
                 if !needs_update {
-                    mem::swap(&mut *db_name_ref.borrow_mut(), &mut db_key.clone());
+                    *db_name_ref.borrow_mut() = db_key.clone();
                 }
                 needs_update
             },
@@ -578,10 +578,9 @@ impl RoutingPool {
         }
         match new_rt {
             Err(err) => {
-                error!("failed to update routing table; last error: {}", err);
+                error!("failed to update routing table; last error: {err}");
                 Err(Neo4jError::disconnect(format!(
-                    "unable to retrieve routing information; last error: {}",
-                    err
+                    "unable to retrieve routing information; last error: {err}"
                 )))
             }
             Ok(mut new_rt) => {
@@ -593,7 +592,7 @@ impl RoutingPool {
                     }
                     _ => new_rt.database.clone(),
                 };
-                debug!("Storing new routing table for {:?}: {:?}", db, new_rt);
+                debug!("Storing new routing table for {db:?}: {new_rt:?}");
                 rts.insert(db.as_ref().map(Arc::clone), new_rt);
                 self.clean_up_pools(rts);
                 if let Some(cb) = args.db_resolution_cb {
@@ -653,8 +652,8 @@ impl RoutingPool {
                     match new_rt {
                         Ok(new_rt) => res = Some(Ok(new_rt)),
                         Err(e) => {
-                            warn!("failed to parse routing table: {}", e);
-                            res = Some(Err(Neo4jError::protocol_error(format!("{}", e))));
+                            warn!("failed to parse routing table: {e}");
+                            res = Some(Err(Neo4jError::protocol_error(format!("{e}"))));
                         }
                     }
                     mem::swap(rt.deref().borrow_mut().deref_mut(), &mut res);
@@ -723,10 +722,7 @@ impl RoutingPool {
                         set
                     },
                 );
-            let existing_addresses = pools
-                .iter()
-                .map(|(addr, _)| addr.clone())
-                .collect::<HashSet<_>>();
+            let existing_addresses = pools.keys().map(Arc::clone).collect::<HashSet<_>>();
             for addr in existing_addresses {
                 if !used_addresses.contains(&addr) {
                     pools.remove(&addr);
@@ -754,7 +750,7 @@ impl RoutingPool {
     }
 
     fn deactivate_server_locked(addr: &Address, rts: &mut RoutingTables, pools: &mut RoutingPools) {
-        debug!("deactivating address: {:?}", addr);
+        debug!("deactivating address: {addr:?}");
         rts.iter_mut().for_each(|(_, rt)| rt.deactivate(addr));
         pools.remove(addr);
     }
@@ -767,7 +763,7 @@ impl RoutingPool {
     }
 
     fn deactivate_writer_locked(addr: &Address, rts: &mut RoutingTables) {
-        debug!("deactivating writer: {:?}", addr);
+        debug!("deactivating writer: {addr:?}");
         rts.iter_mut()
             .for_each(|(_, rt)| rt.deactivate_writer(addr));
     }
@@ -800,7 +796,7 @@ impl RoutingPool {
                 if e.fatal_during_discovery() {
                     Err(e)
                 } else {
-                    info!("ignored error during discovery: {:?}", e);
+                    info!("ignored error during discovery: {e:?}");
                     Ok(Err(e))
                 }
             }

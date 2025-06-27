@@ -169,17 +169,9 @@ pub(crate) fn open<S: SocketProvider>(
     tls_config: Option<Arc<ClientConfig>>,
 ) -> Result<Bolt<Socket<S::BuffRW>>> {
     if log_enabled!(Trace) {
-        trace!(
-            "{}{}",
-            dbg_extra(None, None),
-            format!("C: <OPEN> {address:?}")
-        );
+        trace!("{}C: <OPEN> {address:?}", dbg_extra(None, None),);
     } else {
-        debug!(
-            "{}{}",
-            dbg_extra(None, None),
-            format!("C: <OPEN> {address}")
-        );
+        debug!("{}C: <OPEN> {address}", dbg_extra(None, None),);
     }
 
     let timeout = combine_connection_timout(connect_timeout, deadline);
@@ -202,7 +194,7 @@ pub(crate) fn open<S: SocketProvider>(
     let raw_socket = socket_provider
         .set_tcp_keepalive(raw_socket, keep_alive)
         .map_err(|err| Neo4jError::InvalidConfig {
-            message: format!("failed to set tcp keepalive: {}", err),
+            message: format!("failed to set tcp keepalive: {err}"),
         })?;
     let local_port = socket_provider.get_local_port(&raw_socket);
 
@@ -358,7 +350,7 @@ fn handshake_manifest_v1<S: SocketProvider>(
         offering_count,
         raw_version_offerings
             .iter()
-            .map(|offering| format!("{:#010X}", offering))
+            .map(|offering| format!("{offering:#010X}"))
             .join(" "),
         capabilities,
     );
@@ -406,13 +398,12 @@ fn decode_version_offer(offer: &[u8; 4]) -> Result<(u8, u8)> {
             // "HTTP"
             Err(Neo4jError::InvalidConfig {
                 message: format!(
-                    "unexpected server handshake response {:?} (looks like HTTP)",
-                    offer
+                    "unexpected server handshake response {offer:?} (looks like HTTP)"
                 ),
             })
         }
         _ => Err(Neo4jError::InvalidConfig {
-            message: format!("unexpected server handshake response {:?}", offer),
+            message: format!("unexpected server handshake response {offer:?}"),
         }),
     }
 }
@@ -572,7 +563,7 @@ mod tests {
     fn test_unsupported_server_version() {
         let res = decode_version_offer(&[0, 0, 0, 0]);
         let Err(Neo4jError::InvalidConfig { message }) = res else {
-            panic!("Expected InvalidConfig error, got {:?}", res);
+            panic!("Expected InvalidConfig error, got {res:?}");
         };
         let message = message.to_lowercase();
         assert!(message.contains("server version not supported"));
@@ -582,7 +573,7 @@ mod tests {
     fn test_server_version_looks_like_http() {
         let res = decode_version_offer(&[72, 84, 84, 80]);
         let Err(Neo4jError::InvalidConfig { message }) = res else {
-            panic!("Expected InvalidConfig error, got {:?}", res);
+            panic!("Expected InvalidConfig error, got {res:?}");
         };
         let message = message.to_lowercase();
         assert!(message.contains("unexpected server handshake response"));
@@ -608,7 +599,7 @@ mod tests {
         offer[0..2].copy_from_slice(&garbage);
         let res = decode_version_offer(&offer);
         let Err(Neo4jError::InvalidConfig { message }) = res else {
-            panic!("Expected InvalidConfig error, got {:?}", res);
+            panic!("Expected InvalidConfig error, got {res:?}");
         };
         let message = message.to_lowercase();
         assert!(message.contains("unexpected server handshake response"));

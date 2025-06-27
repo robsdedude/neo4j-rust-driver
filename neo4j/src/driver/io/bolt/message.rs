@@ -33,8 +33,7 @@ impl<V> BoltMessage<V> {
         let marker = marker[0];
         if !(0xB0..=0xBF).contains(&marker) {
             return Err(Neo4jError::protocol_error(format!(
-                "expected bolt message marker, received {:02X?}",
-                marker
+                "expected bolt message marker, received {marker:02X?}"
             )));
         }
         let size = marker - 0xB0;
