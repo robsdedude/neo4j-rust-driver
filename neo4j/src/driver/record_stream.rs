@@ -681,7 +681,7 @@ pub enum GetSingleRecordError {
 impl From<GetSingleRecordError> for Neo4jError {
     fn from(err: GetSingleRecordError) -> Self {
         Self::InvalidConfig {
-            message: format!("GetSingleRecordError: {}", err),
+            message: format!("GetSingleRecordError: {err}"),
         }
     }
 }

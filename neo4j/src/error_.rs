@@ -427,7 +427,7 @@ impl Display for ServerError {
             self.message, self.code, self.gql_status,
         )?;
         if let Some(cause) = &self.cause {
-            write!(f, "\ncaused by: {}", cause)?;
+            write!(f, "\ncaused by: {cause}")?;
         }
         Ok(())
     }
@@ -540,7 +540,7 @@ impl Display for GqlErrorCause {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)?;
         if let Some(cause) = &self.cause {
-            write!(f, "\ncaused by: {}", cause)?;
+            write!(f, "\ncaused by: {cause}")?;
         }
         Ok(())
     }

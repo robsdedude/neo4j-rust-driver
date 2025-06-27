@@ -192,13 +192,13 @@ impl PackStreamSerializerDebugImpl {
 
     #[inline]
     fn format_display<D: Display>(&mut self, data: D) {
-        self.buff += &format!("{}", data);
+        self.buff += &format!("{data}");
         self.handle_stack();
     }
 
     #[inline]
     fn format_debug<D: Debug>(&mut self, data: D) {
-        self.buff += &format!("{:?}", data);
+        self.buff += &format!("{data:?}");
         self.handle_stack();
     }
 
@@ -253,7 +253,7 @@ impl PackStreamSerializer for PackStreamSerializerDebugImpl {
     }
 
     fn write_bytes(&mut self, b: &[u8]) -> Result<(), Self::Error> {
-        self.buff += &format!("bytes{:02X?}", b);
+        self.buff += &format!("bytes{b:02X?}");
         self.handle_stack();
         Ok(())
     }
@@ -287,10 +287,10 @@ impl PackStreamSerializer for PackStreamSerializerDebugImpl {
 
     fn write_struct_header(&mut self, tag: u8, size: u8) -> Result<(), Self::Error> {
         if size > 0 {
-            self.buff += &format!("Structure[{:#02X?}; {}](", tag, size);
+            self.buff += &format!("Structure[{tag:#02X?}; {size}](");
             self.stack.push((", ", ")", size.into()));
         } else {
-            self.buff += &format!("Structure[{:#02X?}; 0]()", tag);
+            self.buff += &format!("Structure[{tag:#02X?}; 0]()");
             self.handle_stack();
         }
         Ok(())

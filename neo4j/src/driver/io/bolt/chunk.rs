@@ -173,7 +173,7 @@ impl<R: Read> Read for Dechunker<R> {
         if log_enabled!(Level::Trace) && res.is_ok() {
             let log_raw = self.chunk_log_raw.as_mut().unwrap();
             log_raw.push_str(", ");
-            log_raw.push_str(truncate_string(&format!("{:02X?}", buf), 1, 1));
+            log_raw.push_str(truncate_string(&format!("{buf:02X?}"), 1, 1));
         }
         self.chunk_size -= new_buf_size;
         self.error_wrap(res)

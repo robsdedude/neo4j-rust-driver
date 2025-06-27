@@ -54,7 +54,7 @@ type TestKitResult = TestKitResultT<()>;
 
 pub(super) fn start_server() {
     let listener = TcpListener::bind(ADDRESS).unwrap();
-    println!("Listening on {}", ADDRESS);
+    println!("Listening on {ADDRESS}");
     for stream in listener.incoming() {
         logging::clear_log();
         match stream {
@@ -184,7 +184,7 @@ impl BackendIo {
                 .reader
                 .read_line(&mut line)
                 .map_err(|e| TestKitError::FatalError {
-                    error: format!("{:?}", e),
+                    error: format!("{e:?}"),
                 })?;
             if read == 0 {
                 return Err(TestKitError::FatalError {

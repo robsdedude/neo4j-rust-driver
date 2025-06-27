@@ -90,7 +90,7 @@ impl From<TestKitDriverError> for TestKitError {
 
 impl Display for TestKitError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -161,29 +161,29 @@ impl From<UserCallbackError> for TestKitError {
             UserCallbackError::Resolver(err) => match err.downcast::<Self>() {
                 Ok(err) => *err,
                 Err(err) => TestKitError::BackendError {
-                    msg: format!("unexpected resolver error: {}", err),
+                    msg: format!("unexpected resolver error: {err}"),
                 },
             },
             UserCallbackError::AuthManager(err) => match err.downcast::<Self>() {
                 Ok(err) => *err,
                 Err(err) => TestKitError::BackendError {
-                    msg: format!("unexpected auth manager error: {}", err),
+                    msg: format!("unexpected auth manager error: {err}"),
                 },
             },
             UserCallbackError::BookmarkManagerGet(err) => match err.downcast::<Self>() {
                 Ok(err) => *err,
                 Err(err) => TestKitError::BackendError {
-                    msg: format!("unexpected bookmark manager get error: {}", err),
+                    msg: format!("unexpected bookmark manager get error: {err}"),
                 },
             },
             UserCallbackError::BookmarkManagerUpdate(err) => match err.downcast::<Self>() {
                 Ok(err) => *err,
                 Err(err) => TestKitError::BackendError {
-                    msg: format!("unexpected bookmark manager update error: {}", err),
+                    msg: format!("unexpected bookmark manager update error: {err}"),
                 },
             },
             _ => TestKitError::BackendError {
-                msg: format!("unhandled user callback error type: {}", value),
+                msg: format!("unhandled user callback error type: {value}"),
             },
         }
     }
@@ -195,29 +195,29 @@ impl From<&UserCallbackError> for TestKitError {
             UserCallbackError::Resolver(err) => match err.downcast_ref::<Self>() {
                 Some(err) => err.clone(),
                 None => TestKitError::BackendError {
-                    msg: format!("unexpected resolver error: {}", err),
+                    msg: format!("unexpected resolver error: {err}"),
                 },
             },
             UserCallbackError::AuthManager(err) => match err.downcast_ref::<Self>() {
                 Some(err) => err.clone(),
                 None => TestKitError::BackendError {
-                    msg: format!("unexpected auth manager error: {}", err),
+                    msg: format!("unexpected auth manager error: {err}"),
                 },
             },
             UserCallbackError::BookmarkManagerGet(err) => match err.downcast_ref::<Self>() {
                 Some(err) => err.clone(),
                 None => TestKitError::BackendError {
-                    msg: format!("unexpected bookmark manager get error: {}", err),
+                    msg: format!("unexpected bookmark manager get error: {err}"),
                 },
             },
             UserCallbackError::BookmarkManagerUpdate(err) => match err.downcast_ref::<Self>() {
                 Some(err) => err.clone(),
                 None => TestKitError::BackendError {
-                    msg: format!("unexpected bookmark manager update error: {}", err),
+                    msg: format!("unexpected bookmark manager update error: {err}"),
                 },
             },
             _ => TestKitError::BackendError {
-                msg: format!("unhandled user callback error type: {}", value),
+                msg: format!("unhandled user callback error type: {value}"),
             },
         }
     }
@@ -333,7 +333,7 @@ impl TestKitError {
         match res {
             Ok(ok) => Ok(ok),
             Err(err) => Err(Self::FatalError {
-                error: format!("{:?}", err),
+                error: format!("{err:?}"),
             }),
         }
     }

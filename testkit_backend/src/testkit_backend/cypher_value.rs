@@ -559,8 +559,7 @@ impl TryFrom<ValueSend> for CypherValue {
             ValueSend::DateTimeFixed(value) => date_time_fixed_to_cypher_value(value),
             _ => {
                 return Err(TestKitError::backend_err(format!(
-                    "Failed to serialize to json: {:?}",
-                    v,
+                    "Failed to serialize to json: {v:?}",
                 )))
             }
         })
@@ -609,7 +608,7 @@ impl TryFrom<ConvertableValueSend> for JsonValue {
             ValueSend::Map(v) => JsonValue::Object(try_into_json_map(
                 v.into_iter().map(|(k, v)| (k, ConvertableValueSend(v))),
             )?),
-            _ => return Err(format!("Failed to serialize to json: {:?}", v)),
+            _ => return Err(format!("Failed to serialize to json: {v:?}")),
         })
     }
 }
@@ -906,7 +905,7 @@ impl TryFrom<ConvertableValueReceive> for JsonValue {
             ValueReceive::Map(v) => JsonValue::Object(try_into_json_map(
                 v.into_iter().map(|(k, v)| (k, ConvertableValueReceive(v))),
             )?),
-            _ => return Err(format!("Failed to serialize to json: {:?}", v)),
+            _ => return Err(format!("Failed to serialize to json: {v:?}")),
         })
     }
 }

@@ -116,8 +116,7 @@ impl Summary {
         if let Some(db) = meta.remove("db") {
             let ValueReceive::String(db) = db else {
                 return Err(Neo4jError::protocol_error(format!(
-                    "db in summary was not string but {:?}",
-                    db
+                    "db in summary was not string but {db:?}"
                 )));
             };
             self.database = Some(db);
@@ -268,8 +267,7 @@ impl SummaryQueryType {
         if let Some(query_type) = meta.remove("type") {
             let ValueReceive::String(query_type) = query_type else {
                 return Err(Neo4jError::protocol_error(format!(
-                    "type in summary was not string but {:?}",
-                    query_type
+                    "type in summary was not string but {query_type:?}"
                 )));
             };
             return Ok(Some(match query_type.as_str() {
@@ -279,8 +277,7 @@ impl SummaryQueryType {
                 "s" => Self::Schema,
                 _ => {
                     return Err(Neo4jError::protocol_error(format!(
-                        "query type in summary was an unknown string {:?}",
-                        query_type
+                        "query type in summary was an unknown string {query_type:?}"
                     )))
                 }
             }));
@@ -966,30 +963,30 @@ impl ServerInfo {
 
 fn try_into_bool(v: ValueReceive, context: &str) -> Result<bool> {
     v.try_into_bool()
-        .map_err(|v| Neo4jError::protocol_error(format!("{} was not bool but {:?}", context, v)))
+        .map_err(|v| Neo4jError::protocol_error(format!("{context} was not bool but {v:?}")))
 }
 
 fn try_into_int(v: ValueReceive, context: &str) -> Result<i64> {
     v.try_into_int()
-        .map_err(|v| Neo4jError::protocol_error(format!("{} was not int but {:?}", context, v)))
+        .map_err(|v| Neo4jError::protocol_error(format!("{context} was not int but {v:?}")))
 }
 
 fn try_into_float(v: ValueReceive, context: &str) -> Result<f64> {
     v.try_into_float()
-        .map_err(|v| Neo4jError::protocol_error(format!("{} was not float but {:?}", context, v)))
+        .map_err(|v| Neo4jError::protocol_error(format!("{context} was not float but {v:?}")))
 }
 
 fn try_into_string(v: ValueReceive, context: &str) -> Result<String> {
     v.try_into_string()
-        .map_err(|v| Neo4jError::protocol_error(format!("{} was not string but {:?}", context, v)))
+        .map_err(|v| Neo4jError::protocol_error(format!("{context} was not string but {v:?}")))
 }
 
 fn try_into_list(v: ValueReceive, context: &str) -> Result<Vec<ValueReceive>> {
     v.try_into_list()
-        .map_err(|v| Neo4jError::protocol_error(format!("{} was not list but {:?}", context, v)))
+        .map_err(|v| Neo4jError::protocol_error(format!("{context} was not list but {v:?}")))
 }
 
 fn try_into_map(v: ValueReceive, context: &str) -> Result<HashMap<String, ValueReceive>> {
     v.try_into_map()
-        .map_err(|v| Neo4jError::protocol_error(format!("{} was not map but {:?}", context, v)))
+        .map_err(|v| Neo4jError::protocol_error(format!("{context} was not map but {v:?}")))
 }

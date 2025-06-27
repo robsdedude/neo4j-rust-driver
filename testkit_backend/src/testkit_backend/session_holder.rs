@@ -142,10 +142,7 @@ impl SessionHolder {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
             CommandResult::RollbackTransaction(result) => result,
-            res => panic!(
-                "expected CommandResult::RollbackTransaction, found {:?}",
-                res
-            ),
+            res => panic!("expected CommandResult::RollbackTransaction, found {res:?}"),
         }
     }
 

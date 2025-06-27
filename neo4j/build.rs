@@ -28,7 +28,7 @@ fn get_rustc_version() -> String {
             "`{} --version` {}\n\n--- stdout\n{}\n--- stderr{}",
             &rustc,
             match rust_version.status.code() {
-                Some(code) => format!("exited with status code {}", code),
+                Some(code) => format!("exited with status code {code}"),
                 None => String::from("was killed killed by signal"),
             },
             String::from_utf8_lossy(rust_version.stdout.as_slice()),
@@ -47,33 +47,27 @@ fn main() {
         "neo4j-rust-robsdedude/{}",
         env::var("CARGO_PKG_VERSION").unwrap()
     );
-    println!("Setting bolt agent product to: {}", product);
+    println!("Setting bolt agent product to: {product}");
 
     let platform = env::var("TARGET").unwrap();
-    println!("Setting bolt agent platform to: {}", platform);
+    println!("Setting bolt agent platform to: {platform}");
 
-    let language = format!("Rust/{}", rustc_version);
-    println!("Setting bolt agent language to: {}", language);
+    let language = format!("Rust/{rustc_version}");
+    println!("Setting bolt agent language to: {language}");
 
     let language_details = format!(
         "profile: {}; host: {}",
         env::var("PROFILE").unwrap(),
         env::var("HOST").unwrap()
     );
-    println!(
-        "Setting bolt agent language details to: {}",
-        language_details
-    );
+    println!("Setting bolt agent language details to: {language_details}");
 
-    let user_agent = format!("{} {} {}", product, language, platform);
-    println!("Setting default user agent to: {}", user_agent);
+    let user_agent = format!("{product} {language} {platform}");
+    println!("Setting default user agent to: {user_agent}");
 
-    println!("cargo:rustc-env=NEO4J_DEFAULT_USER_AGENT={}", user_agent);
-    println!("cargo:rustc-env=NEO4J_BOLT_AGENT_PRODUCT={}", product);
-    println!("cargo:rustc-env=NEO4J_BOLT_AGENT_PLATFORM={}", platform);
-    println!("cargo:rustc-env=NEO4J_BOLT_AGENT_LANGUAGE={}", language);
-    println!(
-        "cargo:rustc-env=NEO4J_BOLT_AGENT_LANGUAGE_DETAILS={}",
-        language_details
-    );
+    println!("cargo:rustc-env=NEO4J_DEFAULT_USER_AGENT={user_agent}");
+    println!("cargo:rustc-env=NEO4J_BOLT_AGENT_PRODUCT={product}");
+    println!("cargo:rustc-env=NEO4J_BOLT_AGENT_PLATFORM={platform}");
+    println!("cargo:rustc-env=NEO4J_BOLT_AGENT_LANGUAGE={language}");
+    println!("cargo:rustc-env=NEO4J_BOLT_AGENT_LANGUAGE_DETAILS={language_details}");
 }

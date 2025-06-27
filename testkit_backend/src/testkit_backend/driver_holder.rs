@@ -235,10 +235,7 @@ impl DriverHolder {
         self.tx_req.send(args.into()).unwrap();
         match self.rx_res.recv().unwrap() {
             CommandResult::RollbackTransaction(result) => result,
-            res => panic!(
-                "expected CommandResult::RollbackTransaction, found {:?}",
-                res
-            ),
+            res => panic!("expected CommandResult::RollbackTransaction, found {res:?}"),
         }
     }
 
@@ -356,8 +353,7 @@ impl DriverHolderRunner {
                         break 'arm Some(
                             AutoCommitResult {
                                 result: Err(TestKitError::backend_err(format!(
-                                    "Session id {} not found in driver",
-                                    session_id
+                                    "Session id {session_id} not found in driver"
                                 ))),
                             }
                             .into(),
@@ -376,8 +372,7 @@ impl DriverHolderRunner {
                         break 'arm Some(
                             TransactionFunctionResult {
                                 result: Err(TestKitError::backend_err(format!(
-                                    "Session id {} not found in driver",
-                                    session_id
+                                    "Session id {session_id} not found in driver"
                                 ))),
                             }
                             .into(),
@@ -396,8 +391,7 @@ impl DriverHolderRunner {
                         break 'arm Some(
                             RetryablePositiveResult {
                                 result: Err(TestKitError::backend_err(format!(
-                                    "Session id {} not found in driver",
-                                    session_id
+                                    "Session id {session_id} not found in driver"
                                 ))),
                             }
                             .into(),
@@ -416,8 +410,7 @@ impl DriverHolderRunner {
                         break 'arm Some(
                             RetryableNegativeResult {
                                 result: Err(TestKitError::backend_err(format!(
-                                    "Session id {} not found in driver",
-                                    session_id
+                                    "Session id {session_id} not found in driver"
                                 ))),
                             }
                             .into(),
@@ -436,8 +429,7 @@ impl DriverHolderRunner {
                         break 'arm Some(
                             BeginTransactionResult {
                                 result: Err(TestKitError::backend_err(format!(
-                                    "Session id {} not found in driver",
-                                    session_id
+                                    "Session id {session_id} not found in driver"
                                 ))),
                             }
                             .into(),
@@ -575,8 +567,7 @@ impl DriverHolderRunner {
                         break 'arm Some(
                             BeginTransactionResult {
                                 result: Err(TestKitError::backend_err(format!(
-                                    "Session id {} not found in driver",
-                                    session_id
+                                    "Session id {session_id} not found in driver"
                                 ))),
                             }
                             .into(),
@@ -604,8 +595,7 @@ impl DriverHolderRunner {
                         break 'arm Some(
                             CloseSessionResult {
                                 result: Err(TestKitError::backend_err(format!(
-                                    "Session id {} not found in driver",
-                                    session_id
+                                    "Session id {session_id} not found in driver"
                                 ))),
                             }
                             .into(),

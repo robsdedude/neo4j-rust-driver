@@ -79,15 +79,14 @@ fn make_supplier_fn(
             } => {
                 if request_id != id {
                     return Err(Box::new(TestKitError::backend_err(format!(
-                        "expected BookmarksSupplierCompleted for id {}, received for {}",
-                        id, request_id
+                        "expected BookmarksSupplierCompleted for id {id}, \
+                         received for {request_id}"
                     ))));
                 }
                 Ok(Arc::new(Bookmarks::from_raw(bookmarks)))
             }
             _ => Err(Box::new(TestKitError::backend_err(format!(
-                "expected BookmarksSupplierCompleted, received {:?}",
-                request
+                "expected BookmarksSupplierCompleted, received {request:?}"
             )))),
         }
     }
@@ -115,15 +114,14 @@ fn make_consumer_fn(
             Request::BookmarksConsumerCompleted { request_id } => {
                 if request_id != id {
                     return Err(Box::new(TestKitError::backend_err(format!(
-                        "expected BookmarksConsumerCompleted for id {}, received for {}",
-                        id, request_id
+                        "expected BookmarksConsumerCompleted for id {id}, \
+                         received for {request_id}"
                     ))));
                 }
                 Ok(())
             }
             _ => Err(Box::new(TestKitError::backend_err(format!(
-                "expected BookmarksConsumerCompleted, received {:?}",
-                request
+                "expected BookmarksConsumerCompleted, received {request:?}"
             )))),
         }
     }

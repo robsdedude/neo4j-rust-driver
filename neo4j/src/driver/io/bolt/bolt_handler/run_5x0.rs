@@ -155,8 +155,7 @@ impl RunHandler5x0 {
                     Ok(())
                 }
                 Some(v) => Err(Neo4jError::protocol_error(format!(
-                    "server send non-int qid: {:?}",
-                    v
+                    "server send non-int qid: {v:?}"
                 ))),
             }
         })

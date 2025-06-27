@@ -354,7 +354,7 @@ impl UnpreparedSinglePooledBolt {
                             deadline,
                             on_server_error,
                         ) {
-                            connection.debug_log(|| format!("liveness check failed: {}", err));
+                            connection.debug_log(|| format!("liveness check failed: {err}"));
                             self.bolt = Some(connection);
                             return Ok(None);
                         }

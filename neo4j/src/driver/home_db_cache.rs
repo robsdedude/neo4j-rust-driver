@@ -123,7 +123,7 @@ pub(super) enum HomeDbCacheKey {
 impl HomeDbCacheKey {
     fn log_str(&self) -> String {
         match self {
-            HomeDbCacheKey::DriverUser | HomeDbCacheKey::FixedUser(_) => format!("{:?}", self),
+            HomeDbCacheKey::DriverUser | HomeDbCacheKey::FixedUser(_) => format!("{self:?}"),
             HomeDbCacheKey::SessionAuth(SessionAuthKey(auth)) => {
                 let mut auth: AuthToken = (**auth).clone();
                 auth.data

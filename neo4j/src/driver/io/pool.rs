@@ -342,7 +342,7 @@ impl RoutingPool {
             args.mode,
             args.update_rt_args
                 .db
-                .map(|db| format!("{:?}", db))
+                .map(|db| format!("{db:?}"))
                 .unwrap_or(String::from("default database"))
         );
         let (mut targets, db) = self.choose_addresses_from_fresh_rt(args)?;
@@ -512,7 +512,7 @@ impl RoutingPool {
                     .map(|rt| !rt.is_fresh(args.mode))
                     .unwrap_or(true);
                 if !needs_update {
-                    mem::swap(&mut *db_name_ref.borrow_mut(), &mut db_key.clone());
+                    *db_name_ref.borrow_mut() = db_key.clone();
                 }
                 needs_update
             },
@@ -580,8 +580,7 @@ impl RoutingPool {
             Err(err) => {
                 error!("failed to update routing table; last error: {}", err);
                 Err(Neo4jError::disconnect(format!(
-                    "unable to retrieve routing information; last error: {}",
-                    err
+                    "unable to retrieve routing information; last error: {err}"
                 )))
             }
             Ok(mut new_rt) => {
@@ -654,7 +653,7 @@ impl RoutingPool {
                         Ok(new_rt) => res = Some(Ok(new_rt)),
                         Err(e) => {
                             warn!("failed to parse routing table: {}", e);
-                            res = Some(Err(Neo4jError::protocol_error(format!("{}", e))));
+                            res = Some(Err(Neo4jError::protocol_error(format!("{e}"))));
                         }
                     }
                     mem::swap(rt.deref().borrow_mut().deref_mut(), &mut res);
@@ -723,10 +722,7 @@ impl RoutingPool {
                         set
                     },
                 );
-            let existing_addresses = pools
-                .iter()
-                .map(|(addr, _)| addr.clone())
-                .collect::<HashSet<_>>();
+            let existing_addresses = pools.keys().map(Arc::clone).collect::<HashSet<_>>();
             for addr in existing_addresses {
                 if !used_addresses.contains(&addr) {
                     pools.remove(&addr);

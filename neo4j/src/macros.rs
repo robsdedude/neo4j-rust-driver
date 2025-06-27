@@ -438,10 +438,10 @@ mod tests {
     fn test_float(#[case] input: ValueSend, #[case] output: ValueSend) {
         dbg!(&input, &output);
         let ValueSend::Float(input) = input else {
-            panic!("input is not float but {:?}", input);
+            panic!("input is not float but {input:?}");
         };
         let ValueSend::Float(output) = output else {
-            panic!("output is not float but {:?}", output);
+            panic!("output is not float but {output:?}");
         };
 
         if input.is_nan() {

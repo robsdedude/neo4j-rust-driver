@@ -248,7 +248,7 @@ impl<RW: Read + Write> Bolt<RW> {
                 ServerAwareBoltVersion::V4x4,
                 Bolt4x4::<Bolt4x4StructTranslator>::default().into(),
             ),
-            _ => panic!("implement protocol for version {:?}", version),
+            _ => panic!("implement protocol for version {version:?}"),
         };
         let data = BoltData::new(
             version,
