@@ -276,8 +276,7 @@ impl<'driver> Session<'driver> {
                 if let Err(e) = tx.close() {
                     info!(
                         "while propagating user code error: \
-                        ignored tx.close() error in transaction_run: {}",
-                        e
+                        ignored tx.close() error in transaction_run: {e}"
                     )
                 }
                 res

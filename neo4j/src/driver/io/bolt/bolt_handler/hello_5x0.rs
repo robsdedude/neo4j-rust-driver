@@ -188,7 +188,7 @@ impl HelloHandler5x0 {
         match meta.get(HINTS_KEY) {
             Some(ValueReceive::Map(hints)) => Cow::Borrowed(hints),
             Some(value) => {
-                warn!("Server sent unexpected {HINTS_KEY} type {:?}", value);
+                warn!("Server sent unexpected {HINTS_KEY} type {value:?}");
                 Cow::Owned(HashMap::new())
             }
             None => Cow::Owned(HashMap::new()),

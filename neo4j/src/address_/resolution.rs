@@ -78,7 +78,7 @@ impl CustomResolution {
                         Ok(Self::Resolver(addrs))
                     }
                     Err(err) => {
-                        debug!("custom resolver failed: {:?}", err);
+                        debug!("custom resolver failed: {err:?}");
                         Err(Neo4jError::UserCallback {
                             error: UserCallbackError::Resolver(err),
                         })
@@ -157,7 +157,7 @@ impl DnsResolution {
                     );
                 }
                 Err(err) => {
-                    debug!("dns resolver out: {:?}", err);
+                    debug!("dns resolver out: {err:?}");
                 }
             }
             Self::RealResolution(Some(res))

@@ -143,13 +143,13 @@ impl InnerPool {
                     ) {
                         Ok(connection) => return Ok(connection),
                         Err(err) => {
-                            info!("failed to open connection: {}", err);
+                            info!("failed to open connection: {err}");
                             Some(Err(err))
                         }
                     }
                 }
                 Err(err) => {
-                    info!("failed to resolve address: {}", err);
+                    info!("failed to resolve address: {err}");
                     Some(Err(Neo4jError::connect_error(err)))
                 }
             }

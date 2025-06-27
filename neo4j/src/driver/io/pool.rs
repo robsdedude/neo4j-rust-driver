@@ -578,7 +578,7 @@ impl RoutingPool {
         }
         match new_rt {
             Err(err) => {
-                error!("failed to update routing table; last error: {}", err);
+                error!("failed to update routing table; last error: {err}");
                 Err(Neo4jError::disconnect(format!(
                     "unable to retrieve routing information; last error: {err}"
                 )))
@@ -592,7 +592,7 @@ impl RoutingPool {
                     }
                     _ => new_rt.database.clone(),
                 };
-                debug!("Storing new routing table for {:?}: {:?}", db, new_rt);
+                debug!("Storing new routing table for {db:?}: {new_rt:?}");
                 rts.insert(db.as_ref().map(Arc::clone), new_rt);
                 self.clean_up_pools(rts);
                 if let Some(cb) = args.db_resolution_cb {
@@ -652,7 +652,7 @@ impl RoutingPool {
                     match new_rt {
                         Ok(new_rt) => res = Some(Ok(new_rt)),
                         Err(e) => {
-                            warn!("failed to parse routing table: {}", e);
+                            warn!("failed to parse routing table: {e}");
                             res = Some(Err(Neo4jError::protocol_error(format!("{e}"))));
                         }
                     }
@@ -750,7 +750,7 @@ impl RoutingPool {
     }
 
     fn deactivate_server_locked(addr: &Address, rts: &mut RoutingTables, pools: &mut RoutingPools) {
-        debug!("deactivating address: {:?}", addr);
+        debug!("deactivating address: {addr:?}");
         rts.iter_mut().for_each(|(_, rt)| rt.deactivate(addr));
         pools.remove(addr);
     }
@@ -763,7 +763,7 @@ impl RoutingPool {
     }
 
     fn deactivate_writer_locked(addr: &Address, rts: &mut RoutingTables) {
-        debug!("deactivating writer: {:?}", addr);
+        debug!("deactivating writer: {addr:?}");
         rts.iter_mut()
             .for_each(|(_, rt)| rt.deactivate_writer(addr));
     }
@@ -796,7 +796,7 @@ impl RoutingPool {
                 if e.fatal_during_discovery() {
                     Err(e)
                 } else {
-                    info!("ignored error during discovery: {:?}", e);
+                    info!("ignored error during discovery: {e:?}");
                     Ok(Err(e))
                 }
             }

@@ -168,7 +168,7 @@ impl HelloHandler4x4 {
                     }
                 }
                 _ => {
-                    warn!("Server sent unexpected {PATCH_BOLT_KEY} type {:?}", value);
+                    warn!("Server sent unexpected {PATCH_BOLT_KEY} type {value:?}");
                 }
             }
         }

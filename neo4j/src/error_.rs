@@ -154,7 +154,7 @@ impl Neo4jError {
     }
 
     pub(crate) fn read_err(err: io::Error) -> Self {
-        info!("read error: {}", err);
+        info!("read error: {err}");
         Self::Disconnect {
             message: String::from("failed to read"),
             source: Some(err),
@@ -170,7 +170,7 @@ impl Neo4jError {
     }
 
     pub(crate) fn write_error(err: io::Error) -> Neo4jError {
-        info!("write error: {}", err);
+        info!("write error: {err}");
         Self::Disconnect {
             message: String::from("failed to write"),
             source: Some(err),

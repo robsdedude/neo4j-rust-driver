@@ -132,7 +132,7 @@ impl RoutingTable {
         })?;
         let role = match role.as_str().into() {
             ServerRole::Unknown => {
-                warn!("ignoring unknown server role {}", role);
+                warn!("ignoring unknown server role {role}");
                 return Ok((ServerRole::Unknown, vec![]));
             }
             role => role,
@@ -159,14 +159,11 @@ impl RoutingTable {
 
     pub(crate) fn is_fresh(&self, mode: RoutingControl) -> bool {
         if self.routers.is_empty() {
-            debug!("routing table expired: no routers left {:?}", self);
+            debug!("routing table expired: no routers left {self:?}");
             return false;
         }
         if self.servers_for_mode(mode).is_empty() {
-            debug!(
-                "routing table expired: no servers for {:?} mode left {:?}",
-                mode, self
-            );
+            debug!("routing table expired: no servers for {mode:?} mode left {self:?}");
             return false;
         }
         if self.created.elapsed() > self.ttl {
@@ -178,7 +175,7 @@ impl RoutingTable {
             );
             return false;
         }
-        debug!("routing table is fresh {:?}", self);
+        debug!("routing table is fresh {self:?}");
         true
     }
 

@@ -90,7 +90,7 @@ impl HelloHandler5x8 {
             Some(ValueReceive::Boolean(value)) => *ssr_enabled = *value,
             Some(value) => {
                 *ssr_enabled = false;
-                warn!("Server sent unexpected {SSR_ENABLED_KEY} type {:?}", value);
+                warn!("Server sent unexpected {SSR_ENABLED_KEY} type {value:?}");
             }
         }
     }

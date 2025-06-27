@@ -68,7 +68,7 @@ pub(super) fn start_server() {
                 }
             }
             Err(err) => {
-                warn!("Connection failed {:?}", err);
+                warn!("Connection failed {err:?}");
             }
         }
     }

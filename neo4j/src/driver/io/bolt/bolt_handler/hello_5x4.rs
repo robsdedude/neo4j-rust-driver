@@ -145,10 +145,7 @@ impl HelloHandler5x4 {
             return;
         };
         let ValueReceive::Boolean(enabled) = enabled else {
-            warn!(
-                "Server sent unexpected {TELEMETRY_ENABLED_KEY} type {:?}",
-                enabled
-            );
+            warn!("Server sent unexpected {TELEMETRY_ENABLED_KEY} type {enabled:?}");
             return;
         };
         // since client didn't opt out, leave it up to the server
