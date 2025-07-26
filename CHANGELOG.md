@@ -8,6 +8,9 @@
  - Reduce network latency in some cases by setting `TCP_NODELAY`.
  - ⚠️ Reduce the size of `Neo4jError`. The `ServerError` variant is now wrapped in a Box.
 
+**🔧️ Fixes**
+ - Fix accidentally merging write and read timeouts during a connection's lifetime.
+
 
 ## 0.2.0
 ***
