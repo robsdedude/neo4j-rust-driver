@@ -165,6 +165,9 @@ A bump in MSRV is considered a minor breaking change.
      * [x] (GQL errors)
      * [x] (new bolt version handshake)
    * [x] 5.8 (home db resolution cache)
+   * [x] 6.0
+     * [x] (vector types)
+     * [ ] (unsupported type)
  * [x] Types
    * [x] `Null`
    * [x] `Integer`

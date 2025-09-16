@@ -17,6 +17,7 @@ pub mod spatial;
 pub mod time;
 mod value_receive;
 mod value_send;
+pub mod vector;
 // mod de;
 // mod ser;
 

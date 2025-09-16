@@ -16,6 +16,7 @@ use std::collections::{HashMap, HashSet};
 
 use rstest::rstest;
 
+use super::super::super::bolt::bolt_common::ServerAwareBoltVersion;
 use super::super::super::bolt::BoltStructTranslator;
 use super::super::bolt5x0::Bolt5x0StructTranslator;
 use super::deserialize::{PackStreamDeserializer, PackStreamDeserializerImpl};
@@ -35,7 +36,7 @@ fn mk_value<V: Into<ValueSend>>(v: V) -> ValueReceive {
 }
 
 fn decode_raw(input: Vec<u8>) -> (Result<ValueReceive, PackStreamDeserializeError>, Vec<u8>) {
-    let translator = Bolt5x0StructTranslator {};
+    let translator = Bolt5x0StructTranslator::new(ServerAwareBoltVersion::V6x0);
     let mut reader = input.as_slice();
     let mut deserializer = PackStreamDeserializerImpl::new(&mut reader);
     let result = deserializer.load(&translator);
@@ -321,7 +322,7 @@ fn test_decode_error(#[case] input: Vec<u8>, #[case] error: &'static str) {
 // =============
 
 fn encode_raw(input: &ValueSend) -> Result<Vec<u8>, PackStreamSerializeError> {
-    let translator = Bolt5x0StructTranslator {};
+    let translator = Bolt5x0StructTranslator::new(ServerAwareBoltVersion::V6x0);
     let mut output = Vec::new();
     let mut serializer = PackStreamSerializerImpl::new(&mut output);
     translator.serialize(&mut serializer, input)?;

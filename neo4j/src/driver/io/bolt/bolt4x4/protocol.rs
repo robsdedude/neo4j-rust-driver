@@ -15,8 +15,7 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use atomic_refcell::AtomicRefCell;
-
+use super::super::bolt_common::ServerAwareBoltVersion;
 use super::super::bolt_handler::{
     begin_5x0::BeginHandler5x0, commit_5x0::CommitHandler5x0, goodbye_5x0::GoodbyeHandler5x0,
     hello_4x4::HelloHandler4x4, impl_begin, impl_commit, impl_discard, impl_goodbye, impl_hello,
@@ -29,10 +28,19 @@ use super::super::bolt_handler::{
     run_5x0::RunHandler5x0, telemetry_no_op::TelemetryNoOpHandler,
 };
 use super::super::BoltStructTranslatorWithUtcPatch;
+use atomic_refcell::AtomicRefCell;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Bolt4x4<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> {
     translator: Arc<AtomicRefCell<T>>,
+}
+
+impl<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> Bolt4x4<T> {
+    pub(crate) fn new(bolt_version: ServerAwareBoltVersion) -> Self {
+        Self {
+            translator: Arc::new(AtomicRefCell::new(T::new(bolt_version))),
+        }
+    }
 }
 
 impl_hello!((BoltStructTranslatorWithUtcPatch, Sync, Send, 'static), Bolt4x4<T>, HelloHandler4x4);

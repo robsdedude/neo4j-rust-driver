@@ -31,8 +31,10 @@ use crate::value::time::{
 };
 use crate::value::{BrokenValue, BrokenValueInner, ValueReceive, ValueSend};
 
-#[derive(Debug, Default)]
-pub(crate) struct Bolt5x0StructTranslator {}
+#[derive(Debug)]
+pub(crate) struct Bolt5x0StructTranslator {
+    bolt_version: ServerAwareBoltVersion,
+}
 
 impl Bolt5x0StructTranslator {
     fn write_2d_point<S: PackStreamSerializer>(
@@ -62,6 +64,10 @@ impl Bolt5x0StructTranslator {
 }
 
 impl BoltStructTranslator for Bolt5x0StructTranslator {
+    fn new(bolt_version: ServerAwareBoltVersion) -> Self {
+        Self { bolt_version }
+    }
+
     fn serialize<S: PackStreamSerializer>(
         &self,
         serializer: &mut S,
@@ -195,6 +201,11 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                 serializer.write_int(tz_offset)?;
                 Ok(())
             }
+            ValueSend::Vector(_) => Err(serializer.error(unsupported_protocol_feature_message(
+                "vector types",
+                self.bolt_version,
+                ServerAwareBoltVersion::V6x0,
+            ))),
         }
     }
 

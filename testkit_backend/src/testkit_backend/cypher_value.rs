@@ -15,10 +15,12 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
+use std::mem::size_of;
 use std::num::FpCategory;
 use std::str::FromStr;
 
 use chrono::{Datelike, Duration, LocalResult, Offset, TimeZone, Timelike};
+use itertools::Itertools;
 use serde::de::Unexpected;
 use serde::{de::Error as DeError, de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue, Value};
@@ -31,7 +33,7 @@ use neo4j::value::graph::{
     UnboundRelationship as Neo4jUnboundRelationship,
 };
 use neo4j::value::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
-use neo4j::value::{time, ValueReceive, ValueSend};
+use neo4j::value::{time, vector, ValueReceive, ValueSend};
 
 #[derive(Debug)]
 #[repr(transparent)]
@@ -121,6 +123,10 @@ pub(super) enum CypherValue {
         days: i64,
         seconds: i64,
         nanoseconds: i64,
+    },
+    CypherVector {
+        dtype: String,
+        data: String,
     },
 }
 
@@ -459,6 +465,119 @@ impl TryFrom<CypherValue> for ValueSend {
                 try_from_value(nanoseconds, "CypherDuration", "nanoseconds")?,
             )
             .into(),
+            CypherValue::CypherVector { dtype, data } => {
+                let data = data
+                    .split(" ")
+                    .filter(|s| !s.is_empty())
+                    .enumerate()
+                    .map(|(i, b)| {
+                        u8::from_str_radix(b, 16).map_err(|err| NotADriverValueError {
+                            reason: format!(
+                                "CypherVector data failed to parse group {i} ({b:?}): {err}"
+                            ),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                match dtype.as_str() {
+                    "f64" => {
+                        if data.len() % size_of::<f64>() != 0 {
+                            return Err(NotADriverValueError {
+                                reason: format!(
+                                    "CypherVector data len for dtype {dtype} must be a multiple of \
+                                    {}, was {}",
+                                    data.len(),
+                                    size_of::<f64>(),
+                                ),
+                            });
+                        }
+                        let data = data
+                            .chunks_exact(size_of::<f64>())
+                            .map(|f| f64::from_be_bytes(f.try_into().unwrap()))
+                            .collect();
+                        vector::Vector::F64(data).into()
+                    }
+                    "f32" => {
+                        if data.len() % size_of::<f32>() != 0 {
+                            return Err(NotADriverValueError {
+                                reason: format!(
+                                    "CypherVector data len for dtype {dtype} must be a multiple of \
+                                    {}, was {}",
+                                    data.len(),
+                                    size_of::<f32>(),
+                                ),
+                            });
+                        }
+                        let data = data
+                            .chunks_exact(size_of::<f32>())
+                            .map(|f| f32::from_be_bytes(f.try_into().unwrap()))
+                            .collect();
+                        vector::Vector::F32(data).into()
+                    }
+                    "i64" => {
+                        if data.len() % size_of::<i64>() != 0 {
+                            return Err(NotADriverValueError {
+                                reason: format!(
+                                    "CypherVector data len for dtype {dtype} must be a multiple of \
+                                    {}, was {}",
+                                    data.len(),
+                                    size_of::<i64>(),
+                                ),
+                            });
+                        }
+                        let data = data
+                            .chunks_exact(size_of::<i64>())
+                            .map(|f| i64::from_be_bytes(f.try_into().unwrap()))
+                            .collect();
+                        vector::Vector::I64(data).into()
+                    }
+                    "i32" => {
+                        if data.len() % size_of::<i32>() != 0 {
+                            return Err(NotADriverValueError {
+                                reason: format!(
+                                    "CypherVector data len for dtype {dtype} must be a multiple of \
+                                    {}, was {}",
+                                    data.len(),
+                                    size_of::<i32>(),
+                                ),
+                            });
+                        }
+                        let data = data
+                            .chunks_exact(size_of::<i32>())
+                            .map(|f| i32::from_be_bytes(f.try_into().unwrap()))
+                            .collect();
+                        vector::Vector::I32(data).into()
+                    }
+                    "i16" => {
+                        if data.len() % size_of::<i16>() != 0 {
+                            return Err(NotADriverValueError {
+                                reason: format!(
+                                    "CypherVector data len for dtype {dtype} must be a multiple of \
+                                    {}, was {}",
+                                    data.len(),
+                                    size_of::<i16>(),
+                                ),
+                            });
+                        }
+                        let data = data
+                            .chunks_exact(size_of::<i16>())
+                            .map(|f| i16::from_be_bytes(f.try_into().unwrap()))
+                            .collect();
+                        vector::Vector::I16(data).into()
+                    }
+                    "i8" => {
+                        let data = data
+                            .chunks(1)
+                            .map(|f| i8::from_be_bytes(f.try_into().unwrap()))
+                            .collect();
+                        vector::Vector::I8(data).into()
+                    }
+                    _ => {
+                        return Err(NotADriverValueError {
+                            reason: format!("CypherVector dtype {dtype} is not supported"),
+                        })
+                    }
+                }
+            }
         })
     }
 }
@@ -545,6 +664,7 @@ impl TryFrom<ValueSend> for CypherValue {
             ValueSend::LocalDateTime(value) => local_date_time_to_cypher_value(value),
             ValueSend::DateTime(value) => date_time_to_cypher_value(value),
             ValueSend::DateTimeFixed(value) => date_time_fixed_to_cypher_value(value),
+            ValueSend::Vector(value) => vector_cypher_value(value)?,
             _ => {
                 return Err(TestKitError::backend_err(format!(
                     "Failed to serialize to json: {v:?}",
@@ -606,7 +726,9 @@ pub(super) enum BrokenValueError {
     #[error("record contains a broken value: {reason}")]
     BrokenValue { reason: String },
     #[error("record contains unhandled value: {0:?}")]
-    UnhandledType(ValueReceive),
+    UnhandledType(Box<ValueReceive>),
+    #[error("record contains unhandled vector type: {0:?}")]
+    UnhandledVectorType(vector::Vector),
 }
 
 impl TryFrom<ValueReceive> for CypherValue {
@@ -686,13 +808,14 @@ impl TryFrom<ValueReceive> for CypherValue {
             ValueReceive::LocalDateTime(value) => local_date_time_to_cypher_value(value),
             ValueReceive::DateTime(value) => date_time_to_cypher_value(value),
             ValueReceive::DateTimeFixed(value) => date_time_fixed_to_cypher_value(value),
+            ValueReceive::Vector(value) => vector_cypher_value(value)?,
             ValueReceive::BrokenValue(v) => {
                 return Err(Self::Error::BrokenValue {
                     reason: v.reason().into(),
                 })
             }
             _ => {
-                return Err(Self::Error::UnhandledType(v));
+                return Err(Self::Error::UnhandledType(Box::new(v)));
             }
         })
     }
@@ -776,6 +899,74 @@ fn date_time_fixed_to_cypher_value(value: time::DateTimeFixed) -> CypherValue {
         utc_offset_s: Some(value.offset().fix().local_minus_utc().into()),
         timezone_id: None,
     }
+}
+
+fn vector_cypher_value(value: vector::Vector) -> Result<CypherValue, BrokenValueError> {
+    Ok(match value {
+        vector::Vector::F64(value) => CypherValue::CypherVector {
+            dtype: String::from("f64"),
+            data: {
+                value
+                    .iter()
+                    .flat_map(|v| v.to_be_bytes())
+                    .map(|v| format!("{v:02x?}"))
+                    .join(" ")
+            },
+        },
+        vector::Vector::F32(value) => CypherValue::CypherVector {
+            dtype: String::from("f32"),
+            data: {
+                value
+                    .iter()
+                    .flat_map(|v| v.to_be_bytes())
+                    .map(|v| format!("{v:02x?}"))
+                    .join(" ")
+            },
+        },
+        vector::Vector::I64(value) => CypherValue::CypherVector {
+            dtype: String::from("i64"),
+            data: {
+                value
+                    .iter()
+                    .flat_map(|v| v.to_be_bytes())
+                    .map(|v| format!("{v:02x?}"))
+                    .join(" ")
+            },
+        },
+        vector::Vector::I32(value) => CypherValue::CypherVector {
+            dtype: String::from("i32"),
+            data: {
+                value
+                    .iter()
+                    .flat_map(|v| v.to_be_bytes())
+                    .map(|v| format!("{v:02x?}"))
+                    .join(" ")
+            },
+        },
+        vector::Vector::I16(value) => CypherValue::CypherVector {
+            dtype: String::from("i16"),
+            data: {
+                value
+                    .iter()
+                    .flat_map(|v| v.to_be_bytes())
+                    .map(|v| format!("{v:02x?}"))
+                    .join(" ")
+            },
+        },
+        vector::Vector::I8(value) => CypherValue::CypherVector {
+            dtype: String::from("i8"),
+            data: {
+                value
+                    .iter()
+                    .flat_map(|v| v.to_be_bytes())
+                    .map(|v| format!("{v:02x?}"))
+                    .join(" ")
+            },
+        },
+        _ => {
+            return Err(BrokenValueError::UnhandledVectorType(value));
+        }
+    })
 }
 
 #[allow(clippy::result_large_err)]

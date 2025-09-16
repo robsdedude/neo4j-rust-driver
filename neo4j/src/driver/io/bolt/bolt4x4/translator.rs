@@ -26,13 +26,20 @@ use crate::value::graph::{Node, Path, Relationship, UnboundRelationship};
 use crate::value::time::{local_date_time_from_timestamp, FixedOffset, Tz};
 use crate::value::{BrokenValue, BrokenValueInner, ValueReceive, ValueSend};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Bolt4x4StructTranslator {
     utc_patch: bool,
     bolt5x0_translator: Bolt5x0StructTranslator,
 }
 
 impl BoltStructTranslator for Bolt4x4StructTranslator {
+    fn new(bolt_version: ServerAwareBoltVersion) -> Self {
+        Self {
+            utc_patch: false,
+            bolt5x0_translator: Bolt5x0StructTranslator::new(bolt_version),
+        }
+    }
+
     fn serialize<S: PackStreamSerializer>(
         &self,
         serializer: &mut S,
