@@ -35,6 +35,13 @@ pub(super) const TAG_DATE_TIME_ZONE_ID: u8 = b'i';
 pub(super) const TAG_LEGACY_DATE_TIME_ZONE_ID: u8 = b'f';
 pub(super) const TAG_LOCAL_DATE_TIME: u8 = b'd';
 pub(super) const TAG_DURATION: u8 = b'E';
+pub(super) const TAG_VECTOR: u8 = b'V';
+pub(super) const VEC_TYPE_MARKER_F64: &[u8] = &[0xC1];
+pub(super) const VEC_TYPE_MARKER_F32: &[u8] = &[0xC6];
+pub(super) const VEC_TYPE_MARKER_I64: &[u8] = &[0xCB];
+pub(super) const VEC_TYPE_MARKER_I32: &[u8] = &[0xCA];
+pub(super) const VEC_TYPE_MARKER_I16: &[u8] = &[0xC9];
+pub(super) const VEC_TYPE_MARKER_I8: &[u8] = &[0xC8];
 
 macro_rules! value_as {
     ($variant:ident, $value:expr, $name:literal, $type_name:literal $($format_arg:tt)*) => {
@@ -66,6 +73,12 @@ macro_rules! as_int {
 macro_rules! as_float {
     ($value:expr, $name:literal $($format_arg:tt)*) => {
         value_as!(Float, $value, $name, "float" $($format_arg)*)
+    };
+}
+
+macro_rules! as_bytes {
+    ($value:expr, $name:literal $($format_arg:tt)*) => {
+        value_as!(Bytes, $value, $name, "bytes" $($format_arg)*)
     };
 }
 
@@ -106,45 +119,65 @@ pub(super) fn failed_struct(reason: impl Into<String>) -> ValueReceive {
 
 // [bolt-version-bump] search tag when changing bolt version support
 #[derive(Debug, Copy, Clone)]
-pub(super) enum ServerAwareBoltVersion {
-    V4x4,
-    V5x0,
-    V5x1,
-    V5x2,
-    V5x3,
-    V5x4,
-    V5x6,
-    V5x7,
+pub(crate) enum ServerAwareBoltVersion {
+    V6x0,
     V5x8,
+    V5x7,
+    V5x6,
+    V5x4,
+    V5x3,
+    V5x2,
+    V5x1,
+    V5x0,
+    V4x4,
 }
 
 impl ServerAwareBoltVersion {
     #[inline]
-    fn protocol_version(&self) -> &'static str {
+    pub(crate) fn protocol_version(&self) -> &'static str {
         match self {
-            Self::V4x4 => "4.4",
-            Self::V5x0 => "5.0",
-            Self::V5x1 => "5.1",
-            Self::V5x2 => "5.2",
-            Self::V5x3 => "5.3",
-            Self::V5x4 => "5.4",
-            Self::V5x6 => "5.6",
-            Self::V5x7 => "5.7",
+            Self::V6x0 => "6.0",
             Self::V5x8 => "5.8",
+            Self::V5x7 => "5.7",
+            Self::V5x6 => "5.6",
+            Self::V5x4 => "5.4",
+            Self::V5x3 => "5.3",
+            Self::V5x2 => "5.2",
+            Self::V5x1 => "5.1",
+            Self::V5x0 => "5.0",
+            Self::V4x4 => "4.4",
         }
     }
 
     #[inline]
-    fn min_server_version(&self) -> &'static str {
+    pub(crate) fn min_server_version(&self) -> &'static str {
         match self {
-            Self::V4x4 => "4.4",
-            Self::V5x0 => "5.0",
-            Self::V5x1 => "5.5",
-            Self::V5x2 => "5.7",
-            Self::V5x3 => "5.9",
-            Self::V5x4 => "5.13",
-            Self::V5x6 => "5.23",
+            Self::V6x0 => "2025.08",
             Self::V5x7 | Self::V5x8 => "5.26",
+            Self::V5x6 => "5.23",
+            Self::V5x4 => "5.13",
+            Self::V5x3 => "5.9",
+            Self::V5x2 => "5.7",
+            Self::V5x1 => "5.5",
+            Self::V5x0 => "5.0",
+            Self::V4x4 => "4.4",
+        }
+    }
+
+    #[inline]
+    pub(crate) fn parse(major: u8, minor: u8) -> Option<Self> {
+        match (major, minor) {
+            (6, 0) => Some(Self::V6x0),
+            (5, 8) => Some(Self::V5x8),
+            (5, 7) => Some(Self::V5x7),
+            (5, 6) => Some(Self::V5x6),
+            (5, 4) => Some(Self::V5x4),
+            (5, 3) => Some(Self::V5x3),
+            (5, 2) => Some(Self::V5x2),
+            (5, 1) => Some(Self::V5x1),
+            (5, 0) => Some(Self::V5x0),
+            (4, 4) => Some(Self::V4x4),
+            _ => None,
         }
     }
 }
@@ -156,10 +189,19 @@ pub(super) fn unsupported_protocol_feature_error(
     needed_version: ServerAwareBoltVersion,
 ) -> Neo4jError {
     Neo4jError::InvalidConfig {
-        message: format!(
-            "{name} is not supported via bolt version {}, requires at least server version {}",
-            current_version.protocol_version(),
-            needed_version.min_server_version(),
-        ),
+        message: unsupported_protocol_feature_message(name, current_version, needed_version),
     }
+}
+
+#[inline]
+pub(super) fn unsupported_protocol_feature_message(
+    name: &str,
+    current_version: ServerAwareBoltVersion,
+    needed_version: ServerAwareBoltVersion,
+) -> String {
+    format!(
+        "{name} is not supported via bolt version {}, requires at least server version {}",
+        current_version.protocol_version(),
+        needed_version.min_server_version(),
+    )
 }

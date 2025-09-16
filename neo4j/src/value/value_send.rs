@@ -15,6 +15,7 @@
 use super::spatial;
 use super::time;
 use super::value_receive::ValueReceive;
+use super::vector;
 use super::ValueConversionError;
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -50,6 +51,7 @@ pub enum ValueSend {
     LocalDateTime(time::LocalDateTime),
     DateTime(time::DateTime),
     DateTimeFixed(time::DateTimeFixed),
+    Vector(vector::Vector),
 }
 
 impl ValueSend {
@@ -96,6 +98,9 @@ impl ValueSend {
             ValueSend::DateTime(v1) => matches!(other, ValueSend::DateTime(v2) if v1 == v2),
             ValueSend::DateTimeFixed(v1) => {
                 matches!(other, ValueSend::DateTimeFixed(v2) if v1 == v2)
+            }
+            ValueSend::Vector(v1) => {
+                matches!(other, ValueSend::Vector(v2) if v1.eq_data(v2))
             }
         }
     }
@@ -144,6 +149,7 @@ impl_value_from_owned!(ValueSend::Date, time::Date);
 impl_value_from_owned!(ValueSend::LocalDateTime, time::LocalDateTime);
 impl_value_from_owned!(ValueSend::DateTime, time::DateTime);
 impl_value_from_owned!(ValueSend::DateTimeFixed, time::DateTimeFixed);
+impl_value_from_owned!(ValueSend::Vector, vector::Vector);
 
 impl<T: Into<ValueSend>> From<HashMap<String, T>> for ValueSend {
     fn from(value: HashMap<String, T>) -> Self {
@@ -250,6 +256,7 @@ impl TryFrom<ValueReceive> for ValueSend {
             ValueReceive::Node(_) => return Err("cannot convert Node".into()),
             ValueReceive::Relationship(_) => return Err("cannot convert Relationship".into()),
             ValueReceive::Path(_) => return Err("cannot convert Path".into()),
+            ValueReceive::Vector(v) => Self::Vector(v),
         })
     }
 }

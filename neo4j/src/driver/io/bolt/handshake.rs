@@ -409,8 +409,9 @@ fn decode_version_offer(offer: &[u8; 4]) -> Result<(u8, u8)> {
 }
 
 // [bolt-version-bump] search tag when changing bolt version support
-const BOLT_VERSIONS: [(u8, u8); 9] = [
+const BOLT_VERSIONS: [(u8, u8); 10] = [
     // important: ordered by descending preference
+    (6, 0),
     (5, 8),
     (5, 7),
     (5, 6),
@@ -550,6 +551,7 @@ mod tests {
     #[case([0, 0, 6, 5], (5, 6))]
     #[case([0, 0, 7, 5], (5, 7))]
     #[case([0, 0, 8, 5], (5, 8))]
+    #[case([0, 0, 0, 6], (6, 0))]
     fn test_decode_version_offer(
         #[case] mut offer: [u8; 4],
         #[case] expected: (u8, u8),
@@ -590,8 +592,8 @@ mod tests {
     #[case([0, 0, 2, 4])] // driver didn't offer version 4.2
     #[case([0, 0, 3, 4])] // driver didn't offer version 4.3
     #[case([0, 0, 5, 5])] // driver didn't offer version 5.5
-    #[case([0, 0, 9, 5])] // driver didn't offer version 5.8
-    #[case([0, 0, 0, 6])] // driver didn't offer version 6.0
+    #[case([0, 0, 9, 5])] // driver didn't offer version 5.9
+    #[case([0, 0, 1, 6])] // driver didn't offer version 6.1
     fn test_garbage_server_version(
         #[case] mut offer: [u8; 4],
         #[values([0, 0], [1, 2], [255, 254])] garbage: [u8; 2],

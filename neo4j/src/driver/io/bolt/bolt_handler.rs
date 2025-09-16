@@ -49,8 +49,7 @@ use super::message_parameters::{
     PullParameters, ReauthParameters, ResetParameters, RollbackParameters, RouteParameters,
     RunParameters, TelemetryParameters,
 };
-use super::{BoltData, OnServerErrorCb, ResponseCallbacks};
-use crate::driver::io::bolt::message::BoltMessage;
+use super::{BoltData, BoltMessage, OnServerErrorCb, ResponseCallbacks};
 use crate::error_::Result;
 use crate::ValueReceive;
 use std::borrow::Borrow;

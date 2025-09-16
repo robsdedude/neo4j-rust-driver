@@ -38,7 +38,7 @@ use super::{BackendId, TestKitResultT};
 
 // [bolt-version-bump] search tag when changing bolt version support
 // https://github.com/rust-lang/rust/issues/85077
-const FEATURE_LIST: [&str; 52] = [
+const FEATURE_LIST: [&str; 54] = [
     // === FUNCTIONAL FEATURES ===
     "Feature:API:BookmarkManager",
     "Feature:API:ConnectionAcquisitionTimeout",
@@ -66,7 +66,7 @@ const FEATURE_LIST: [&str; 52] = [
     "Feature:API:Type.Spatial",
     "Feature:API:Type.Temporal",
     // "Feature:API:Type.UnsupportedType",
-    // "Feature:API:Type.Vector",
+    "Feature:API:Type.Vector",
     "Feature:Auth:Bearer",
     "Feature:Auth:Custom",
     "Feature:Auth:Kerberos",
@@ -85,7 +85,7 @@ const FEATURE_LIST: [&str; 52] = [
     "Feature:Bolt:5.6",
     "Feature:Bolt:5.7",
     "Feature:Bolt:5.8",
-    // "Feature:Bolt:6.0",
+    "Feature:Bolt:6.0",
     "Feature:Bolt:HandshakeManifestV1",
     "Feature:Bolt:Patch:UTC",
     "Feature:Impersonation",
@@ -111,7 +111,7 @@ const FEATURE_LIST: [&str; 52] = [
     // === IMPLEMENTATION DETAILS ===
     // "Detail:ClosedDriverIsEncrypted",
     // "Detail:DefaultSecurityConfigValueEquality",
-    //"Detail:NumberIsNumber",  // Rust can tell float and int appart
+    // "Detail:NumberIsNumber",  // Rust can tell float and int apart 😌️
     //
     // === CONFIGURATION HINTS (BOLT 4.3+) ===
     "ConfHint:connection.recv_timeout_seconds",

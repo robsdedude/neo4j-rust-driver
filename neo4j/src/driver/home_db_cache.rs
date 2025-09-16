@@ -23,6 +23,7 @@ use std::time::Instant;
 
 use super::auth::AuthToken;
 use crate::value::spatial;
+use crate::value::vector;
 use crate::{value, ValueSend};
 
 #[derive(Debug)]
@@ -220,6 +221,16 @@ impl SessionAuthKey {
             ValueSend::LocalDateTime(v) => v.hash(state),
             ValueSend::DateTime(v) => v.hash(state),
             ValueSend::DateTimeFixed(v) => v.hash(state),
+            ValueSend::Vector(vector::Vector::F64(v)) => {
+                v.iter().for_each(|v| v.to_bits().hash(state))
+            }
+            ValueSend::Vector(vector::Vector::F32(v)) => {
+                v.iter().for_each(|v| v.to_bits().hash(state))
+            }
+            ValueSend::Vector(vector::Vector::I64(v)) => v.hash(state),
+            ValueSend::Vector(vector::Vector::I32(v)) => v.hash(state),
+            ValueSend::Vector(vector::Vector::I16(v)) => v.hash(state),
+            ValueSend::Vector(vector::Vector::I8(v)) => v.hash(state),
         }
     }
 }

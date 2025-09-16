@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::super::bolt_common::ServerAwareBoltVersion;
 use super::super::bolt_handler::{
     begin_5x2::BeginHandler5x2, commit_5x0::CommitHandler5x0, goodbye_5x0::GoodbyeHandler5x0,
     hello_5x4::HelloHandler5x4, impl_begin, impl_commit, impl_discard, impl_goodbye, impl_hello,
@@ -28,6 +29,14 @@ use super::super::BoltStructTranslator;
 #[derive(Debug, Default)]
 pub(crate) struct Bolt5x7<T: BoltStructTranslator> {
     translator: T,
+}
+
+impl<T: BoltStructTranslator> Bolt5x7<T> {
+    pub(crate) fn new(bolt_version: ServerAwareBoltVersion) -> Self {
+        Self {
+            translator: T::new(bolt_version),
+        }
+    }
 }
 
 impl_hello!((BoltStructTranslator), Bolt5x7<T>, HelloHandler5x4);

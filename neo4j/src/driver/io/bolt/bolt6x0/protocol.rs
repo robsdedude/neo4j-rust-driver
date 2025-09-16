@@ -27,11 +27,11 @@ use super::super::bolt_handler::{
 use super::super::BoltStructTranslator;
 
 #[derive(Debug, Default)]
-pub(crate) struct Bolt5x8<T: BoltStructTranslator> {
+pub(crate) struct Bolt6x0<T: BoltStructTranslator> {
     translator: T,
 }
 
-impl<T: BoltStructTranslator> Bolt5x8<T> {
+impl<T: BoltStructTranslator> Bolt6x0<T> {
     pub(crate) fn new(bolt_version: ServerAwareBoltVersion) -> Self {
         Self {
             translator: T::new(bolt_version),
@@ -39,24 +39,24 @@ impl<T: BoltStructTranslator> Bolt5x8<T> {
     }
 }
 
-impl_hello!((BoltStructTranslator), Bolt5x8<T>, HelloHandler5x8);
-impl_reauth!((BoltStructTranslator), Bolt5x8<T>, ReauthHandler5x1);
-impl_goodbye!((BoltStructTranslator), Bolt5x8<T>, GoodbyeHandler5x0);
-impl_reset!((BoltStructTranslator), Bolt5x8<T>, ResetHandler5x0);
-impl_run!((BoltStructTranslator), Bolt5x8<T>, RunHandler5x6);
-impl_discard!((BoltStructTranslator), Bolt5x8<T>, DiscardHandler5x6);
-impl_pull!((BoltStructTranslator), Bolt5x8<T>, PullHandler5x6);
-impl_begin!((BoltStructTranslator), Bolt5x8<T>, BeginHandler5x2);
-impl_commit!((BoltStructTranslator), Bolt5x8<T>, CommitHandler5x0);
-impl_rollback!((BoltStructTranslator), Bolt5x8<T>, RollbackHandler5x0);
-impl_route!((BoltStructTranslator), Bolt5x8<T>, RouteHandler5x0);
-impl_telemetry!((BoltStructTranslator), Bolt5x8<T>, TelemetryHandler5x4);
+impl_hello!((BoltStructTranslator), Bolt6x0<T>, HelloHandler5x8);
+impl_reauth!((BoltStructTranslator), Bolt6x0<T>, ReauthHandler5x1);
+impl_goodbye!((BoltStructTranslator), Bolt6x0<T>, GoodbyeHandler5x0);
+impl_reset!((BoltStructTranslator), Bolt6x0<T>, ResetHandler5x0);
+impl_run!((BoltStructTranslator), Bolt6x0<T>, RunHandler5x6);
+impl_discard!((BoltStructTranslator), Bolt6x0<T>, DiscardHandler5x6);
+impl_pull!((BoltStructTranslator), Bolt6x0<T>, PullHandler5x6);
+impl_begin!((BoltStructTranslator), Bolt6x0<T>, BeginHandler5x2);
+impl_commit!((BoltStructTranslator), Bolt6x0<T>, CommitHandler5x0);
+impl_rollback!((BoltStructTranslator), Bolt6x0<T>, RollbackHandler5x0);
+impl_route!((BoltStructTranslator), Bolt6x0<T>, RouteHandler5x0);
+impl_telemetry!((BoltStructTranslator), Bolt6x0<T>, TelemetryHandler5x4);
 impl_response!(
     (BoltStructTranslator),
-    Bolt5x8<T>,
+    Bolt6x0<T>,
     (0x70, ResultSuccessHandler5x0),
     (0x7E, ResultIgnoredHandler5x0),
     (0x7F, ResultFailureHandler5x7),
     (0x71, ResultRecordHandler5x0)
 );
-impl_load_value!((BoltStructTranslator), Bolt5x8<T>);
+impl_load_value!((BoltStructTranslator), Bolt6x0<T>);

@@ -20,6 +20,7 @@ use super::graph;
 use super::spatial;
 use super::time;
 use super::value_send::ValueSend;
+use super::vector;
 
 /// A value received from the database.
 #[derive(Debug, Clone, PartialEq)]
@@ -47,6 +48,7 @@ pub enum ValueReceive {
     LocalDateTime(time::LocalDateTime),
     DateTime(time::DateTime),
     DateTimeFixed(time::DateTimeFixed),
+    Vector(vector::Vector),
     /// A value that could not be received.
     /// This can have multiple reasons, for example:
     ///  * Unexpected struct data (likely a driver or server bug)
@@ -923,6 +925,209 @@ impl ValueReceive {
     }
 }
 
+impl TryFrom<ValueReceive> for vector::Vector {
+    type Error = ValueReceive;
+
+    #[inline]
+    fn try_from(value: ValueReceive) -> Result<Self, Self::Error> {
+        match value {
+            ValueReceive::Vector(v) => Ok(v),
+            _ => Err(value),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn is_vector(&self) -> bool {
+        matches!(self, ValueReceive::Vector(_))
+    }
+
+    #[inline]
+    pub fn as_vector(&self) -> Option<&vector::Vector> {
+        match self {
+            ValueReceive::Vector(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn as_vector_mut(&mut self) -> Option<&mut vector::Vector> {
+        match self {
+            ValueReceive::Vector(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_vector(self) -> Result<vector::Vector, Self> {
+        self.try_into()
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn as_vector_f64(&self) -> Option<&Vec<f64>> {
+        match self {
+            ValueReceive::Vector(vector::Vector::F64(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn as_vector_f64_mut(&mut self) -> Option<&mut Vec<f64>> {
+        match self {
+            ValueReceive::Vector(vector::Vector::F64(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_vector_f64(self) -> Result<Vec<f64>, Self> {
+        match self {
+            ValueReceive::Vector(vector::Vector::F64(v)) => Ok(v),
+            _ => Err(self),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn as_vector_f32(&self) -> Option<&Vec<f32>> {
+        match self {
+            ValueReceive::Vector(vector::Vector::F32(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn as_vector_f32_mut(&mut self) -> Option<&mut Vec<f32>> {
+        match self {
+            ValueReceive::Vector(vector::Vector::F32(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_vector_f32(self) -> Result<Vec<f32>, Self> {
+        match self {
+            ValueReceive::Vector(vector::Vector::F32(v)) => Ok(v),
+            _ => Err(self),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn as_vector_i64(&self) -> Option<&Vec<i64>> {
+        match self {
+            ValueReceive::Vector(vector::Vector::I64(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn as_vector_i64_mut(&mut self) -> Option<&mut Vec<i64>> {
+        match self {
+            ValueReceive::Vector(vector::Vector::I64(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_vector_i64(self) -> Result<Vec<i64>, Self> {
+        match self {
+            ValueReceive::Vector(vector::Vector::I64(v)) => Ok(v),
+            _ => Err(self),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn as_vector_i32(&self) -> Option<&Vec<i32>> {
+        match self {
+            ValueReceive::Vector(vector::Vector::I32(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn as_vector_i32_mut(&mut self) -> Option<&mut Vec<i32>> {
+        match self {
+            ValueReceive::Vector(vector::Vector::I32(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_vector_i32(self) -> Result<Vec<i32>, Self> {
+        match self {
+            ValueReceive::Vector(vector::Vector::I32(v)) => Ok(v),
+            _ => Err(self),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn as_vector_i16(&self) -> Option<&Vec<i16>> {
+        match self {
+            ValueReceive::Vector(vector::Vector::I16(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn as_vector_i16_mut(&mut self) -> Option<&mut Vec<i16>> {
+        match self {
+            ValueReceive::Vector(vector::Vector::I16(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_vector_i16(self) -> Result<Vec<i16>, Self> {
+        match self {
+            ValueReceive::Vector(vector::Vector::I16(v)) => Ok(v),
+            _ => Err(self),
+        }
+    }
+}
+
+impl ValueReceive {
+    #[inline]
+    pub fn as_vector_i8(&self) -> Option<&Vec<i8>> {
+        match self {
+            ValueReceive::Vector(vector::Vector::I8(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn as_vector_i8_mut(&mut self) -> Option<&mut Vec<i8>> {
+        match self {
+            ValueReceive::Vector(vector::Vector::I8(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::result_large_err)]
+    pub fn try_into_vector_i8(self) -> Result<Vec<i8>, Self> {
+        match self {
+            ValueReceive::Vector(vector::Vector::I8(v)) => Ok(v),
+            _ => Err(self),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BrokenValue {
     pub(crate) inner: BrokenValueInner,
@@ -1004,6 +1209,7 @@ impl ValueReceive {
             ValueReceive::BrokenValue(broken_value) => {
                 format!("BrokenValue({})", broken_value.reason())
             }
+            ValueReceive::Vector(v) => format!("{v:?}"),
         }
     }
 }
@@ -1030,6 +1236,7 @@ impl From<ValueSend> for ValueReceive {
             ValueSend::LocalDateTime(v) => Self::LocalDateTime(v),
             ValueSend::DateTime(v) => Self::DateTime(v),
             ValueSend::DateTimeFixed(v) => Self::DateTimeFixed(v),
+            ValueSend::Vector(v) => Self::Vector(v),
         }
     }
 }

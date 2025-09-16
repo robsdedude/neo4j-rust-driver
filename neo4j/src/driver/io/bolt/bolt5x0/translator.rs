@@ -17,8 +17,7 @@ use std::collections::VecDeque;
 use usize_cast::{FromUsize, IntoIsize};
 
 use super::super::bolt_common::*;
-use super::super::BoltStructTranslator;
-use crate::driver::io::bolt::PackStreamSerializer;
+use super::super::{BoltStructTranslator, PackStreamSerializer};
 use crate::value::graph::{Node, Path, Relationship, UnboundRelationship};
 use crate::value::spatial::{
     Cartesian2D, Cartesian3D, SRID_CARTESIAN_2D, SRID_CARTESIAN_3D, SRID_WGS84_2D, SRID_WGS84_3D,
@@ -27,8 +26,10 @@ use crate::value::spatial::{
 use crate::value::time::{Date, DateTime, DateTimeFixed, Duration, LocalDateTime, LocalTime, Time};
 use crate::value::{BrokenValue, BrokenValueInner, ValueReceive, ValueSend};
 
-#[derive(Debug, Default)]
-pub(crate) struct Bolt5x0StructTranslator {}
+#[derive(Debug)]
+pub(crate) struct Bolt5x0StructTranslator {
+    bolt_version: ServerAwareBoltVersion,
+}
 
 impl Bolt5x0StructTranslator {
     fn write_2d_point<S: PackStreamSerializer>(
@@ -58,6 +59,10 @@ impl Bolt5x0StructTranslator {
 }
 
 impl BoltStructTranslator for Bolt5x0StructTranslator {
+    fn new(bolt_version: ServerAwareBoltVersion) -> Self {
+        Self { bolt_version }
+    }
+
     fn serialize<S: PackStreamSerializer>(
         &self,
         serializer: &mut S,
@@ -154,6 +159,11 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                 serializer.write_int(tz_offset.into())?;
                 Ok(())
             }
+            ValueSend::Vector(_) => Err(serializer.error(unsupported_protocol_feature_message(
+                "vector types",
+                self.bolt_version,
+                ServerAwareBoltVersion::V6x0,
+            ))),
         }
     }
 
