@@ -21,6 +21,14 @@
 //! type system and lifetime management to provide a safer API that prevents many common pitfalls
 //! already at compile time.
 //!
+//! **DISCLAIMER**:
+//!
+//! * While I'm currently affiliated with Neo4j, this is my private hobby project.
+//!   It's not an officially supported piece of software by Neo4j.
+//! * This is a work in progress, and it's mostly developed in my spare time.
+//! * This project is primarily meant for private studies.
+//!   Yet, I decided to publish it as it might be useful for others as well.
+//!
 //! ## Compatibility
 // [bolt-version-bump] search tag when changing bolt version support
 //! This driver supports bolt protocol version 4.4, and 5.0 - 5.8.
