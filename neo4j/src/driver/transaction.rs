@@ -450,17 +450,12 @@ impl Default for TransactionTimeout {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 pub(crate) enum InternalTransactionTimeout {
     None,
+    #[default]
     Default,
     Custom(i64),
-}
-
-impl Default for InternalTransactionTimeout {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 impl InternalTransactionTimeout {

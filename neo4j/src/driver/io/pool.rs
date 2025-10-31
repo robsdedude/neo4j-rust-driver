@@ -229,7 +229,7 @@ impl Pool {
         Ok(resolved_db)
     }
 
-    pub(crate) fn acquire(&self, args: AcquireConfig) -> Result<PooledBolt> {
+    pub(crate) fn acquire(&self, args: AcquireConfig) -> Result<PooledBolt<'_>> {
         Ok(PooledBolt {
             bolt: Some(match &self.pools {
                 Pools::Direct(single_pool) => {
@@ -478,7 +478,7 @@ impl RoutingPool {
         Ok(connection.expect("loop above asserts existence"))
     }
 
-    fn ensure_pool_exists(&self, target: &Arc<Address>) -> RwLockReadGuard<RoutingPools> {
+    fn ensure_pool_exists(&self, target: &Arc<Address>) -> RwLockReadGuard<'_, RoutingPools> {
         self.pools
             .maybe_write(
                 |rt| rt.get(target).is_none(),
@@ -500,7 +500,7 @@ impl RoutingPool {
     fn get_fresh_rt(
         &self,
         args: AcquireConfig,
-    ) -> Result<(RwLockReadGuard<RoutingTables>, Option<Arc<String>>)> {
+    ) -> Result<(RwLockReadGuard<'_, RoutingTables>, Option<Arc<String>>)> {
         let rt_args = args.update_rt_args;
         let db_key = rt_args.rt_key();
         let db_name = RefCell::new(rt_args.db_request());

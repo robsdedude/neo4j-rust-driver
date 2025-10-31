@@ -540,7 +540,7 @@ impl<'driver> Session<'driver> {
     }
 
     #[inline]
-    fn session_auth(&self) -> SessionAuth {
+    fn session_auth(&self) -> SessionAuth<'_> {
         match &self.config.config.auth {
             Some(auth) => SessionAuth::Reauth(auth),
             None => SessionAuth::None,
