@@ -103,7 +103,7 @@ impl<'driver, 'tx> Transaction<'driver, 'tx> {
 ///
 /// Before ending the transaction ([`Transaction::commit()`] or [`Transaction::rollback()`]), all
 /// record streams spawned from it must be dropped.
-/// While calling [`std::mem::drop(stream)`] works fine for this purpose, it will swallow any
+/// While calling [`drop()`] on a record stream works fine for this purpose, it will swallow any
 /// outstanding errors.
 /// Therefore, it is recommended to use [`TransactionRecordStream::consume()`] instead.
 #[derive(Debug)]
