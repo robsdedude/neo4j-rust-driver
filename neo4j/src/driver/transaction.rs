@@ -103,8 +103,8 @@ impl<'driver, 'tx> Transaction<'driver, 'tx> {
 ///
 /// Before ending the transaction ([`Transaction::commit()`] or [`Transaction::rollback()`]), all
 /// record streams spawned from it must be dropped.
-/// While calling [`drop(stream)`] works fine for this purpose, it will swallow any outstanding
-/// errors.
+/// While calling [`drop(stream)`](drop) works fine for this purpose, it will swallow any
+/// outstanding errors.
 /// Therefore, it is recommended to use [`TransactionRecordStream::consume()`] instead.
 #[derive(Debug)]
 pub struct TransactionRecordStream<'driver, 'tx>(
@@ -450,17 +450,12 @@ impl Default for TransactionTimeout {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 pub(crate) enum InternalTransactionTimeout {
     None,
+    #[default]
     Default,
     Custom(i64),
-}
-
-impl Default for InternalTransactionTimeout {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 impl InternalTransactionTimeout {

@@ -167,7 +167,7 @@ impl Driver {
     ///     .unwrap();
     /// assert_eq!(scalar, ValueReceive::Integer(1));
     /// ```
-    pub fn session(&self, config: SessionConfig) -> Session {
+    pub fn session(&self, config: SessionConfig) -> Session<'_> {
         let config = InternalSessionConfig {
             config,
             idle_time_before_connection_test: self.config.idle_time_before_connection_test,
@@ -188,7 +188,7 @@ impl Driver {
         auth: Option<Arc<AuthToken>>,
         bookmark_manager: ExecuteQueryBookmarkManager,
         notification_filter: NotificationFilter,
-    ) -> Session {
+    ) -> Session<'_> {
         let mut session_config = SessionConfig::new();
         session_config.database = database;
         session_config.impersonated_user = impersonated_user;
@@ -260,6 +260,7 @@ impl Driver {
         &self,
         query: Q,
     ) -> ExecuteQueryBuilder<
+        '_,
         Q,
         DefaultParamKey,
         DefaultParam,
@@ -337,7 +338,7 @@ impl Driver {
             .verify_authentication(&auth)
     }
 
-    fn acquire_connectivity_checked(&self) -> Result<PooledBolt> {
+    fn acquire_connectivity_checked(&self) -> Result<PooledBolt<'_>> {
         let config = InternalSessionConfig {
             config: SessionConfig::default(),
             idle_time_before_connection_test: Some(Duration::ZERO),
@@ -396,7 +397,7 @@ impl Driver {
         self.pool.get_metrics(address)
     }
 
-    fn acquire_capability_check_connection(&self) -> Result<PooledBolt> {
+    fn acquire_capability_check_connection(&self) -> Result<PooledBolt<'_>> {
         self.pool.acquire(AcquireConfig {
             mode: RoutingControl::Read,
             update_rt_args: UpdateRtArgs {

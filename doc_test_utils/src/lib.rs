@@ -76,7 +76,7 @@ pub fn wipe_db(driver: &Driver) {
         .unwrap();
 }
 
-pub fn get_session(driver: &Driver) -> Session {
+pub fn get_session(driver: &Driver) -> Session<'_> {
     driver.session(
         SessionConfig::new()
             .with_bookmark_manager(driver.execute_query_bookmark_manager())
