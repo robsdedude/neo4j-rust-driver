@@ -25,7 +25,7 @@
  - Add support for Bolt 5.8 (home database resolution cache)
    - Includes an optimization where the driver uses a home/default database cache to perform optimistic routing under certain circumstances, saving a full round trip. See the [PR description](https://github.com/robsdedude/neo4j-rust-driver/pull/28) for more details.
 
-**🔧 Fixes**
+**🔧️ Fixes**
  - Rework `neo4j::value::graph::Path`
    - `Path`s now properly validate data received from the server (as documented)
    - ⚠️ The return type of `Path::traverse()` was changed to reflect that paths with only one node and no relationships exist.
@@ -45,8 +45,8 @@
  - Introduce `neo4j::driver::Conifg::with_keep_alive()` and `without_keep_alive()`.
 
 **👏️ Improvements**
- - ⚠️ ️️Bump `chrono-tz` from `0.8` to `0.9` (types of this crate are exposed through the driver's API).
- - ⚠️ ️️Bump `rustls` from `0.22` to `0.23`: 
+ - ⚠️ Bump `chrono-tz` from `0.8` to `0.9` (types of this crate are exposed through the driver's API).
+ - ⚠️ Bump `rustls` from `0.22` to `0.23`: 
    - types of this crate are exposed through the driver's API
    - other breaking changes (e.g., new build requirements).  
      See [rustls' changelog](https://github.com/rustls/rustls/releases/tag/v%2F0.23.0) for more details.
@@ -66,7 +66,7 @@
 
 ## 0.0.2
 ***
-**👏 Improvements**
+**👏️ Improvements**
  - Impl `FromStr` for `neo4j::driver::ConnectionConfig` (besides `TryFrom<&str>`).
 
 **🧹️ Clean-up**
