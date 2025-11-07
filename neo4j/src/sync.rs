@@ -37,7 +37,7 @@ impl<T: Debug> MostlyRLock<T> {
         }
     }
 
-    pub(crate) fn read(&self) -> RwLockReadGuard<T> {
+    pub(crate) fn read(&self) -> RwLockReadGuard<'_, T> {
         self.inner.read()
     }
 
@@ -45,7 +45,7 @@ impl<T: Debug> MostlyRLock<T> {
         &self,
         timeout: Option<Instant>,
         during: &'static str,
-    ) -> Result<RwLockReadGuard<T>> {
+    ) -> Result<RwLockReadGuard<'_, T>> {
         let Some(timeout) = timeout else {
             return Ok(self.read());
         };

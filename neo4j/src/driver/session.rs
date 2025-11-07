@@ -506,6 +506,7 @@ impl<'driver> Session<'driver> {
     /// # doc_test_utils::db_exclusive(|| {
     /// let db = Arc::new(String::from("neo4j")); // always specify the database name, if possible
     /// let driver: Driver = get_driver();
+    /// # doc_test_utils::wipe_db(&driver);
     /// let mut session1 = driver.session(SessionConfig::new().with_database(Arc::clone(&db)));
     /// // do work with session1, e.g.,
     /// session1.auto_commit("CREATE (n:Node)").run().unwrap();
@@ -523,6 +524,7 @@ impl<'driver> Session<'driver> {
     ///     .run()
     ///     .unwrap();
     /// assert_eq!(result.into_scalar().unwrap().try_into_int().unwrap(), 1);
+    /// # doc_test_utils::wipe_db(&driver);
     /// # });
     /// ```
     #[inline]
@@ -540,7 +542,7 @@ impl<'driver> Session<'driver> {
     }
 
     #[inline]
-    fn session_auth(&self) -> SessionAuth {
+    fn session_auth(&self) -> SessionAuth<'_> {
         match &self.config.config.auth {
             Some(auth) => SessionAuth::Reauth(auth),
             None => SessionAuth::None,
@@ -631,6 +633,7 @@ impl<
     ///     .unwrap();
     /// let mut node = result.into_scalar().unwrap().try_into_node().unwrap();
     /// assert_eq!(node.properties.remove("id").unwrap(), ValueReceive::Integer(1));
+    /// # doc_test_utils::wipe_db(&driver);
     /// # });
     /// ```
     ///
@@ -1064,6 +1067,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     /// #
     /// # doc_test_utils::db_exclusive(|| {
     /// # let driver = doc_test_utils::get_driver();
+    /// # doc_test_utils::wipe_db(&driver);
     /// #
     /// // always specify the database name, if possible
     /// let database = Arc::new(String::from("neo4j"));
@@ -1111,6 +1115,8 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     ///     .into_scalar()
     ///     .unwrap();
     /// assert_eq!(db_total_fame, ValueReceive::Integer(total_fame));
+    /// #
+    /// # doc_test_utils::wipe_db(&driver);
     /// # });
     /// ```
     pub fn run<R>(mut self, receiver: impl FnOnce(Transaction) -> Result<R>) -> Result<R> {

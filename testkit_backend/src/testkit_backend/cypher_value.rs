@@ -125,24 +125,12 @@ pub(super) enum CypherValue {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "name", content = "data", deny_unknown_fields)]
-pub(super) enum NodeTagged {
-    Node(Node),
-}
-
-#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(super) struct Node {
     id: Box<CypherValue>,
     labels: Box<CypherValue>,
     props: Box<CypherValue>,
     element_id: Box<CypherValue>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "name", content = "data", deny_unknown_fields)]
-pub(super) enum RelationshipTagged {
-    CypherRelationship(Relationship),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
