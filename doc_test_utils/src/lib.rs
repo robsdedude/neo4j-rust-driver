@@ -63,17 +63,17 @@ pub fn get_driver() -> Driver {
         .is_test(true)
         .try_init();
 
-    let driver = Driver::new(
+    Driver::new(
         ConnectionConfig::new(get_address()),
         DriverConfig::new().with_auth(Arc::new(get_auth_token())),
-    );
+    )
+}
 
+pub fn wipe_db(driver: &Driver) {
     driver
         .execute_query("MATCH (n) DETACH DELETE n")
         .run_with_retry(ExponentialBackoff::default())
         .unwrap();
-
-    driver
 }
 
 pub fn get_session(driver: &Driver) -> Session {

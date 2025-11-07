@@ -503,6 +503,7 @@ impl<
     ///     .unwrap();
     /// let mut node = result.into_scalar().unwrap().try_into_node().unwrap();
     /// assert_eq!(node.properties.remove("id").unwrap(), ValueReceive::Integer(1));
+    /// # doc_test_utils::wipe_db(&driver);
     /// # });
     /// ```
     ///
