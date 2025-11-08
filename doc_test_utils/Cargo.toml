@@ -1,14 +1,14 @@
 [package]
 name = "doc_test_utils"
 version = "0.0.0"
-edition = "2021"
-rust-version = "1.70"
+edition = { workspace = true }
+rust-version = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 neo4j = { path = "../neo4j" }
 
-env_logger = "0.10.2"
-log = "0.4.21"
-named-lock = "0.3.0"
+env_logger = { workspace = true }
+log = { workspace = true }
+named-lock = { workspace = true }

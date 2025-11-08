@@ -16,13 +16,13 @@ repos:
         pass_filenames: false
       - id: check-msrv
         name: cargo check MSRV
-        entry: cargo +1.70 check --all --tests --
+        entry: cargo +1.71 check --all --tests --
         language: system
         types: [rust]
         pass_filenames: false
       - id: check-msrv-all-features
         name: cargo check MSRV (all features)
-        entry: cargo +1.70 check --all --tests --all-features --
+        entry: cargo +1.71 check --all --tests --all-features --
         language: system
         types: [rust]
         pass_filenames: false
