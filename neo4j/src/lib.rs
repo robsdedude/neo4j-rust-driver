@@ -13,6 +13,9 @@
 // limitations under the License.
 
 #![allow(clippy::option_map_unit_fn)]
+#![doc(test(attr(deny(dead_code))))]
+#![doc(test(attr(deny(unused))))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 //! # Neo4j Bolt Driver
 //!
@@ -48,12 +51,16 @@
 //! use neo4j::retry::ExponentialBackoff;
 //! use neo4j::{value_map, ValueReceive};
 //!
+//! # #[allow(unused)]
 //! let host = "localhost";
 //! # let host = doc_test_utils::get_host();
+//! # #[allow(unused)]
 //! let port = 7687;
 //! # let port = doc_test_utils::get_port();
+//! # #[allow(unused)]
 //! let user = "neo4j";
 //! # let user = doc_test_utils::get_user();
+//! # #[allow(unused)]
 //! let password = "pass";
 //! # let password = doc_test_utils::get_password();
 //! let database = "neo4j";
@@ -164,7 +171,9 @@
 //! ```
 //! use std::sync::Arc;
 //!
+//! # #[allow(unused)]
 //! use env_logger; // example using the env_logger crate
+//! # #[allow(unused)]
 //! use log;
 //! use neo4j::driver::{Driver, RoutingControl};
 //! use neo4j::retry::ExponentialBackoff;
@@ -183,6 +192,18 @@
 //!     .run_with_retry(ExponentialBackoff::new())
 //!     .unwrap();
 //! ```
+//!
+//! # Crate Features
+//! This crate supports the following features:
+//! - `chrono_0_4`: Enables conversion between temporal driver types and `chrono` crate version 0.4
+//!   types.
+//! - `chrono_tz_0_9`: Enables conversion between temporal driver types and `chrono` 0.4 types with
+//!   `chrono-tz` 0.9 timezone types.
+//! - `chrono_tz_0_10`: Enables conversion between temporal driver types and `chrono` 0.4 types with
+//!   `chrono-tz` 0.10 timezone types.
+//! - The crate has further feature flags starting with `_internal_...`.
+//!   Do **NOT** us them. APIs exposed by these features don't come with any semver guarantees,
+//!   support, or documentation.
 
 mod address_;
 pub mod driver;

@@ -140,10 +140,9 @@ impl Driver {
     /// ```
     /// use std::sync::Arc;
     ///
-    /// use neo4j::driver::{EagerResult, RoutingControl};
+    /// use neo4j::driver::RoutingControl;
     /// use neo4j::retry::ExponentialBackoff;
     /// use neo4j::session::SessionConfig;
-    /// use neo4j::Result as Neo4jResult;
     /// use neo4j::ValueReceive;
     ///
     /// # let driver = doc_test_utils::get_driver();
@@ -152,7 +151,7 @@ impl Driver {
     /// let mut session = driver.session(SessionConfig::new().with_database(Arc::clone(&database)));
     ///
     /// // do work with the session
-    /// let mut scalar = session
+    /// let scalar = session
     ///     .transaction()
     ///     .with_routing_control(RoutingControl::Read)
     ///     .run_with_retry(ExponentialBackoff::new(), |tx| {
@@ -245,7 +244,7 @@ impl Driver {
     /// # let driver = doc_test_utils::get_driver();
     /// // Always specify the database when possible, to allow the driver to work more efficiently.
     /// let database = Arc::new(String::from("neo4j"));
-    /// let mut result = driver
+    /// let result = driver
     ///     .execute_query("RETURN 1 AS n")
     ///     .with_database(Arc::clone(&database))
     ///     .with_routing_control(RoutingControl::Read)
@@ -303,6 +302,7 @@ impl Driver {
     /// );
     /// // session can now read the result of the write query
     /// // ...
+    /// # let _ = session.auto_commit("");
     /// ```
     pub fn execute_query_bookmark_manager(&self) -> Arc<dyn BookmarkManager> {
         Arc::clone(&self.execute_query_bookmark_manager)
@@ -497,7 +497,7 @@ impl<
     ///
     /// # doc_test_utils::db_exclusive(|| {
     /// # let driver = doc_test_utils::get_driver();
-    /// let mut result = driver
+    /// let result = driver
     ///     .execute_query("CREATE (n:Node {id: $id}) RETURN n")
     ///     .with_parameters(value_map!({"id": 1}))
     ///     .run_with_retry(ExponentialBackoff::new())
@@ -604,6 +604,7 @@ impl<
     ///    .with_transaction_meta(value_map!({"key": "value"}))
     ///    .run()
     ///    .unwrap();
+    /// # let _ = result;
     /// ```
     #[inline]
     pub fn with_transaction_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
@@ -842,7 +843,7 @@ impl<
     ///     .with_receiver(|stream: &mut RecordStream| {
     ///         let mut sum = 0;
     ///         for result in stream {
-    ///             let mut record: Record = result?;
+    ///             let record: Record = result?;
     ///             sum += record.into_values().next().unwrap().try_into_int().unwrap();
     ///         }
     ///         Ok(sum)

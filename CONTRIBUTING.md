@@ -24,5 +24,5 @@ UPDATE_EXPECT=1 cargo +stable test --workspace --features _internal_public_api p
 ### Cargo Check External Types
 https://github.com/awslabs/cargo-check-external-types
 ```bash
-cargo +nightly-2024-06-30 install --locked cargo-check-external-types@0.1.13
+cargo +nightly-2024-06-30 install --locked cargo-check-external-types@0.3.0
 ```

@@ -18,6 +18,8 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
+use chrono_tz::Tz;
+use chrono_tz_0_10 as chrono_tz;
 use lazy_regex::{regex, Regex};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -25,11 +27,10 @@ use serde_json::Value as JsonValue;
 use crate::testkit_backend::cypher_value::ConvertableValueReceive;
 use neo4j::driver::EagerResult;
 use neo4j::summary::SummaryQueryType;
-use neo4j::value::time::Tz;
 use neo4j::ValueSend;
 
 use super::backend_id::Generator;
-use super::cypher_value::{CypherValue, CypherValues};
+use super::cypher_value::{CypherDateTime, CypherValue, CypherValues};
 use super::errors::{TestKitDriverError, TestKitError};
 use super::requests::TestKitAuth;
 use super::session_holder::SummaryWithQuery;
@@ -826,7 +827,7 @@ impl TryFrom<EagerResult> for Response {
                 Ok(RecordListEntry {
                     values: r
                         .into_values()
-                        .map(|e| Ok(e.try_into()?))
+                        .map(|e| e.try_into())
                         .collect::<TestKitResultT<_>>()?,
                 })
             })
@@ -965,7 +966,7 @@ impl Response {
         let utc_offset_s = get_opt_i64_component(data, "utc_offset_s")?;
         let timezone_id = get_string_opt_component(data, "timezone_id")?;
 
-        let value = CypherValue::CypherDateTime {
+        let value = CypherValue::CypherDateTime(CypherDateTime {
             year,
             month,
             day,
@@ -975,7 +976,7 @@ impl Response {
             nanosecond,
             utc_offset_s,
             timezone_id,
-        };
+        });
         Ok(ValueSend::try_from(value)
             .map(|_| Self::RunTest)
             .unwrap_or_else(|e| Self::SkipTest {

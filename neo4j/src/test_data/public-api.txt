@@ -371,7 +371,6 @@ pub struct neo4j::driver::ConnectionConfig
 impl neo4j::driver::ConnectionConfig
 pub fn neo4j::driver::ConnectionConfig::new(address: neo4j::address::Address) -> Self
 pub fn neo4j::driver::ConnectionConfig::with_address(self, address: neo4j::address::Address) -> Self
-pub fn neo4j::driver::ConnectionConfig::with_encryption_custom_tls_config(self, tls_config: rustls::client::client_conn::ClientConfig) -> Self
 pub fn neo4j::driver::ConnectionConfig::with_encryption_disabled(self) -> Self
 pub fn neo4j::driver::ConnectionConfig::with_encryption_trust_any_certificate(self) -> Self
 pub fn neo4j::driver::ConnectionConfig::with_encryption_trust_custom_cas<P: core::convert::AsRef<std::path::Path>>(self, paths: &[P]) -> core::result::Result<Self, neo4j::driver::TlsConfigError>
@@ -1342,12 +1341,153 @@ impl core::marker::Unpin for neo4j::value::spatial::WGS84_3D
 impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::spatial::WGS84_3D
 impl core::panic::unwind_safe::UnwindSafe for neo4j::value::spatial::WGS84_3D
 pub mod neo4j::value::time
+pub struct neo4j::value::time::ChronoConversionError
+impl core::clone::Clone for neo4j::value::time::ChronoConversionError
+pub fn neo4j::value::time::ChronoConversionError::clone(&self) -> neo4j::value::time::ChronoConversionError
+impl core::error::Error for neo4j::value::time::ChronoConversionError
+impl core::fmt::Debug for neo4j::value::time::ChronoConversionError
+pub fn neo4j::value::time::ChronoConversionError::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for neo4j::value::time::ChronoConversionError
+pub fn neo4j::value::time::ChronoConversionError::fmt(&self, __formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for neo4j::value::time::ChronoConversionError
+impl core::marker::Send for neo4j::value::time::ChronoConversionError
+impl core::marker::Sync for neo4j::value::time::ChronoConversionError
+impl core::marker::Unpin for neo4j::value::time::ChronoConversionError
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::ChronoConversionError
+impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::ChronoConversionError
+pub struct neo4j::value::time::Date
+impl neo4j::value::time::Date
+pub fn neo4j::value::time::Date::from_ordinal(ordinal: i64) -> core::option::Option<Self>
+pub fn neo4j::value::time::Date::from_ymd(year: i32, month: u32, day: u32) -> core::option::Option<Self>
+pub fn neo4j::value::time::Date::ordinal(&self) -> i64
+pub fn neo4j::value::time::Date::ymd(&self) -> core::option::Option<(i32, u32, u32)>
+impl core::clone::Clone for neo4j::value::time::Date
+pub fn neo4j::value::time::Date::clone(&self) -> neo4j::value::time::Date
+impl core::cmp::Eq for neo4j::value::time::Date
+impl core::cmp::PartialEq for neo4j::value::time::Date
+pub fn neo4j::value::time::Date::eq(&self, other: &neo4j::value::time::Date) -> bool
+impl core::convert::From<neo4j::value::time::Date> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::Date) -> Self
+impl core::convert::TryFrom<neo4j::ValueReceive> for neo4j::value::time::Date
+pub type neo4j::value::time::Date::Error = neo4j::ValueReceive
+pub fn neo4j::value::time::Date::try_from(value: neo4j::ValueReceive) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<neo4j::ValueSend> for neo4j::value::time::Date
+pub type neo4j::value::time::Date::Error = neo4j::ValueSend
+pub fn neo4j::value::time::Date::try_from(value: neo4j::ValueSend) -> core::result::Result<Self, Self::Error>
+impl core::fmt::Debug for neo4j::value::time::Date
+pub fn neo4j::value::time::Date::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::value::time::Date
+pub fn neo4j::value::time::Date::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+impl core::marker::Copy for neo4j::value::time::Date
+impl core::marker::StructuralPartialEq for neo4j::value::time::Date
+impl core::marker::Freeze for neo4j::value::time::Date
+impl core::marker::Send for neo4j::value::time::Date
+impl core::marker::Sync for neo4j::value::time::Date
+impl core::marker::Unpin for neo4j::value::time::Date
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::Date
+impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::Date
+pub struct neo4j::value::time::DateTime
+impl neo4j::value::time::DateTime
+pub fn neo4j::value::time::DateTime::from_utc_components<S: core::convert::Into<alloc::string::String>>(components: neo4j::value::time::DateTimeComponents, tz_name: S) -> core::option::Option<Self>
+pub fn neo4j::value::time::DateTime::from_utc_timestamp<S: core::convert::Into<alloc::string::String>>(secs: i64, nanos: u32, tz_name: S) -> core::option::Option<Self>
+pub fn neo4j::value::time::DateTime::timezone_name(&self) -> &str
+pub fn neo4j::value::time::DateTime::to_utc_components(&self) -> core::option::Option<(neo4j::value::time::DateTimeComponents, &str)>
+pub fn neo4j::value::time::DateTime::utc_timestamp(&self) -> (i64, u32)
+impl core::clone::Clone for neo4j::value::time::DateTime
+pub fn neo4j::value::time::DateTime::clone(&self) -> neo4j::value::time::DateTime
+impl core::cmp::Eq for neo4j::value::time::DateTime
+impl core::cmp::PartialEq for neo4j::value::time::DateTime
+pub fn neo4j::value::time::DateTime::eq(&self, other: &neo4j::value::time::DateTime) -> bool
+impl core::convert::From<neo4j::value::time::DateTime> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::DateTime) -> Self
+impl core::convert::TryFrom<neo4j::ValueReceive> for neo4j::value::time::DateTime
+pub type neo4j::value::time::DateTime::Error = neo4j::ValueReceive
+pub fn neo4j::value::time::DateTime::try_from(value: neo4j::ValueReceive) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<neo4j::ValueSend> for neo4j::value::time::DateTime
+pub type neo4j::value::time::DateTime::Error = neo4j::ValueSend
+pub fn neo4j::value::time::DateTime::try_from(value: neo4j::ValueSend) -> core::result::Result<Self, Self::Error>
+impl core::fmt::Debug for neo4j::value::time::DateTime
+pub fn neo4j::value::time::DateTime::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::value::time::DateTime
+pub fn neo4j::value::time::DateTime::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+impl core::marker::StructuralPartialEq for neo4j::value::time::DateTime
+impl core::marker::Freeze for neo4j::value::time::DateTime
+impl core::marker::Send for neo4j::value::time::DateTime
+impl core::marker::Sync for neo4j::value::time::DateTime
+impl core::marker::Unpin for neo4j::value::time::DateTime
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::DateTime
+impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::DateTime
+pub struct neo4j::value::time::DateTimeComponents
+pub neo4j::value::time::DateTimeComponents::day: u32
+pub neo4j::value::time::DateTimeComponents::hour: u32
+pub neo4j::value::time::DateTimeComponents::min: u32
+pub neo4j::value::time::DateTimeComponents::month: u32
+pub neo4j::value::time::DateTimeComponents::nano: u32
+pub neo4j::value::time::DateTimeComponents::sec: u32
+pub neo4j::value::time::DateTimeComponents::year: i32
+impl neo4j::value::time::DateTimeComponents
+pub fn neo4j::value::time::DateTimeComponents::from_ymd(year: i32, month: u32, day: u32) -> Self
+pub fn neo4j::value::time::DateTimeComponents::new() -> Self
+pub fn neo4j::value::time::DateTimeComponents::with_hms(self, hour: u32, min: u32, sec: u32) -> Self
+pub fn neo4j::value::time::DateTimeComponents::with_hms_nano(self, hour: u32, min: u32, sec: u32, nano: u32) -> Self
+pub fn neo4j::value::time::DateTimeComponents::with_ymd(self, year: i32, month: u32, day: u32) -> Self
+impl core::clone::Clone for neo4j::value::time::DateTimeComponents
+pub fn neo4j::value::time::DateTimeComponents::clone(&self) -> neo4j::value::time::DateTimeComponents
+impl core::cmp::Eq for neo4j::value::time::DateTimeComponents
+impl core::cmp::PartialEq for neo4j::value::time::DateTimeComponents
+pub fn neo4j::value::time::DateTimeComponents::eq(&self, other: &neo4j::value::time::DateTimeComponents) -> bool
+impl core::default::Default for neo4j::value::time::DateTimeComponents
+pub fn neo4j::value::time::DateTimeComponents::default() -> Self
+impl core::fmt::Debug for neo4j::value::time::DateTimeComponents
+pub fn neo4j::value::time::DateTimeComponents::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::value::time::DateTimeComponents
+pub fn neo4j::value::time::DateTimeComponents::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+impl core::marker::Copy for neo4j::value::time::DateTimeComponents
+impl core::marker::StructuralPartialEq for neo4j::value::time::DateTimeComponents
+impl core::marker::Freeze for neo4j::value::time::DateTimeComponents
+impl core::marker::Send for neo4j::value::time::DateTimeComponents
+impl core::marker::Sync for neo4j::value::time::DateTimeComponents
+impl core::marker::Unpin for neo4j::value::time::DateTimeComponents
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::DateTimeComponents
+impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::DateTimeComponents
+pub struct neo4j::value::time::DateTimeFixed
+impl neo4j::value::time::DateTimeFixed
+pub fn neo4j::value::time::DateTimeFixed::from_utc_components(components: neo4j::value::time::DateTimeComponents, tz_offset: i32) -> core::option::Option<Self>
+pub fn neo4j::value::time::DateTimeFixed::from_utc_timestamp(secs: i64, nanos: u32, utc_offset: i32) -> core::option::Option<Self>
+pub fn neo4j::value::time::DateTimeFixed::to_utc_components(self) -> core::option::Option<(neo4j::value::time::DateTimeComponents, i32)>
+pub fn neo4j::value::time::DateTimeFixed::utc_offset(&self) -> i32
+pub fn neo4j::value::time::DateTimeFixed::utc_timestamp(&self) -> (i64, u32)
+impl core::clone::Clone for neo4j::value::time::DateTimeFixed
+pub fn neo4j::value::time::DateTimeFixed::clone(&self) -> neo4j::value::time::DateTimeFixed
+impl core::cmp::Eq for neo4j::value::time::DateTimeFixed
+impl core::cmp::PartialEq for neo4j::value::time::DateTimeFixed
+pub fn neo4j::value::time::DateTimeFixed::eq(&self, other: &neo4j::value::time::DateTimeFixed) -> bool
+impl core::convert::From<neo4j::value::time::DateTimeFixed> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::DateTimeFixed) -> Self
+impl core::convert::TryFrom<neo4j::ValueReceive> for neo4j::value::time::DateTimeFixed
+pub type neo4j::value::time::DateTimeFixed::Error = neo4j::ValueReceive
+pub fn neo4j::value::time::DateTimeFixed::try_from(value: neo4j::ValueReceive) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<neo4j::ValueSend> for neo4j::value::time::DateTimeFixed
+pub type neo4j::value::time::DateTimeFixed::Error = neo4j::ValueSend
+pub fn neo4j::value::time::DateTimeFixed::try_from(value: neo4j::ValueSend) -> core::result::Result<Self, Self::Error>
+impl core::fmt::Debug for neo4j::value::time::DateTimeFixed
+pub fn neo4j::value::time::DateTimeFixed::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::value::time::DateTimeFixed
+pub fn neo4j::value::time::DateTimeFixed::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+impl core::marker::Copy for neo4j::value::time::DateTimeFixed
+impl core::marker::StructuralPartialEq for neo4j::value::time::DateTimeFixed
+impl core::marker::Freeze for neo4j::value::time::DateTimeFixed
+impl core::marker::Send for neo4j::value::time::DateTimeFixed
+impl core::marker::Sync for neo4j::value::time::DateTimeFixed
+impl core::marker::Unpin for neo4j::value::time::DateTimeFixed
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::DateTimeFixed
+impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::DateTimeFixed
 pub struct neo4j::value::time::Duration
 impl neo4j::value::time::Duration
 pub fn neo4j::value::time::Duration::days(&self) -> i64
 pub fn neo4j::value::time::Duration::months(&self) -> i64
 pub fn neo4j::value::time::Duration::nanoseconds(&self) -> i32
-pub fn neo4j::value::time::Duration::new(months: i64, days: i64, seconds: i64, nanoseconds: i32) -> core::option::Option<Self>
+pub fn neo4j::value::time::Duration::new(months: i64, days: i64, secs: i64, nanos: i32) -> core::option::Option<Self>
 pub fn neo4j::value::time::Duration::seconds(&self) -> i64
 impl core::clone::Clone for neo4j::value::time::Duration
 pub fn neo4j::value::time::Duration::clone(&self) -> neo4j::value::time::Duration
@@ -1374,9 +1514,75 @@ impl core::marker::Sync for neo4j::value::time::Duration
 impl core::marker::Unpin for neo4j::value::time::Duration
 impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::Duration
 impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::Duration
+pub struct neo4j::value::time::LocalDateTime
+impl neo4j::value::time::LocalDateTime
+pub fn neo4j::value::time::LocalDateTime::from_components(components: neo4j::value::time::DateTimeComponents) -> core::option::Option<Self>
+pub fn neo4j::value::time::LocalDateTime::from_timestamp(secs: i64, nanos: u32) -> core::option::Option<Self>
+pub fn neo4j::value::time::LocalDateTime::timestamp(&self) -> (i64, u32)
+pub fn neo4j::value::time::LocalDateTime::to_components(self) -> core::option::Option<neo4j::value::time::DateTimeComponents>
+impl core::clone::Clone for neo4j::value::time::LocalDateTime
+pub fn neo4j::value::time::LocalDateTime::clone(&self) -> neo4j::value::time::LocalDateTime
+impl core::cmp::Eq for neo4j::value::time::LocalDateTime
+impl core::cmp::PartialEq for neo4j::value::time::LocalDateTime
+pub fn neo4j::value::time::LocalDateTime::eq(&self, other: &neo4j::value::time::LocalDateTime) -> bool
+impl core::convert::From<neo4j::value::time::LocalDateTime> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::LocalDateTime) -> Self
+impl core::convert::TryFrom<neo4j::ValueReceive> for neo4j::value::time::LocalDateTime
+pub type neo4j::value::time::LocalDateTime::Error = neo4j::ValueReceive
+pub fn neo4j::value::time::LocalDateTime::try_from(value: neo4j::ValueReceive) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<neo4j::ValueSend> for neo4j::value::time::LocalDateTime
+pub type neo4j::value::time::LocalDateTime::Error = neo4j::ValueSend
+pub fn neo4j::value::time::LocalDateTime::try_from(value: neo4j::ValueSend) -> core::result::Result<Self, Self::Error>
+impl core::fmt::Debug for neo4j::value::time::LocalDateTime
+pub fn neo4j::value::time::LocalDateTime::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::value::time::LocalDateTime
+pub fn neo4j::value::time::LocalDateTime::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+impl core::marker::Copy for neo4j::value::time::LocalDateTime
+impl core::marker::StructuralPartialEq for neo4j::value::time::LocalDateTime
+impl core::marker::Freeze for neo4j::value::time::LocalDateTime
+impl core::marker::Send for neo4j::value::time::LocalDateTime
+impl core::marker::Sync for neo4j::value::time::LocalDateTime
+impl core::marker::Unpin for neo4j::value::time::LocalDateTime
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::LocalDateTime
+impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::LocalDateTime
+pub struct neo4j::value::time::LocalTime
+impl neo4j::value::time::LocalTime
+pub fn neo4j::value::time::LocalTime::from_hms_nano(hour: u8, min: u8, sec: u8, nano: u32) -> core::option::Option<Self>
+pub fn neo4j::value::time::LocalTime::from_nanos_since_midnight(nanos: u64) -> core::option::Option<Self>
+pub fn neo4j::value::time::LocalTime::hms_nano(&self) -> (u8, u8, u8, u32)
+pub fn neo4j::value::time::LocalTime::nanos_since_midnight(&self) -> u64
+impl core::clone::Clone for neo4j::value::time::LocalTime
+pub fn neo4j::value::time::LocalTime::clone(&self) -> neo4j::value::time::LocalTime
+impl core::cmp::Eq for neo4j::value::time::LocalTime
+impl core::cmp::PartialEq for neo4j::value::time::LocalTime
+pub fn neo4j::value::time::LocalTime::eq(&self, other: &neo4j::value::time::LocalTime) -> bool
+impl core::convert::From<neo4j::value::time::LocalTime> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::LocalTime) -> Self
+impl core::convert::TryFrom<neo4j::ValueReceive> for neo4j::value::time::LocalTime
+pub type neo4j::value::time::LocalTime::Error = neo4j::ValueReceive
+pub fn neo4j::value::time::LocalTime::try_from(value: neo4j::ValueReceive) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<neo4j::ValueSend> for neo4j::value::time::LocalTime
+pub type neo4j::value::time::LocalTime::Error = neo4j::ValueSend
+pub fn neo4j::value::time::LocalTime::try_from(value: neo4j::ValueSend) -> core::result::Result<Self, Self::Error>
+impl core::fmt::Debug for neo4j::value::time::LocalTime
+pub fn neo4j::value::time::LocalTime::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::value::time::LocalTime
+pub fn neo4j::value::time::LocalTime::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+impl core::marker::Copy for neo4j::value::time::LocalTime
+impl core::marker::StructuralPartialEq for neo4j::value::time::LocalTime
+impl core::marker::Freeze for neo4j::value::time::LocalTime
+impl core::marker::Send for neo4j::value::time::LocalTime
+impl core::marker::Sync for neo4j::value::time::LocalTime
+impl core::marker::Unpin for neo4j::value::time::LocalTime
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::LocalTime
+impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::LocalTime
 pub struct neo4j::value::time::Time
-pub neo4j::value::time::Time::offset: neo4j::value::time::FixedOffset
-pub neo4j::value::time::Time::time: chrono::naive::time::NaiveTime
+impl neo4j::value::time::Time
+pub fn neo4j::value::time::Time::from_hms_nano_offset(hour: u8, minute: u8, second: u8, nanosecond: u32, utc_offset: i32) -> core::option::Option<Self>
+pub fn neo4j::value::time::Time::from_nanos_since_midnight(nanos: u64, utc_offset: i32) -> core::option::Option<Self>
+pub fn neo4j::value::time::Time::hms_nano_offset(&self) -> (u8, u8, u8, u32, i32)
+pub fn neo4j::value::time::Time::nanos_since_midnight(&self) -> u64
+pub fn neo4j::value::time::Time::utc_offset(&self) -> i32
 impl core::clone::Clone for neo4j::value::time::Time
 pub fn neo4j::value::time::Time::clone(&self) -> neo4j::value::time::Time
 impl core::cmp::Eq for neo4j::value::time::Time
@@ -1402,13 +1608,6 @@ impl core::marker::Sync for neo4j::value::time::Time
 impl core::marker::Unpin for neo4j::value::time::Time
 impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::Time
 impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::Time
-pub type neo4j::value::time::Date = chrono::naive::date::NaiveDate
-pub type neo4j::value::time::DateTime = chrono::datetime::DateTime<neo4j::value::time::Tz>
-pub type neo4j::value::time::DateTimeFixed = chrono::datetime::DateTime<neo4j::value::time::FixedOffset>
-pub type neo4j::value::time::FixedOffset = chrono::offset::fixed::FixedOffset
-pub type neo4j::value::time::LocalDateTime = chrono::naive::datetime::NaiveDateTime
-pub type neo4j::value::time::LocalTime = chrono::naive::time::NaiveTime
-pub type neo4j::value::time::Tz = chrono_tz::timezones::Tz
 #[non_exhaustive] pub enum neo4j::value::ValueReceive
 pub neo4j::value::ValueReceive::Boolean(bool)
 pub neo4j::value::ValueReceive::BrokenValue(neo4j::value::BrokenValue)
@@ -1725,16 +1924,6 @@ impl core::convert::From<alloc::string::String> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: alloc::string::String) -> Self
 impl core::convert::From<bool> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: bool) -> Self
-impl core::convert::From<chrono::datetime::DateTime<chrono::offset::fixed::FixedOffset>> for neo4j::ValueSend
-pub fn neo4j::ValueSend::from(value: neo4j::value::time::DateTimeFixed) -> Self
-impl core::convert::From<chrono::datetime::DateTime<chrono_tz::timezones::Tz>> for neo4j::ValueSend
-pub fn neo4j::ValueSend::from(value: neo4j::value::time::DateTime) -> Self
-impl core::convert::From<chrono::naive::date::NaiveDate> for neo4j::ValueSend
-pub fn neo4j::ValueSend::from(value: neo4j::value::time::Date) -> Self
-impl core::convert::From<chrono::naive::datetime::NaiveDateTime> for neo4j::ValueSend
-pub fn neo4j::ValueSend::from(value: neo4j::value::time::LocalDateTime) -> Self
-impl core::convert::From<chrono::naive::time::NaiveTime> for neo4j::ValueSend
-pub fn neo4j::ValueSend::from(value: neo4j::value::time::LocalTime) -> Self
 impl core::convert::From<f32> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: f32) -> Self
 impl core::convert::From<f64> for neo4j::ValueSend
@@ -1757,8 +1946,18 @@ impl core::convert::From<neo4j::value::spatial::WGS84_2D> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: neo4j::value::spatial::WGS84_2D) -> Self
 impl core::convert::From<neo4j::value::spatial::WGS84_3D> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: neo4j::value::spatial::WGS84_3D) -> Self
+impl core::convert::From<neo4j::value::time::Date> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::Date) -> Self
+impl core::convert::From<neo4j::value::time::DateTime> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::DateTime) -> Self
+impl core::convert::From<neo4j::value::time::DateTimeFixed> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::DateTimeFixed) -> Self
 impl core::convert::From<neo4j::value::time::Duration> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: neo4j::value::time::Duration) -> Self
+impl core::convert::From<neo4j::value::time::LocalDateTime> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::LocalDateTime) -> Self
+impl core::convert::From<neo4j::value::time::LocalTime> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::LocalTime) -> Self
 impl core::convert::From<neo4j::value::time::Time> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: neo4j::value::time::Time) -> Self
 impl core::convert::From<u16> for neo4j::ValueSend
@@ -2219,16 +2418,6 @@ impl core::convert::From<alloc::string::String> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: alloc::string::String) -> Self
 impl core::convert::From<bool> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: bool) -> Self
-impl core::convert::From<chrono::datetime::DateTime<chrono::offset::fixed::FixedOffset>> for neo4j::ValueSend
-pub fn neo4j::ValueSend::from(value: neo4j::value::time::DateTimeFixed) -> Self
-impl core::convert::From<chrono::datetime::DateTime<chrono_tz::timezones::Tz>> for neo4j::ValueSend
-pub fn neo4j::ValueSend::from(value: neo4j::value::time::DateTime) -> Self
-impl core::convert::From<chrono::naive::date::NaiveDate> for neo4j::ValueSend
-pub fn neo4j::ValueSend::from(value: neo4j::value::time::Date) -> Self
-impl core::convert::From<chrono::naive::datetime::NaiveDateTime> for neo4j::ValueSend
-pub fn neo4j::ValueSend::from(value: neo4j::value::time::LocalDateTime) -> Self
-impl core::convert::From<chrono::naive::time::NaiveTime> for neo4j::ValueSend
-pub fn neo4j::ValueSend::from(value: neo4j::value::time::LocalTime) -> Self
 impl core::convert::From<f32> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: f32) -> Self
 impl core::convert::From<f64> for neo4j::ValueSend
@@ -2251,8 +2440,18 @@ impl core::convert::From<neo4j::value::spatial::WGS84_2D> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: neo4j::value::spatial::WGS84_2D) -> Self
 impl core::convert::From<neo4j::value::spatial::WGS84_3D> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: neo4j::value::spatial::WGS84_3D) -> Self
+impl core::convert::From<neo4j::value::time::Date> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::Date) -> Self
+impl core::convert::From<neo4j::value::time::DateTime> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::DateTime) -> Self
+impl core::convert::From<neo4j::value::time::DateTimeFixed> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::DateTimeFixed) -> Self
 impl core::convert::From<neo4j::value::time::Duration> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: neo4j::value::time::Duration) -> Self
+impl core::convert::From<neo4j::value::time::LocalDateTime> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::LocalDateTime) -> Self
+impl core::convert::From<neo4j::value::time::LocalTime> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::time::LocalTime) -> Self
 impl core::convert::From<neo4j::value::time::Time> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: neo4j::value::time::Time) -> Self
 impl core::convert::From<u16> for neo4j::ValueSend

@@ -928,6 +928,15 @@ pub struct BrokenValue {
     pub(crate) inner: BrokenValueInner,
 }
 
+#[cfg(feature = "_internal_doc_test")]
+impl BrokenValue {
+    pub fn from_reason<S: Into<String>>(reason: S) -> Self {
+        Self {
+            inner: BrokenValueInner::Reason(reason.into()),
+        }
+    }
+}
+
 impl PartialEq for BrokenValue {
     fn eq(&self, _other: &Self) -> bool {
         false

@@ -38,7 +38,6 @@ use crate::error_::Neo4jError;
 ///
 /// use neo4j::bookmarks::{bookmark_managers, Bookmarks};
 /// use neo4j::driver::auth::AuthToken;
-/// use neo4j::driver::{ConnectionConfig, Driver, DriverConfig};
 /// use neo4j::session::SessionConfig;
 ///
 /// let database = Arc::new(String::from("neo4j"));
@@ -68,6 +67,8 @@ use crate::error_::Neo4jError;
 ///     // Use the given authentication token for the duration of the session.
 ///     // This requires Neo4j 5.5 or newer.
 ///     .with_session_auth(auth_token);
+///
+/// # let _ = config;
 /// ```
 ///
 /// See also [`Driver::session()`].
@@ -191,6 +192,7 @@ impl SessionConfig {
     ///     .builder;
     ///
     /// config = config.with_fetch_size(i64::MAX as u64).unwrap();
+    /// # let _ = config;
     /// ```
     ///
     /// See also [`SessionConfig::with_fetch_all()`] and

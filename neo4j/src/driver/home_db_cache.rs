@@ -269,10 +269,9 @@ mod test {
             "map": value_map!({
                 "nested": value_map!({
                     "key": "value",
-                    "when": time::LocalDateTime::new(
-                        time::Date::from_ymd_opt(2021, 1, 1).unwrap(),
-                        time::LocalTime::from_hms_opt(12, 0, 0).unwrap(),
-                    ),
+                    "when": time::LocalDateTime::from_components(
+                        time::DateTimeComponents::from_ymd(2021, 1, 1).with_hms(12, 0, 0)
+                    ).unwrap(),
                 }),
                 "point": spatial::Cartesian2D::new(1.0, 2.0),
                 "key": "value",
@@ -289,10 +288,9 @@ mod test {
                 "key": "value",
                 "nested": value_map!({
                     "key": "value",
-                    "when": time::LocalDateTime::new(
-                        time::Date::from_ymd_opt(2021, 1, 1).unwrap(),
-                        time::LocalTime::from_hms_opt(12, 0, 0).unwrap(),
-                    ),
+                    "when": time::LocalDateTime::from_components(
+                        time::DateTimeComponents::from_ymd(2021, 1, 1).with_hms(12, 0, 0)
+                    ).unwrap(),
                 }),
                 "point": spatial::Cartesian2D::new(1.0, 2.0),
             }),

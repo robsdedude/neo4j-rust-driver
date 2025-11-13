@@ -59,14 +59,13 @@ impl EagerResult {
         }
     }
 
-    /// Iterate over the the values of the records.
+    /// Iterate over the values of the records.
     ///
     /// # Example
     /// ```
     /// use std::sync::Arc;
     ///
     /// use neo4j::driver::EagerResult;
-    /// use neo4j::ValueReceive;
     ///
     /// # let driver = doc_test_utils::get_driver();
     /// let result: EagerResult = driver

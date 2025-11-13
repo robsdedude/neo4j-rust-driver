@@ -51,7 +51,11 @@ repos:
         pass_filenames: false
       - id: dependency type exports
         name: check exported dependencies
-        entry: bash -ec "cd neo4j; cargo +nightly-2024-06-30 check-external-types"
+        entry: >
+          bash -ec "
+          cd neo4j;
+          cargo +nightly-2025-08-06 install --locked cargo-check-external-types@0.3.0
+          && cargo +nightly-2025-08-06 check-external-types --all-features"
         language: system
         types_or: [rust, toml]
         pass_filenames: false

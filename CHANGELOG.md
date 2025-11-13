@@ -7,10 +7,17 @@
 **👏️ Improvements**
  - Reduce network latency in some cases by setting `TCP_NODELAY`.
  - ⚠️ Reduce the size of `Neo4jError`. The `ServerError` variant is now wrapped in a Box.
-- Update dependencies.  
+ - Update dependencies.  
   - ⚠️ Switching from [`rustls-native-certs`](https://crates.io/crates/rustls-native-certs) to [`rustls-platform-verifier`](https://crates.io/crates/rustls-platform-verifier) for loading system certificates.  
     This might imply subtle behavior changes when using `ConnectionConfig::with_encryption_trust_default_cas` or equivalent configurations.
   - ⚠️ Bump MSRV to 1.71.
+
+**🧹️ Clean-up**
+ - Remove all exposed 3rd party types.
+   - ⚠️ Removed `ConnectionConfig::with_encryption_custom_tls_config` without replacement as this API requires exposing `rustls::ClientConfig`.
+   - ⚠️ Temporal types (`neo4j::value::time`) are no longer aliases of `chrono` types.  
+     Internally, they now represent more closely what's being sent over the wire.
+     Conversion methods on a best-effort basis to/from `chrono` types are provided behind feature flags.
 
 **🧼️ Maintenance**
  - Bump dependencies. 
