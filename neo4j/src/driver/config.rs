@@ -938,40 +938,20 @@ mod mockable {
         use std::path::Path;
         use std::result::Result as StdResult;
         use std::sync::Arc;
-        use std::sync::OnceLock;
 
         use rustls::ClientConfig;
         use rustls::RootCertStore;
+        use rustls_platform_verifier::BuilderVerifierExt;
 
         use super::NonVerifyingVerifier;
-
-        static SYSTEM_CERTIFICATES: OnceLock<StdResult<Arc<RootCertStore>, String>> =
-            OnceLock::new();
 
         pub fn secure_tls_config() -> StdResult<ClientConfig, String> {
             // Fails if a provider is already installed. That's fine, too.
             let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
-            let root_store = SYSTEM_CERTIFICATES.get_or_init(|| {
-                // Fails if a provider is already installed. That's fine, too.
-                let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-
-                let mut root_store = RootCertStore::empty();
-                // root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-                //     rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-                //         ta.subject,
-                //         ta.spki,
-                //         ta.name_constraints,
-                //     )
-                // }));
-                let native_certs = rustls_native_certs::load_native_certs()
-                    .map_err(|e| format!("failed to load system certificates: {e}"))?;
-                let (_, _) = root_store.add_parsable_certificates(native_certs);
-                Ok(Arc::new(root_store))
-            });
-            let root_store = Arc::clone(root_store.as_ref().map_err(Clone::clone)?);
             Ok(ClientConfig::builder()
-                .with_root_certificates(root_store)
+                .with_platform_verifier()
+                .map_err(|e| format!("failed to create TLS verifier: {e}"))?
                 .with_no_client_auth())
         }
 

@@ -52,7 +52,7 @@ jobs:
     runs-on: "ubuntu-latest"
     strategy:
       matrix:
-        rust-version: [ "1.70", "stable" ]
+        rust-version: [ "1.71", "stable" ]
     steps:
       - name: Pull neo4j docker image
         run: docker pull neo4j:5.26-enterprise

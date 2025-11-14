@@ -1,7 +1,45 @@
 [workspace]
+resolver = "2"
 members = [
     "neo4j",
     "doc_test_utils",
     "testkit_backend",
 ]
-resolver = "2"
+
+[workspace.package]
+authors = ["Rouven Bauer <neo4j-rust@rouvenbauer.de>"]
+edition = "2021"
+rust-version = "1.71"
+
+[workspace.dependencies]
+atomic_refcell = "0.1.13"
+chrono = "0.4.37"
+chrono-tz = "0.9.0"
+duplicate = "2.0.0"
+enum_dispatch = "0.3.13"
+env_logger = "0.11.8"
+expect-test = "1.5.1"
+fern = "0.7.1"
+flume = "0.11.0"
+itertools = "0.14.0"
+lazy-regex = "3.1.0"
+log = "0.4.21"
+mockall = "0.13.1"
+mockall_double = "0.3.1"
+named-lock = "0.4.1"
+parking_lot = "0.12.1"
+public-api = "0.47.1"
+rand = "0.9.0"
+rstest = "0.26.1"
+rustdoc-json = "0.9.4"
+rustls = "0.23.19"
+rustls-pemfile = "2.1.2"
+rustls-pki-types = "1.4.1"
+rustls-platform-verifier = "0.6.2"
+rustup-toolchain = "0.1.6"
+serde = "1.0.197"
+serde_json = "1.0.115"
+socket2 = "0.6.1"
+thiserror = "2.0.11"
+uriparse = "0.6.4"
+usize_cast = "1.1.0"

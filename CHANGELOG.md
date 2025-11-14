@@ -7,6 +7,13 @@
 **👏️ Improvements**
  - Reduce network latency in some cases by setting `TCP_NODELAY`.
  - ⚠️ Reduce the size of `Neo4jError`. The `ServerError` variant is now wrapped in a Box.
+- Update dependencies.  
+  - ⚠️ Switching from [`rustls-native-certs`](https://crates.io/crates/rustls-native-certs) to [`rustls-platform-verifier`](https://crates.io/crates/rustls-platform-verifier) for loading system certificates.  
+    This might imply subtle behavior changes when using `ConnectionConfig::with_encryption_trust_default_cas` or equivalent configurations.
+  - ⚠️ Bump MSRV to 1.71.
+
+**🧼️ Maintenance**
+ - Bump dependencies. 
 
 **🔧️ Fixes**
  - Fix accidentally merging write and read timeouts during a connection's lifetime.
