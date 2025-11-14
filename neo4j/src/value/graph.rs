@@ -315,7 +315,7 @@ pub struct UnboundRelationship {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use rstest::rstest;
 
     use super::*;

@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use chrono::TimeZone;
-
 use super::{chrono, local_date_time_from_timestamp, DateTimeComponents};
 
 /// Represents a date (year, month, day) and time (hour, minute, second, nanoseconds) within a time
@@ -37,17 +35,6 @@ impl DateTimeFixed {
         }
         let tz_offset = date_time.offset().local_minus_utc();
         Self::from_utc_timestamp(sec, nano, tz_offset)
-    }
-
-    pub(crate) fn to_chrono(self) -> Option<chrono::DateTime<chrono::FixedOffset>> {
-        let Self {
-            secs,
-            nanos,
-            utc_offset,
-        } = self;
-        let tz = chrono::FixedOffset::east_opt(utc_offset)?;
-        let dt = local_date_time_from_timestamp(secs, nanos)?;
-        Some(tz.from_utc_datetime(&dt))
     }
 
     /// Make a new `DateTimeFixed` from the given timestamp in non-leap seconds and nanoseconds
@@ -201,6 +188,7 @@ mod chrono_0_4_impl {
     use super::super::ChronoConversionError;
     use super::*;
 
+    use chrono::TimeZone;
     use chrono_0_4 as chrono;
 
     impl DateTimeFixed {
@@ -272,7 +260,14 @@ mod chrono_0_4_impl {
         /// assert_eq!(chrono_date, NaiveDate::from_ymd_opt(2023, 12, 8).unwrap());
         /// ```
         pub fn to_chrono_0_4(self) -> Option<chrono::DateTime<chrono::FixedOffset>> {
-            self.to_chrono()
+            let Self {
+                secs,
+                nanos,
+                utc_offset,
+            } = self;
+            let tz = chrono::FixedOffset::east_opt(utc_offset)?;
+            let dt = local_date_time_from_timestamp(secs, nanos)?;
+            Some(tz.from_utc_datetime(&dt))
         }
     }
 
@@ -297,6 +292,68 @@ mod chrono_0_4_impl {
                 source_type: "DateTimeFixed",
                 target_type: "chrono::DateTime<chrono::FixedOffset>",
             })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[allow(unused)]
+    use super::*;
+
+    #[cfg(feature = "chrono_0_4")]
+    mod chrono_0_4_tests {
+        use super::*;
+
+        use chrono::TimeZone;
+        use chrono_0_4 as chrono;
+
+        #[test]
+        fn test_datetime_fixed_try_from_chrono() {
+            const YEAR: i32 = 2022;
+            const MONTH: u32 = 6;
+            const DAY: u32 = 7;
+            const HOUR: u32 = 9;
+            const MINUTE: u32 = 52;
+            const SECOND: u32 = 5;
+            const NANOSECOND: u32 = 123456789;
+            const OFFSET: i32 = 7200;
+
+            let utc_dt = chrono::NaiveDate::from_ymd_opt(YEAR, MONTH, DAY)
+                .unwrap()
+                .and_hms_nano_opt(HOUR, MINUTE, SECOND, NANOSECOND)
+                .unwrap();
+            let tz = chrono::FixedOffset::east_opt(OFFSET).unwrap();
+            let chrono_dt = tz.from_utc_datetime(&utc_dt);
+
+            let dt = DateTimeFixed::try_from(&chrono_dt).unwrap();
+
+            let (sec, nano) = dt.utc_timestamp();
+            assert_eq!(sec, utc_dt.and_utc().timestamp());
+            assert_eq!(nano, utc_dt.and_utc().timestamp_subsec_nanos());
+            assert_eq!(dt.utc_offset(), OFFSET);
+
+            let chrono_dt_converted =
+                chrono::DateTime::<chrono::FixedOffset>::try_from(&dt).unwrap();
+            assert_eq!(chrono_dt, chrono_dt_converted);
+        }
+
+        #[test]
+        fn test_chrono_fixed_try_from_datetime_fixed() {
+            const TIMESTAMP: i64 = 1654602725; // 2022-06-07T08:52:05Z
+            const NANOSECONDS: u32 = 123456789;
+            const OFFSET: i32 = -3600;
+
+            let dt = DateTimeFixed::from_utc_timestamp(TIMESTAMP, NANOSECONDS, OFFSET).unwrap();
+
+            let chrono_dt = chrono::DateTime::<chrono::FixedOffset>::try_from(&dt).unwrap();
+
+            assert_eq!(chrono_dt.timestamp(), TIMESTAMP);
+            assert_eq!(chrono_dt.timestamp_subsec_nanos(), NANOSECONDS);
+            assert_eq!(chrono_dt.offset().local_minus_utc(), OFFSET);
+
+            let dt_converted = DateTimeFixed::try_from(&chrono_dt).unwrap();
+            assert_eq!(dt, dt_converted);
         }
     }
 }

@@ -22,6 +22,9 @@
 **🧼️ Maintenance**
  - Bump dependencies. 
 
+**🔧️ Fixes**
+ - Fix accidentally merging write and read timeouts during a connection's lifetime.
+
 
 ## 0.2.0
 ***

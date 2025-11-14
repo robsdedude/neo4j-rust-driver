@@ -252,7 +252,7 @@ struct HomeDbCacheEntry {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use rstest::*;
 
     use crate::value::time;

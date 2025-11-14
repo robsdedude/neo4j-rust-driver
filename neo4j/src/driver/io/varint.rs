@@ -75,7 +75,7 @@ impl From<IoError> for ReadVarIntError {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     use rstest::rstest;

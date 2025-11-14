@@ -270,7 +270,7 @@ mod private {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     #[cfg(feature = "_internal_public_api")]
     #[test]
     fn public_api() {

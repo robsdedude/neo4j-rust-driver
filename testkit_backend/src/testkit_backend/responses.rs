@@ -144,10 +144,16 @@ fn get_plain_skipped_tests() -> &'static HashMap<&'static str, &'static str> {
 
 fn get_regex_skipped_tests() -> &'static [(&'static Regex, &'static str)] {
     REGEX_SKIPPED_TESTS.get_or_init(|| {
-        vec![(
-            regex!(r"^stub\.summary\.test_summary\.TestSummaryNotifications4x4(Discard)?\.test_no_notifications$"),
-            "An empty list is returned when there are no notifications",
-        )]
+        vec![
+            (
+                regex!(r"^stub\.summary\.test_summary\.TestSummaryNotifications4x4(Discard)?\.test_no_notifications$"),
+                "An empty list is returned when there are no notifications",
+            ),
+            (
+                regex!(r"^stub\.types\.test_temporal_types\.TestTemporalTypesV(4x4\.test_unknown_(then_known_)?zoned_date_time_patched|.+\.test_unknown_(then_known_)?zoned_date_time)$"),
+                "Driver accepts all time zone IDs unless legacy encoding (without UTC patch) is used",
+            ),
+        ]
     })
 }
 
@@ -862,7 +868,7 @@ impl Response {
             }
         }
         match test_name.as_str() {
-            "neo4j.datatypes.test_temporal_types.TestDataTypes.test_date_time_cypher_created_tz_id" 
+            "neo4j.datatypes.test_temporal_types.TestDataTypes.test_date_time_cypher_created_tz_id"
             | "neo4j.datatypes.test_temporal_types.TestDataTypes.test_should_echo_all_timezone_ids" =>
                 return Self::RunSubTests,
             _ => {}

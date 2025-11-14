@@ -56,7 +56,7 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                 };
                 let (seconds, nanoseconds) = dt.utc_timestamp();
                 let seconds = seconds
-                    .checked_sub(offset)
+                    .checked_add(offset)
                     .ok_or_else(|| serializer.error("DateTime out of bounds".into()))?;
                 let tz_id = dt.timezone_name();
                 serializer.write_struct_header(TAG_LEGACY_DATE_TIME_ZONE_ID, 3)?;
@@ -66,24 +66,15 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                 Ok(())
             }
             ValueSend::DateTimeFixed(dt) => {
-                let offset = match dt.to_chrono() {
-                    Some(chrono_dt) => chrono_dt.offset().local_minus_utc().into(),
-                    None => {
-                        return Err(serializer.error(
-                            "DateTimeFixed out of bounds for chrono, but temporal arithmetic is \
-                             required the current protocol version"
-                                .into(),
-                        ));
-                    }
-                };
+                let offset = dt.utc_offset();
                 let (seconds, nanoseconds) = dt.utc_timestamp();
                 let seconds = seconds
-                    .checked_sub(offset)
+                    .checked_add(offset.into())
                     .ok_or_else(|| serializer.error("DateTimeFixed out of bounds".into()))?;
                 serializer.write_struct_header(TAG_LEGACY_DATE_TIME, 3)?;
                 serializer.write_int(seconds)?;
                 serializer.write_int(nanoseconds.into())?;
-                serializer.write_int(offset)?;
+                serializer.write_int(offset.into())?;
                 Ok(())
             }
             _ => self.bolt5x0_translator.serialize(serializer, value),
