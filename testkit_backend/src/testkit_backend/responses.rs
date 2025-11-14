@@ -18,6 +18,8 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
+use chrono_tz::Tz;
+use chrono_tz_0_10 as chrono_tz;
 use lazy_regex::{regex, Regex};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -25,11 +27,10 @@ use serde_json::Value as JsonValue;
 use crate::testkit_backend::cypher_value::ConvertableValueReceive;
 use neo4j::driver::EagerResult;
 use neo4j::summary::SummaryQueryType;
-use neo4j::value::time::Tz;
 use neo4j::ValueSend;
 
 use super::backend_id::Generator;
-use super::cypher_value::{CypherValue, CypherValues};
+use super::cypher_value::{CypherDateTime, CypherValue, CypherValues};
 use super::errors::{TestKitDriverError, TestKitError};
 use super::requests::TestKitAuth;
 use super::session_holder::SummaryWithQuery;
@@ -143,10 +144,16 @@ fn get_plain_skipped_tests() -> &'static HashMap<&'static str, &'static str> {
 
 fn get_regex_skipped_tests() -> &'static [(&'static Regex, &'static str)] {
     REGEX_SKIPPED_TESTS.get_or_init(|| {
-        vec![(
-            regex!(r"^stub\.summary\.test_summary\.TestSummaryNotifications4x4(Discard)?\.test_no_notifications$"),
-            "An empty list is returned when there are no notifications",
-        )]
+        vec![
+            (
+                regex!(r"^stub\.summary\.test_summary\.TestSummaryNotifications4x4(Discard)?\.test_no_notifications$"),
+                "An empty list is returned when there are no notifications",
+            ),
+            (
+                regex!(r"^stub\.types\.test_temporal_types\.TestTemporalTypesV(4x4\.test_unknown_(then_known_)?zoned_date_time_patched|.+\.test_unknown_(then_known_)?zoned_date_time)$"),
+                "Driver accepts all time zone IDs unless legacy encoding (without UTC patch) is used",
+            ),
+        ]
     })
 }
 
@@ -826,7 +833,7 @@ impl TryFrom<EagerResult> for Response {
                 Ok(RecordListEntry {
                     values: r
                         .into_values()
-                        .map(|e| Ok(e.try_into()?))
+                        .map(|e| e.try_into())
                         .collect::<TestKitResultT<_>>()?,
                 })
             })
@@ -861,7 +868,7 @@ impl Response {
             }
         }
         match test_name.as_str() {
-            "neo4j.datatypes.test_temporal_types.TestDataTypes.test_date_time_cypher_created_tz_id" 
+            "neo4j.datatypes.test_temporal_types.TestDataTypes.test_date_time_cypher_created_tz_id"
             | "neo4j.datatypes.test_temporal_types.TestDataTypes.test_should_echo_all_timezone_ids" =>
                 return Self::RunSubTests,
             _ => {}
@@ -965,7 +972,7 @@ impl Response {
         let utc_offset_s = get_opt_i64_component(data, "utc_offset_s")?;
         let timezone_id = get_string_opt_component(data, "timezone_id")?;
 
-        let value = CypherValue::CypherDateTime {
+        let value = CypherValue::CypherDateTime(CypherDateTime {
             year,
             month,
             day,
@@ -975,7 +982,7 @@ impl Response {
             nanosecond,
             utc_offset_s,
             timezone_id,
-        };
+        });
         Ok(ValueSend::try_from(value)
             .map(|_| Self::RunTest)
             .unwrap_or_else(|e| Self::SkipTest {

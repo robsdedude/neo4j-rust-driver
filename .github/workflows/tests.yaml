@@ -91,7 +91,7 @@ jobs:
         run: cargo check
       - name: Docs build
         working-directory: driver
-        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+        run: RUSTDOCFLAGS="-D warnings" cargo doc -p neo4j --features chrono_0_4,chrono-tz_0_9,chrono-tz_0_10 --no-deps
       - name: Tests
         working-directory: driver
         env:
@@ -102,7 +102,18 @@ jobs:
           TEST_NEO4J_PASS: pass
           TEST_NEO4J_EDITION: enterprise
           TEST_NEO4J_VERSION: 5.26
-        run: cargo test --workspace --all-targets
+        run: cargo test -p neo4j --all-targets
+      - name: Tests All Features
+        working-directory: driver
+        env:
+          TEST_NEO4J_SCHEME: neo4j
+          TEST_NEO4J_HOST: localhost
+          TEST_NEO4J_PORT: 7687
+          TEST_NEO4J_USER: neo4j
+          TEST_NEO4J_PASS: pass
+          TEST_NEO4J_EDITION: enterprise
+          TEST_NEO4J_VERSION: 5.26
+        run: cargo test --workspace --all-features --all-targets
       - name: Doc tests
         working-directory: driver
         env:
@@ -113,7 +124,7 @@ jobs:
           TEST_NEO4J_PASS: pass
           TEST_NEO4J_EDITION: enterprise
           TEST_NEO4J_VERSION: 5.26
-        run: cargo test --workspace --doc
+        run: cargo test --all-features --workspace --doc
       - name: Stop neo4j
         if: ${{ !cancelled() && steps.start_neo4j.conclusion == 'success' }}
         run: |

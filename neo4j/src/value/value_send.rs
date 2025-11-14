@@ -182,12 +182,9 @@ impl TryFrom<ValueReceive> for ValueSend {
     ///
     /// # Example
     /// ```
-    /// use std::convert::TryInto;
-    /// # use std::sync::Arc;
-    ///
     /// # use neo4j::retry::ExponentialBackoff;
-    /// # use neo4j::driver::EagerResult;
     /// use neo4j::{ValueReceive, ValueSend};
+    /// # use doc_test_utils::get_broken_value;
     ///
     /// let value = ValueSend::try_from(ValueReceive::Null).unwrap();
     /// assert_eq!(value, ValueSend::Null);
@@ -199,22 +196,11 @@ impl TryFrom<ValueReceive> for ValueSend {
     ///     ValueSend::List(vec![ValueSend::Integer(1), ValueSend::Boolean(false)])
     /// );
     ///
-    /// # fn get_broken_value() -> ValueReceive {
-    /// #     doc_test_utils::get_driver()
-    /// #         .execute_query("RETURN localdatetime('-999999999-01-01')")
-    /// #         .with_database(Arc::new(String::from("neo4j")))
-    /// #         .run_with_retry(ExponentialBackoff::new())
-    /// #         .unwrap()
-    /// #         .into_scalar()
-    /// #         .unwrap()
-    /// # }
-    /// #
     /// let broken_value: ValueReceive = get_broken_value();
     /// let value = ValueSend::try_from(broken_value);
     /// assert!(value.is_err());
     ///
     /// # fn get_node_value() -> ValueReceive {
-    /// #     use std::sync::Arc;
     /// #     let driver = doc_test_utils::get_driver();
     /// #     let mut session = doc_test_utils::get_session(&driver);
     /// #     let result = session

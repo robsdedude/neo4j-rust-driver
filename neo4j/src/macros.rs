@@ -134,7 +134,7 @@ macro_rules! value {
 /// ```
 /// use std::collections::HashMap;
 ///
-/// use neo4j::{value_map, ValueSend};
+/// use neo4j::value_map;
 ///
 /// assert_eq!(HashMap::new(), value_map!());
 /// ```

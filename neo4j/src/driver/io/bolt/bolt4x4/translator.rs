@@ -15,7 +15,6 @@
 use std::collections::VecDeque;
 use std::str::FromStr;
 
-use chrono::{LocalResult, Offset, TimeZone};
 use usize_cast::IntoIsize;
 
 use super::super::bolt5x0::Bolt5x0StructTranslator;
@@ -23,7 +22,9 @@ use super::super::bolt_common::*;
 use super::super::{BoltStructTranslator, BoltStructTranslatorWithUtcPatch};
 use crate::driver::io::bolt::PackStreamSerializer;
 use crate::value::graph::{Node, Path, Relationship, UnboundRelationship};
-use crate::value::time::{local_date_time_from_timestamp, FixedOffset, Tz};
+use crate::value::time::chrono::{FixedOffset, LocalResult, Offset, TimeZone};
+use crate::value::time::chrono_tz::Tz;
+use crate::value::time::{local_date_time_from_timestamp, DateTime, DateTimeFixed};
 use crate::value::{BrokenValue, BrokenValueInner, ValueReceive, ValueSend};
 
 #[derive(Debug, Default)]
@@ -43,37 +44,37 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
         }
         match value {
             ValueSend::DateTime(dt) => {
-                let offset = dt.offset().fix().local_minus_utc().into();
-                let mut seconds = dt.timestamp();
-                let nanoseconds = dt.timestamp_subsec_nanos();
-                if nanoseconds >= 1_000_000_000 {
-                    return Err(
-                        serializer.error("DateTime with leap second is not supported".into())
-                    );
-                }
-                seconds = seconds
+                let offset = match dt.to_chrono() {
+                    Some(chrono_dt) => chrono_dt.offset().fix().local_minus_utc().into(),
+                    None => {
+                        return Err(serializer.error(
+                            "DateTime out of bounds for chrono, but temporal arithmetic is \
+                             required the current protocol version"
+                                .into(),
+                        ));
+                    }
+                };
+                let (seconds, nanoseconds) = dt.utc_timestamp();
+                let seconds = seconds
                     .checked_add(offset)
                     .ok_or_else(|| serializer.error("DateTime out of bounds".into()))?;
+                let tz_id = dt.timezone_name();
                 serializer.write_struct_header(TAG_LEGACY_DATE_TIME_ZONE_ID, 3)?;
                 serializer.write_int(seconds)?;
                 serializer.write_int(nanoseconds.into())?;
-                serializer.write_string(dt.timezone().name())?;
+                serializer.write_string(tz_id)?;
                 Ok(())
             }
             ValueSend::DateTimeFixed(dt) => {
-                let mut seconds = dt.timestamp();
-                let nanoseconds = dt.timestamp_subsec_nanos();
-                if nanoseconds >= 1_000_000_000 {
-                    return Err(
-                        serializer.error("DateTimeFixed with leap second is not supported".into())
-                    );
-                }
-                let offset = dt.offset().fix().local_minus_utc().into();
-                seconds += offset;
+                let offset = dt.utc_offset();
+                let (seconds, nanoseconds) = dt.utc_timestamp();
+                let seconds = seconds
+                    .checked_add(offset.into())
+                    .ok_or_else(|| serializer.error("DateTimeFixed out of bounds".into()))?;
                 serializer.write_struct_header(TAG_LEGACY_DATE_TIME, 3)?;
                 serializer.write_int(seconds)?;
                 serializer.write_int(nanoseconds.into())?;
-                serializer.write_int(offset)?;
+                serializer.write_int(offset.into())?;
                 Ok(())
             }
             _ => self.bolt5x0_translator.serialize(serializer, value),
@@ -149,10 +150,10 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                             relationships.push(match relationship {
                                 ValueReceive::BrokenValue(BrokenValue {
                                     inner:
-                                        BrokenValueInner::UnknownStruct {
-                                            tag: rel_tag,
-                                            fields: mut rel_fields,
-                                        },
+                                    BrokenValueInner::UnknownStruct {
+                                        tag: rel_tag,
+                                        fields: mut rel_fields,
+                                    },
                                 }) if rel_tag == TAG_UNBOUND_RELATIONSHIP => {
                                     let rel_size = rel_fields.len();
                                     if rel_size != 3 {
@@ -236,6 +237,7 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                     None => return failed_struct("DateTime seconds out of bounds"),
                 };
                 nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
+                debug_assert!(nanoseconds as u32 as i64 == nanoseconds);
                 let nanoseconds = nanoseconds as u32;
                 let dt = match local_date_time_from_timestamp(seconds, nanoseconds) {
                     Some(dt) => dt,
@@ -249,7 +251,12 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                     Some(tz) => tz,
                     None => return failed_struct("DateTime tz_offset out of bounds"),
                 };
-                ValueReceive::DateTimeFixed(tz.from_utc_datetime(&dt))
+                let dt = tz.from_utc_datetime(&dt);
+                let dt = match DateTimeFixed::from_chrono(&dt) {
+                    Some(dt) => dt,
+                    None => return failed_struct("DateTimeZoneId out of bounds"),
+                };
+                ValueReceive::DateTimeFixed(dt)
             }
             TAG_LEGACY_DATE_TIME_ZONE_ID => {
                 let size = fields.len();
@@ -279,6 +286,7 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                     None => return failed_struct("DateTimeZoneId seconds out of bounds"),
                 };
                 nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
+                debug_assert!(nanoseconds as u32 as i64 == nanoseconds);
                 let nanoseconds = nanoseconds as u32;
                 let dt = match local_date_time_from_timestamp(seconds, nanoseconds) {
                     Some(dt) => dt,
@@ -293,6 +301,10 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                     // But pre bolt4.4 these temporal values were ambiguously encoded.
                     // So we just pick one of the two possible values.
                     LocalResult::Ambiguous(dt, _) => dt,
+                };
+                let dt = match DateTime::from_chrono(&dt) {
+                    Some(dt) => dt,
+                    None => return failed_struct("DateTimeZoneId out of bounds"),
                 };
                 ValueReceive::DateTime(dt)
             }

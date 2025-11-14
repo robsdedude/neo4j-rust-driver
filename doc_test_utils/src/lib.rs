@@ -24,7 +24,7 @@ use neo4j::driver::{ConnectionConfig, Driver, DriverConfig};
 use neo4j::retry::ExponentialBackoff;
 use neo4j::session::{Session, SessionConfig};
 use neo4j::transaction::Transaction;
-use neo4j::Result as Neo4jResult;
+use neo4j::{Result as Neo4jResult, ValueReceive};
 
 pub fn get_host() -> String {
     env::var("TEST_NEO4J_HOST").expect("env var TEST_NEO4J_HOST not set")
@@ -137,4 +137,8 @@ pub fn error_non_retryable() -> Neo4jResult<()> {
             panic!("Expected a non-retryable error, got: {err}");
         }
     }
+}
+
+pub fn get_broken_value() -> ValueReceive {
+    ValueReceive::BrokenValue(neo4j::value::BrokenValue::from_reason("nope!"))
 }

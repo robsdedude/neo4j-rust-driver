@@ -518,7 +518,7 @@ impl<'driver> Session<'driver> {
     ///         .with_database(Arc::clone(&db)),
     /// );
     /// // now session2 will see the results of the transaction in session1
-    /// let mut result = session2
+    /// let result = session2
     ///     .auto_commit("MATCH (n:Node) RETURN count(n)")
     ///     .with_routing_control(RoutingControl::Read)
     ///     .run()
@@ -626,7 +626,7 @@ impl<
     /// # doc_test_utils::db_exclusive(|| {
     /// # let driver = doc_test_utils::get_driver();
     /// # let mut session = doc_test_utils::get_session(&driver);
-    /// let mut result = session
+    /// let result = session
     ///     .auto_commit("CREATE (n:Node {id: $id}) RETURN n")
     ///     .with_parameters(value_map!({"id": 1}))
     ///     .run()
@@ -714,6 +714,8 @@ impl<
     ///    .with_transaction_meta(value_map!({"key": "value"}))
     ///    .run()
     ///    .unwrap();
+    ///
+    /// # let _ = result;
     /// ```
     #[inline]
     pub fn with_transaction_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
@@ -810,7 +812,7 @@ impl<
     ///     .with_receiver(|stream: &mut RecordStream| {
     ///         let mut sum = 0;
     ///         for result in stream {
-    ///             let mut record: Record = result?;
+    ///             let record: Record = result?;
     ///             sum += record.into_values().next().unwrap().try_into_int().unwrap();
     ///         }
     ///         Ok(sum)
@@ -951,9 +953,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     ///
     /// # Example
     /// ```
-    /// # use neo4j::driver::EagerResult;
     /// use neo4j::transaction::Transaction;
-    /// # use neo4j::Result;
     /// use neo4j::value_map;
     ///
     /// # let driver = doc_test_utils::get_driver();
@@ -968,6 +968,8 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     ///         # tx.commit()
     ///     })
     ///     .unwrap();
+    ///
+    /// # let _ = result;
     /// ```
     #[inline]
     pub fn with_transaction_meta<KM_: Borrow<str> + Debug, M_: Borrow<HashMap<KM_, ValueSend>>>(
@@ -1058,9 +1060,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     /// ```
     /// use std::sync::Arc;
     ///
-    /// use neo4j::driver::EagerResult;
     /// use neo4j::transaction::Transaction;
-    /// use neo4j::Result;
     /// use neo4j::{value_map, ValueReceive};
     ///
     /// # use doc_test_utils::get_session;
@@ -1085,7 +1085,7 @@ impl<'driver, 'session, KM: Borrow<str> + Debug, M: Borrow<HashMap<KM, ValueSend
     ///         let actors = tx.query("MATCH (n:Actor) RETURN n").run()?;
     ///         let mut total_fame = 0;
     ///         for result in actors {
-    ///             let mut record = result?;
+    ///             let record = result?;
     ///             let mut actor = record.into_values().next().unwrap().try_into_node().unwrap();
     ///             let fame: ValueReceive = actor.properties.remove("fame").unwrap();
     ///             let fame: i64 = fame.try_into_int().unwrap();

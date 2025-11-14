@@ -15,8 +15,17 @@ documentation = "https://docs.rs/neo4j"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[package.metadata.docs.rs]
+features = [
+    "chrono_0_4",
+    "chrono-tz_0_9",
+    "chrono-tz_0_10",
+]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 # internal features: DO NOT USE! No support, no sem-ver guarantees, no nothing.
+_internal_doc_test = []
 _internal_testkit_backend = []
 _internal_public_api = [
     "dep:public-api",
@@ -24,11 +33,20 @@ _internal_public_api = [
     "dep:rustdoc-json",
     "dep:rustup-toolchain",
 ]
+chrono_0_4 = []
+chrono-tz_0_9 = [
+    "dep:chrono-tz_0_9",
+    "chrono_0_4",
+]
+chrono-tz_0_10 = [
+    "chrono_0_4",
+]
 
 [dependencies]
 atomic_refcell = { workspace = true }
-chrono = { workspace = true }
-chrono-tz = { workspace = true }
+chrono_0_4 = { workspace = true }
+chrono-tz_0_9 = { workspace = true, optional = true }
+chrono-tz_0_10 = { workspace = true }
 duplicate = { workspace = true }
 enum_dispatch = { workspace = true }
 itertools = { workspace = true }
@@ -58,15 +76,12 @@ rstest = { workspace = true }
 
 [package.metadata.cargo_check_external_types]
 allowed_external_types = [
-    "chrono::date::Date",
     "chrono::datetime::DateTime",
     "chrono::naive::date::NaiveDate",
     "chrono::naive::datetime::NaiveDateTime",
     "chrono::naive::time::NaiveTime",
     "chrono::offset::fixed::FixedOffset",
-    "chrono::time::Time",
 
+    "chrono_tz::prebuilt::timezones::Tz",
     "chrono_tz::timezones::Tz",
-
-    "rustls::client::client_conn::ClientConfig",
 ]

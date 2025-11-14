@@ -12,65 +12,61 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Temporal types based on the [`chrono`] crate.
+//! Temporal types to be exchanged with the DBMS.
+//!
+//! # Limitations
+//! Note that neo4j's temporal types do *not* encode leap seconds.
+//!
+//! If a value can be instantiated is no guarantee that it is valid according to the DBMS, which is
+//! free to reject values considered invalid by returning an error.
+//!
+//! Vice versa, not all values valid in the DBMS are necessarily representable by the types in this
+//! crate. In such case, a [`ValueReceive::BrokenValue`] is returned instead.
+//!
+//! Arithmetic operations on temporal types are not implemented in this crate.
+//! This is left to the user or a higher-level crate.
+//! To help bridge the gap, some types support conversion to/from `chrono` types given the right
+//! features are enabled.
+//! Note, however, that the mapping isn't 1-to-1 as `chrono` usually provides smaller valid value
+//! ranges.
 
-use duplicate::duplicate_item;
+use thiserror::Error;
 
-pub type Tz = chrono_tz::Tz;
-pub type FixedOffset = chrono::FixedOffset;
+// imports for docs
+#[allow(unused)]
+use crate::value::value_receive::ValueReceive;
 
-pub type LocalTime = chrono::NaiveTime;
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Time {
-    pub time: chrono::NaiveTime,
-    pub offset: FixedOffset,
-}
-pub type Date = chrono::NaiveDate;
-pub type LocalDateTime = chrono::NaiveDateTime;
-pub type DateTime = chrono::DateTime<Tz>;
-pub type DateTimeFixed = chrono::DateTime<FixedOffset>;
+pub(crate) mod date;
+pub(crate) mod date_time;
+mod date_time_components;
+pub(crate) mod date_time_fixed;
+pub(crate) mod duration;
+pub(crate) mod local_date_time;
+pub(crate) mod local_time;
+#[allow(clippy::module_inception)]
+pub(crate) mod time;
 
-const AVERAGE_SECONDS_IN_MONTH: i64 = 2629746;
-const AVERAGE_SECONDS_IN_DAY: i64 = 86400;
+pub(crate) use chrono_0_4 as chrono;
+pub(crate) use chrono_tz_0_10 as chrono_tz;
 
-// TODO: implement Ord, Neg, Add, Sub, from, into, etc.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Duration {
-    pub(crate) months: i64,
-    pub(crate) days: i64,
-    pub(crate) seconds: i64,
-    pub(crate) nanoseconds: i32,
-}
+pub use date::Date;
+pub use date_time::DateTime;
+pub use date_time_components::DateTimeComponents;
+pub use date_time_fixed::DateTimeFixed;
+pub use duration::Duration;
+pub use local_date_time::LocalDateTime;
+pub use local_time::LocalTime;
+pub use time::Time;
 
-impl Duration {
-    pub fn new(months: i64, days: i64, seconds: i64, nanoseconds: i32) -> Option<Self> {
-        let seconds = seconds.checked_add(i64::from(nanoseconds) / 1_000_000_000)?;
-        let nanoseconds = nanoseconds % 1_000_000_000;
-        let months_seconds = months.checked_mul(AVERAGE_SECONDS_IN_MONTH)?;
-        let days_seconds = days.checked_mul(AVERAGE_SECONDS_IN_DAY)?;
-        seconds
-            .checked_add(months_seconds)?
-            .checked_add(days_seconds)?;
-        Some(Self {
-            months,
-            days,
-            seconds,
-            nanoseconds,
-        })
-    }
-
-    #[duplicate_item(
-        name            type_;
-        [ months ]      [ i64 ];
-        [ days ]        [ i64 ];
-        [ seconds ]     [ i64 ];
-        [ nanoseconds ] [ i32 ];
-    )]
-    pub fn name(&self) -> type_ {
-        self.name
-    }
+pub(crate) fn local_date_time_from_timestamp(sec: i64, nano: u32) -> Option<chrono::NaiveDateTime> {
+    chrono::DateTime::from_timestamp(sec, nano).map(|dt| dt.naive_utc())
 }
 
-pub(crate) fn local_date_time_from_timestamp(secs: i64, nsecs: u32) -> Option<LocalDateTime> {
-    chrono::DateTime::from_timestamp(secs, nsecs).map(|dt| dt.naive_utc())
+/// Error indicating that a conversion between chrono and neo4j temporal types failed
+/// because the source value is not representable in the target type.
+#[derive(Debug, Clone, Error)]
+#[error("{source_type} is out of range for {target_type}")]
+pub struct ChronoConversionError {
+    source_type: &'static str,
+    target_type: &'static str,
 }

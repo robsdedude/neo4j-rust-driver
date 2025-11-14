@@ -39,7 +39,6 @@ use crate::driver::ExecuteQueryBuilder;
 ///
 /// # Example
 /// ```
-/// use neo4j::error::ServerError;
 /// use neo4j::retry::RetryPolicy;
 /// use neo4j::{Neo4jError, Result as Neo4jResult};
 ///
@@ -60,6 +59,7 @@ use crate::driver::ExecuteQueryBuilder;
 /// /// Also, it doesn't pause between retries.
 /// struct MyRetryPolicy;
 ///
+/// # #[allow(dead_code)]
 /// struct RetryError(Neo4jError);
 ///
 /// impl RetryPolicy for MyRetryPolicy {

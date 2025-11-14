@@ -13,8 +13,9 @@ rust-version = "1.71"
 
 [workspace.dependencies]
 atomic_refcell = "0.1.13"
-chrono = "0.4.37"
-chrono-tz = "0.9.0"
+chrono_0_4 = { package = "chrono", version = "0.4.37" }
+chrono-tz_0_9 = { package = "chrono-tz", version = "0.9.0" }
+chrono-tz_0_10 = { package = "chrono-tz", version = "0.10.0" }
 duplicate = "2.0.0"
 enum_dispatch = "0.3.13"
 env_logger = "0.11.8"

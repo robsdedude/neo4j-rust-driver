@@ -79,7 +79,6 @@ pub enum Neo4jError {
     ///  * Trying to send a [`ValueSend`] not supported by the DBMS.
     ///    * A too large collection ([`ValueSend::List`], [`ValueSend::Map`])
     ///      (max. [`i64::MAX`] elements).
-    ///    * A temporal type representing a leap-second.
     ///    * A temporal value that is out of range.
     ///      The exact conditions for this depend on the protocol version negotiated with the
     ///      server.

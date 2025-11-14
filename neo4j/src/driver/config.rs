@@ -114,6 +114,7 @@ pub enum KeepAliveConfig {
 /// use neo4j::driver::ConnectionConfig;
 ///
 /// let conf: ConnectionConfig = "neo4j+s://localhost:7687?foo=bar".parse().unwrap();
+/// # let _ = conf;
 /// ```
 ///
 /// ## Programmatically
@@ -134,6 +135,7 @@ pub enum KeepAliveConfig {
 ///     .with_encryption_trust_default_cas()
 ///     .unwrap()
 ///     .with_routing_context(routing_context);
+/// # let _ = conf;
 /// ```
 ///
 /// ## TLS
@@ -191,6 +193,7 @@ impl DriverConfig {
     /// use neo4j::driver::DriverConfig;
     ///
     /// let config = DriverConfig::new().with_user_agent(String::from("my-app/1.0.0"));
+    /// # let _ = config;
     /// ```
     #[inline]
     pub fn with_user_agent(mut self, user_agent: String) -> Self {
@@ -212,6 +215,7 @@ impl DriverConfig {
     ///
     /// let auth = Arc::new(AuthToken::new_basic_auth("neo4j", "pass"));
     /// let config = DriverConfig::new().with_auth(auth);
+    /// # let _ = config;
     /// ```
     #[inline]
     pub fn with_auth(mut self, auth: Arc<AuthToken>) -> Self {
@@ -235,6 +239,7 @@ impl DriverConfig {
     ///     "neo4j", "pass",
     /// )));
     /// let config = DriverConfig::new().with_auth_manager(manager);
+    /// # let _ = config;
     /// ```
     #[inline]
     pub fn with_auth_manager(mut self, manager: Arc<dyn AuthManager>) -> Self {
@@ -295,6 +300,7 @@ impl DriverConfig {
     /// use neo4j::driver::DriverConfig;
     ///
     /// let config = DriverConfig::new().with_idle_time_before_connection_test(Duration::from_secs(15));
+    /// # let _ = config;
     /// ```
     #[inline]
     pub fn with_idle_time_before_connection_test(mut self, idle_time: Duration) -> Self {
@@ -345,6 +351,7 @@ impl DriverConfig {
     ///     .builder;
     ///
     /// config = config.with_fetch_size(i64::MAX as u64).unwrap();
+    /// # let _ = config;
     /// ```
     #[allow(clippy::result_large_err)]
     #[inline]
@@ -505,6 +512,7 @@ impl DriverConfig {
     ///     .with_minimum_severity(MinimumSeverity::Warning)
     ///     .with_disabled_classifications(vec![DisabledClassification::Performance]);
     /// let config = DriverConfig::new().with_notification_filter(filter);
+    /// # let _ = config;
     /// ```
     #[inline]
     pub fn with_notification_filter(mut self, notification_filter: NotificationFilter) -> Self {
@@ -531,6 +539,7 @@ impl DriverConfig {
     ///
     /// let config =
     ///     DriverConfig::new().with_keep_alive(KeepAliveConfig::CustomTime(Duration::from_secs(10)));
+    /// # let _ = config;
     /// ```
     #[inline]
     pub fn with_keep_alive(mut self, keep_alive: KeepAliveConfig) -> Self {
@@ -563,6 +572,7 @@ impl DriverConfig {
     /// use neo4j::driver::DriverConfig;
     ///
     /// let config = DriverConfig::new().with_telemetry(false);
+    /// # let _ = config;
     /// ```
     #[inline]
     pub fn with_telemetry(mut self, telemetry: bool) -> Self {
@@ -693,45 +703,6 @@ impl ConnectionConfig {
     /// To use TLS, see the notes about [TLS requirements](Self#tls).
     pub fn with_encryption_trust_any_certificate(mut self) -> Self {
         self.tls_config = Some(tls_helper::self_signed_tls_config());
-        self
-    }
-
-    /// Enforce TLS encryption, using a custom TLS configuration.
-    ///
-    /// **⚠️ WARNING**:  
-    /// Depending on the passed TLS configuration, this might not be secure.
-    ///
-    /// # Example
-    /// ```
-    /// use neo4j::driver::ConnectionConfig;
-    /// use rustls::client::ClientConfig;
-    /// # use rustls::RootCertStore;
-    /// # use rustls_pki_types::{TrustAnchor, Der};
-    ///
-    /// # fn get_custom_client_config() -> ClientConfig {
-    /// #     // Fails if a provider is already installed. That's fine, too.
-    /// #     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-    /// #     ClientConfig::builder().with_root_certificates(
-    /// #         RootCertStore {
-    /// #             roots: vec![
-    /// #                 TrustAnchor {
-    /// #                     subject: Der::from_slice(b""),
-    /// #                     subject_public_key_info: Der::from_slice(b""),
-    /// #                     name_constraints: None,
-    /// #                 },
-    /// #             ],
-    /// #         },
-    /// #     ).with_no_client_auth()
-    /// # }
-    /// #
-    /// let client_config: ClientConfig = get_custom_client_config();
-    /// let config = ConnectionConfig::new(("localhost", 7687).into())
-    ///     .with_encryption_custom_tls_config(client_config);
-    /// ```
-    ///
-    /// To use TLS, see the notes about [TLS requirements](Self#tls).
-    pub fn with_encryption_custom_tls_config(mut self, tls_config: ClientConfig) -> Self {
-        self.tls_config = Some(tls_config);
         self
     }
 

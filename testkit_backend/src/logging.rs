@@ -17,7 +17,7 @@ use std::mem::swap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono_0_4::{DateTime, SecondsFormat, Utc};
 use log::LevelFilter;
 
 #[derive(Debug, Default, Clone)]

@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use std::collections::VecDeque;
-use std::str::FromStr;
 
-use chrono::{Datelike, Offset, TimeZone, Timelike};
 use usize_cast::{FromUsize, IntoIsize};
 
 use super::super::bolt_common::*;
@@ -26,9 +24,7 @@ use crate::value::spatial::{
     Cartesian2D, Cartesian3D, SRID_CARTESIAN_2D, SRID_CARTESIAN_3D, SRID_WGS84_2D, SRID_WGS84_3D,
     WGS84_2D, WGS84_3D,
 };
-use crate::value::time::{
-    local_date_time_from_timestamp, Date, Duration, FixedOffset, LocalTime, Time, Tz,
-};
+use crate::value::time::{Date, DateTime, DateTimeFixed, Duration, LocalDateTime, LocalTime, Time};
 use crate::value::{BrokenValue, BrokenValueInner, ValueReceive, ValueSend};
 
 #[derive(Debug, Default)]
@@ -104,95 +100,58 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
             ValueSend::Duration(Duration {
                 months,
                 days,
-                seconds,
-                nanoseconds,
+                secs,
+                nanos,
             }) => {
                 serializer.write_struct_header(TAG_DURATION, 4)?;
                 serializer.write_int(*months)?;
                 serializer.write_int(*days)?;
-                serializer.write_int(*seconds)?;
-                serializer.write_int((*nanoseconds).into())?;
+                serializer.write_int(*secs)?;
+                serializer.write_int((*nanos).into())?;
                 Ok(())
             }
             ValueSend::LocalTime(t) => {
-                let mut nanoseconds = t.nanosecond().into();
-                if nanoseconds >= 1_000_000_000 {
-                    return Err(
-                        serializer.error("LocalTime with leap second is not supported".into())
-                    );
-                }
-                nanoseconds += i64::from(t.num_seconds_from_midnight()) * 1_000_000_000;
+                let nanoseconds = t.nanos();
                 serializer.write_struct_header(TAG_LOCAL_TIME, 1)?;
                 serializer.write_int(nanoseconds)?;
                 Ok(())
             }
-            ValueSend::Time(Time { time, offset }) => {
-                let mut nanoseconds = time.nanosecond().into();
-                if nanoseconds >= 1_000_000_000 {
-                    return Err(
-                        serializer.error("LocalTime with leap second is not supported".into())
-                    );
-                }
-                nanoseconds += i64::from(time.num_seconds_from_midnight()) * 1_000_000_000;
-                let tz_offset = offset.local_minus_utc().into();
+            ValueSend::Time(time) => {
+                let nanoseconds = time.nanos();
+                let tz_offset = time.utc_offset().into();
                 serializer.write_struct_header(TAG_TIME, 2)?;
                 serializer.write_int(nanoseconds)?;
                 serializer.write_int(tz_offset)?;
                 Ok(())
             }
             ValueSend::Date(d) => {
-                // let unix_epoc_days = Date::from_ymd_opt(1970, 1, 1).unwrap().num_days_from_ce();
-                const UNIX_EPOC_DAYS: i64 = 719163;
-                let mut days = d.num_days_from_ce().into();
-                days -= UNIX_EPOC_DAYS;
                 serializer.write_struct_header(TAG_DATE, 1)?;
-                serializer.write_int(days)?;
+                serializer.write_int(d.ordinal())?;
                 Ok(())
             }
             ValueSend::LocalDateTime(dt) => {
-                let seconds = dt.and_utc().timestamp();
-                let nanoseconds = dt.nanosecond();
-                if nanoseconds >= 1_000_000_000 {
-                    return Err(
-                        serializer.error("LocalDateTime with leap second is not supported".into())
-                    );
-                }
-                let nanoseconds = nanoseconds.into();
+                let (seconds, nanoseconds) = dt.timestamp();
                 serializer.write_struct_header(TAG_LOCAL_DATE_TIME, 2)?;
                 serializer.write_int(seconds)?;
-                serializer.write_int(nanoseconds)?;
+                serializer.write_int(nanoseconds.into())?;
                 Ok(())
             }
             ValueSend::DateTime(dt) => {
-                let seconds = dt.timestamp();
-                let nanoseconds = dt.nanosecond();
-                if nanoseconds >= 1_000_000_000 {
-                    return Err(
-                        serializer.error("LocalDateTime with leap second is not supported".into())
-                    );
-                }
-                let nanoseconds = nanoseconds.into();
-                let tz_id = dt.timezone().name();
+                let (seconds, nanoseconds) = dt.utc_timestamp();
+                let tz_id = dt.timezone_name();
                 serializer.write_struct_header(TAG_DATE_TIME_ZONE_ID, 3)?;
                 serializer.write_int(seconds)?;
-                serializer.write_int(nanoseconds)?;
+                serializer.write_int(nanoseconds.into())?;
                 serializer.write_string(tz_id)?;
                 Ok(())
             }
             ValueSend::DateTimeFixed(dt) => {
-                let seconds = dt.timestamp();
-                let nanoseconds = dt.nanosecond();
-                if nanoseconds >= 1_000_000_000 {
-                    return Err(
-                        serializer.error("LocalDateTime with leap second is not supported".into())
-                    );
-                }
-                let nanoseconds = nanoseconds.into();
-                let tz_offset = dt.offset().fix().local_minus_utc().into();
+                let (seconds, nanoseconds) = dt.utc_timestamp();
+                let tz_offset = dt.utc_offset();
                 serializer.write_struct_header(TAG_DATE_TIME, 3)?;
                 serializer.write_int(seconds)?;
-                serializer.write_int(nanoseconds)?;
-                serializer.write_int(tz_offset)?;
+                serializer.write_int(nanoseconds.into())?;
+                serializer.write_int(tz_offset.into())?;
                 Ok(())
             }
         }
@@ -370,10 +329,7 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                     ));
                 }
                 let days = as_int!(fields.pop_front().unwrap(), "Date days");
-                let date = match Date::from_yo_opt(1970, 1)
-                    .unwrap()
-                    .checked_add_signed(chrono::Duration::days(days))
-                {
+                let date = match Date::from_ordinal(days) {
                     Some(date) => date,
                     None => return failed_struct("Date out of bounds"),
                 };
@@ -385,14 +341,8 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                         "expected 2 field for Time struct b'T', found {size}"
                     ));
                 }
-                let mut nanoseconds = as_int!(fields.pop_front().unwrap(), "nanoseconds be");
+                let nanoseconds = as_int!(fields.pop_front().unwrap(), "nanoseconds be");
                 let tz_offset = as_int!(fields.pop_front().unwrap(), "Time tz_offset");
-                let seconds = nanoseconds.div_euclid(1_000_000_000);
-                nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
-                let seconds = match seconds.try_into() {
-                    Ok(seconds) => seconds,
-                    Err(_) => return failed_struct("Time seconds out of bounds"),
-                };
                 let nanoseconds = match nanoseconds.try_into() {
                     Ok(nanoseconds) => nanoseconds,
                     Err(_) => return failed_struct("Time nanoseconds out of bounds"),
@@ -401,16 +351,11 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                     Ok(tz_offset) => tz_offset,
                     Err(_) => return failed_struct("Time tz_offset out of bounds"),
                 };
-                let offset = match FixedOffset::east_opt(tz_offset) {
-                    Some(tz) => tz,
-                    None => return failed_struct("Time tz_offset out of bounds"),
-                };
-                let time = match LocalTime::from_num_seconds_from_midnight_opt(seconds, nanoseconds)
-                {
+                let time = match Time::from_nanos_since_midnight(nanoseconds, tz_offset) {
                     Some(time) => time,
-                    None => return failed_struct("Time tz_offset out of bounds"),
+                    None => return failed_struct("Time out of bounds"),
                 };
-                ValueReceive::Time(Time { time, offset })
+                ValueReceive::Time(time)
             }
             TAG_LOCAL_TIME => {
                 if size != 1 {
@@ -418,21 +363,14 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                         "expected 1 field for Time struct b't', found {size}"
                     ));
                 }
-                let mut nanoseconds = as_int!(fields.pop_front().unwrap(), "LocalTime nanoseconds");
-                let seconds = nanoseconds.div_euclid(1_000_000_000);
-                nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
-                let seconds = match seconds.try_into() {
-                    Ok(seconds) => seconds,
-                    Err(_) => return failed_struct("LocalTime nanoseconds out of bounds"),
-                };
+                let nanoseconds = as_int!(fields.pop_front().unwrap(), "LocalTime nanoseconds");
                 let nanoseconds = match nanoseconds.try_into() {
                     Ok(nanoseconds) => nanoseconds,
                     Err(_) => return failed_struct("LocalTime nanoseconds out of bounds"),
                 };
-                let time = match LocalTime::from_num_seconds_from_midnight_opt(seconds, nanoseconds)
-                {
+                let time = match LocalTime::from_nanos_since_midnight(nanoseconds) {
                     Some(time) => time,
-                    None => return failed_struct("LocalTime tz_offset out of bounds"),
+                    None => return failed_struct("LocalTime nanoseconds out of bounds"),
                 };
                 ValueReceive::LocalTime(time)
             }
@@ -454,20 +392,17 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                     None => return failed_struct("DateTime seconds out of bounds"),
                 };
                 nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
+                debug_assert!(nanoseconds as u32 as i64 == nanoseconds);
                 let nanoseconds = nanoseconds as u32;
                 let tz_offset = match tz_offset.try_into() {
                     Ok(tz_offset) => tz_offset,
                     Err(_) => return failed_struct("DateTime tz_offset out of bounds"),
                 };
-                let tz = match FixedOffset::east_opt(tz_offset) {
-                    Some(tz) => tz,
-                    None => return failed_struct("DateTime tz_offset out of bounds"),
-                };
-                let utc_dt = match local_date_time_from_timestamp(seconds, nanoseconds) {
+                let dt = match DateTimeFixed::from_utc_timestamp(seconds, nanoseconds, tz_offset) {
                     Some(dt) => dt,
                     None => return failed_struct("DateTime out of bounds"),
                 };
-                ValueReceive::DateTimeFixed(tz.from_utc_datetime(&utc_dt))
+                ValueReceive::DateTimeFixed(dt)
             }
             TAG_DATE_TIME_ZONE_ID => {
                 let size = fields.len();
@@ -488,20 +423,13 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                     None => return failed_struct("DateTimeZoneId seconds out of bounds"),
                 };
                 nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
+                debug_assert!(nanoseconds as u32 as i64 == nanoseconds);
                 let nanoseconds = nanoseconds as u32;
-                let tz = match Tz::from_str(&tz_id) {
-                    Ok(tz) => tz,
-                    Err(e) => {
-                        return failed_struct(format!(
-                            "failed to load DateTimeZoneId time zone \"{tz_id}\": {e}"
-                        ));
-                    }
-                };
-                let utc_dt = match local_date_time_from_timestamp(seconds, nanoseconds) {
+                let dt = match DateTime::from_utc_timestamp(seconds, nanoseconds, tz_id) {
                     Some(dt) => dt,
                     None => return failed_struct("DateTimeZoneId out of bounds"),
                 };
-                ValueReceive::DateTime(tz.from_utc_datetime(&utc_dt))
+                ValueReceive::DateTime(dt)
             }
             TAG_LOCAL_DATE_TIME => {
                 let size = fields.len();
@@ -518,8 +446,9 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                     None => return failed_struct("LocalDateTime seconds out of bounds"),
                 };
                 nanoseconds = nanoseconds.rem_euclid(1_000_000_000);
+                debug_assert!(nanoseconds as u32 as i64 == nanoseconds);
                 let nanoseconds = nanoseconds as u32;
-                let dt = match local_date_time_from_timestamp(seconds, nanoseconds) {
+                let dt = match LocalDateTime::from_timestamp(seconds, nanoseconds) {
                     Some(dt) => dt,
                     None => return failed_struct("LocalDateTime out of bounds"),
                 };
