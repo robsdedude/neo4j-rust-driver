@@ -65,6 +65,8 @@ const FEATURE_LIST: [&str; 52] = [
     "Feature:API:Summary:GqlStatusObjects",
     "Feature:API:Type.Spatial",
     "Feature:API:Type.Temporal",
+    // "Feature:API:Type.UnsupportedType",
+    // "Feature:API:Type.Vector",
     "Feature:Auth:Bearer",
     "Feature:Auth:Custom",
     "Feature:Auth:Kerberos",
@@ -83,6 +85,7 @@ const FEATURE_LIST: [&str; 52] = [
     "Feature:Bolt:5.6",
     "Feature:Bolt:5.7",
     "Feature:Bolt:5.8",
+    // "Feature:Bolt:6.0",
     "Feature:Bolt:HandshakeManifestV1",
     "Feature:Bolt:Patch:UTC",
     "Feature:Impersonation",
@@ -108,7 +111,7 @@ const FEATURE_LIST: [&str; 52] = [
     // === IMPLEMENTATION DETAILS ===
     // "Detail:ClosedDriverIsEncrypted",
     // "Detail:DefaultSecurityConfigValueEquality",
-    // "Detail:NumberIsNumber",  // Rust can tell float and int appart
+    //"Detail:NumberIsNumber",  // Rust can tell float and int appart
     //
     // === CONFIGURATION HINTS (BOLT 4.3+) ===
     "ConfHint:connection.recv_timeout_seconds",
@@ -150,7 +153,7 @@ fn get_regex_skipped_tests() -> &'static [(&'static Regex, &'static str)] {
                 "An empty list is returned when there are no notifications",
             ),
             (
-                regex!(r"^stub\.types\.test_temporal_types\.TestTemporalTypesV(4x4\.test_unknown_(then_known_)?zoned_date_time_patched|.+\.test_unknown_(then_known_)?zoned_date_time)$"),
+                regex!(r"^stub\.datatypes\.test_temporal_types\.TestTemporalTypesV(4x4\.test_unknown_(then_known_)?zoned_date_time_patched|.+\.test_unknown_(then_known_)?zoned_date_time)$"),
                 "Driver accepts all time zone IDs unless legacy encoding (without UTC patch) is used",
             ),
         ]

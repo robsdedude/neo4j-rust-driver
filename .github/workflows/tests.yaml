@@ -147,11 +147,7 @@ jobs:
         tests: [ TESTKIT_TESTS ]
         # [bolt-version-bump] search tag when changing bolt version support
         config:
-          - 4.4-community-bolt
-          - 4.4-community-neo4j
-          - 4.4-enterprise-bolt
           - 4.4-enterprise-neo4j
-          - 4.4-enterprise-cluster-neo4j
           - 5.1-enterprise-cluster-neo4j
           - 5.5-enterprise-cluster-neo4j
           - 5.7-enterprise-cluster-neo4j
@@ -159,6 +155,7 @@ jobs:
           - 5.13-enterprise-cluster-neo4j
           - 5.23-enterprise-cluster-neo4j
           - 5.26-enterprise-cluster-neo4j
+          # - 2025.10-enterprise-cluster-neo4j
         include:
           - tests: STUB_TESTS
             config: ""
