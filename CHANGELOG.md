@@ -20,10 +20,11 @@
      Conversion methods on a best-effort basis to/from `chrono` types are provided behind feature flags.
 
 **🧼️ Maintenance**
- - Bump dependencies. 
+ - Bump dependencies.
 
 **🔧️ Fixes**
  - Fix accidentally merging write and read timeouts during a connection's lifetime.
+ - Fix `connection_acquisition_timeout` config not being applied to limit fetching of routing tables.
 
 
 ## 0.2.0

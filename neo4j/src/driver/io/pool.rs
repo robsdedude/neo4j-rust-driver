@@ -661,9 +661,9 @@ impl RoutingPool {
                 }
             }),
         )?;
-        con.write_all(None)?;
+        con.write_all(args.deadline)?;
         con.read_all(
-            None,
+            args.deadline,
             Some(&mut |bolt_data, error| {
                 if error.unauthenticates_all_connections() {
                     self.reset_all_auth(bolt_data.address());
