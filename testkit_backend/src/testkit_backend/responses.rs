@@ -448,8 +448,6 @@ pub(super) struct Notification {
     title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     position: Option<Position>,
-    // severity for backwards compatibility
-    severity: String,
     severity_level: Severity,
     raw_severity_level: String,
     category: Category,
@@ -465,7 +463,6 @@ impl TryFrom<neo4j::summary::Notification> for Notification {
             code: notification.code,
             title: notification.title,
             position: notification.position.map(Into::into),
-            severity: notification.raw_severity.clone(),
             severity_level: notification.severity.try_into()?,
             raw_severity_level: notification.raw_severity,
             category: notification.category.try_into()?,
