@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use chrono::Datelike;
-
-use super::chrono;
+use super::DateComponents;
 
 /// Represents a calendar date (year, month, day) value in the DBMS.
 ///
@@ -25,21 +23,7 @@ pub struct Date {
 }
 
 impl Date {
-    pub(crate) fn from_chrono(date: chrono::NaiveDate) -> Option<Self> {
-        // let UNIX_EPOC_DAYS = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap().num_days_from_ce();
-        const UNIX_EPOC_DAYS: i64 = 719163;
-        let days: i64 = date.num_days_from_ce().into();
-        let days = days.checked_sub(UNIX_EPOC_DAYS)?;
-        Some(Self { days })
-    }
-
-    pub(crate) fn to_chrono(self) -> Option<chrono::NaiveDate> {
-        let days_sinc_epoch = chrono::Duration::try_days(self.days)?;
-        let epoch = chrono::NaiveDate::from_yo_opt(1970, 1).unwrap();
-        epoch.checked_add_signed(days_sinc_epoch)
-    }
-
-    /// Makes a new `Date` from an ordinal since UNIX epoch.
+    /// Make a new `Date` from an ordinal since UNIX epoch.
     ///
     /// The ordinal is the number of days passed sinc UNIX epoch (1970-01-01) and
     /// can be negative.
@@ -53,17 +37,19 @@ impl Date {
     /// ```
     /// use neo4j::value::time::Date;
     ///
+    /// let ymd = |date: Date| date.to_components().unwrap().ymd();
+    ///
     /// let epoch = Date::from_ordinal(33).unwrap();
-    /// assert_eq!(epoch.ymd(), Some((1970, 2, 3)));
+    /// assert_eq!(ymd(epoch), (1970, 2, 3));
     ///
     /// // 2023-12-08
     /// let first_driver_release = Date::from_ordinal(19699).unwrap();
-    /// assert_eq!(first_driver_release.ymd(), Some((2023, 12, 8)));
+    /// assert_eq!(ymd(first_driver_release), (2023, 12, 8));
     /// assert_eq!(first_driver_release.ordinal(), 19699);
     ///
     /// // 0001-01-01
     /// let ancient = Date::from_ordinal(-719528).unwrap();
-    /// assert_eq!(ancient.ymd(), Some((0, 1, 1)));
+    /// assert_eq!(ymd(ancient), (0, 1, 1));
     /// assert_eq!(ancient.ordinal(), -719528);
     /// ```
     pub fn from_ordinal(ordinal: i64) -> Option<Self> {
@@ -78,15 +64,17 @@ impl Date {
     ///
     /// # Example
     /// ```
-    /// use neo4j::value::time::Date;
+    /// use neo4j::value::time::{Date, DateComponents};
     ///
-    /// let epoch = Date::from_ymd(1970, 1, 1).unwrap();
+    /// let from_ymd = |y, m, d| Date::from_components(DateComponents::from_ymd(y, m, d));
+    ///
+    /// let epoch = from_ymd(1970, 1, 1).unwrap();
     /// assert_eq!(epoch.ordinal(), 0);
     ///
-    /// let first_driver_release = Date::from_ymd(2023, 12, 8).unwrap();
+    /// let first_driver_release = from_ymd(2023, 12, 8).unwrap();
     /// assert_eq!(first_driver_release.ordinal(), 19699);
     ///
-    /// let ancient = Date::from_ymd(1, 1, 1).unwrap();
+    /// let ancient = from_ymd(1, 1, 1).unwrap();
     /// assert_eq!(ancient.ordinal(), -719162);
     /// ```
     pub fn ordinal(&self) -> i64 {
@@ -94,7 +82,7 @@ impl Date {
     }
 
     // docs copied and adjusted from chrono.
-    /// Makes a new `Date` from the (year, month, day) tuple.
+    /// Make a new `Date` from [`DateComponents`] containing year, month, and day.
     ///
     /// # Errors
     /// Returns `None` if:
@@ -106,21 +94,26 @@ impl Date {
     /// # Example
     ///
     /// ```
-    /// use neo4j::value::time::Date;
+    /// use neo4j::value::time::{Date, DateComponents};
     ///
-    /// assert!(Date::from_ymd(2015, 3, 14).is_some());
-    /// assert!(Date::from_ymd(2015, 0, 14).is_none());
-    /// assert!(Date::from_ymd(2015, 2, 29).is_none());
-    /// assert!(Date::from_ymd(-4, 2, 29).is_some()); // 5 BCE is a leap year
-    /// assert!(Date::from_ymd(i32::MAX, 1, 1).is_none());
-    /// assert!(Date::from_ymd(i32::MIN, 1, 1).is_none());
+    /// let from_ymd = |year, month, day| {
+    ///     let components = DateComponents::from_ymd(year, month, day);
+    ///     Date::from_components(components)
+    /// };
+    ///
+    /// assert!(from_ymd(2015, 3, 14).is_some());
+    /// assert!(from_ymd(2015, 0, 14).is_none());
+    /// assert!(from_ymd(2015, 2, 29).is_none());
+    /// assert!(from_ymd(-4, 2, 29).is_some()); // 5 BCE is a leap year
+    /// assert!(from_ymd(i64::MAX, 1, 1).is_none());
+    /// assert!(from_ymd(i64::MIN, 1, 1).is_none());
     /// ```
-    pub fn from_ymd(year: i32, month: u32, day: u32) -> Option<Self> {
-        let date = chrono::NaiveDate::from_ymd_opt(year, month, day)?;
-        Self::from_chrono(date)
+    pub fn from_components(components: DateComponents) -> Option<Self> {
+        let ordinal = components.to_unix_ordinal()?;
+        Self::from_ordinal(ordinal)
     }
 
-    /// Return the `Date` as (year, month, day) tuple.
+    /// Return the `Date` as [`DateComponents`] containing year, month, and day.
     ///
     /// # Errors
     /// Returns `None` if
@@ -129,17 +122,16 @@ impl Date {
     ///
     /// # Example
     /// ```
-    /// use neo4j::value::time::Date;
+    /// use neo4j::value::time::{Date, DateComponents};
     ///
-    /// let date = Date::from_ymd(2023, 12, 8).unwrap();
-    /// assert_eq!(date.ymd(), Some((2023, 12, 8)));
-    ///
-    /// let date = Date::from_ordinal(365 * 400000).unwrap();
-    /// assert_eq!(date.ymd(), None);
+    /// let date = Date::from_components(DateComponents::from_ymd(2023, 12, 8)).unwrap();
+    /// assert_eq!(
+    ///     date.to_components(),
+    ///     Some(DateComponents::from_ymd(2023, 12, 8))
+    /// );
     /// ```
-    pub fn ymd(&self) -> Option<(i32, u32, u32)> {
-        let date = self.to_chrono()?;
-        Some((date.year(), date.month(), date.day()))
+    pub fn to_components(self) -> Option<DateComponents> {
+        Some(DateComponents::from_unix_ordinal(self.days))
     }
 }
 
@@ -148,6 +140,7 @@ mod chrono_0_4_impl {
     use super::super::ChronoConversionError;
     use super::*;
 
+    use chrono::Datelike;
     use chrono_0_4 as chrono;
 
     impl Date {
@@ -164,14 +157,21 @@ mod chrono_0_4_impl {
         /// ```
         /// # use chrono_0_4 as chrono;
         /// use chrono::NaiveDate;
-        /// use neo4j::value::time::Date;
+        /// use neo4j::value::time::{Date, DateComponents};
         ///
         /// let chrono_date = NaiveDate::from_ymd_opt(2023, 12, 8).unwrap();
         /// let date = Date::from_chrono_0_4(chrono_date).unwrap();
-        /// assert_eq!(date, Date::from_ymd(2023, 12, 8).unwrap());
+        /// assert_eq!(
+        ///     date,
+        ///     Date::from_components(DateComponents::from_ymd(2023, 12, 8)).unwrap()
+        /// );
         /// ```
         pub fn from_chrono_0_4(date: chrono::NaiveDate) -> Option<Self> {
-            Self::from_chrono(date)
+            // let UNIX_EPOCH_DAYS = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap().num_days_from_ce();
+            const UNIX_EPOCH_DAYS: i64 = 719163;
+            let days: i64 = date.num_days_from_ce().into();
+            let days = days.checked_sub(UNIX_EPOCH_DAYS)?;
+            Some(Self { days })
         }
 
         /// Convert the `Date` into a [`chrono::NaiveDate`] (from `chrono` crate version 0.4).
@@ -187,14 +187,16 @@ mod chrono_0_4_impl {
         /// ```
         /// # use chrono_0_4 as chrono;
         /// use chrono::NaiveDate;
-        /// use neo4j::value::time::Date;
+        /// use neo4j::value::time::{Date, DateComponents};
         ///
-        /// let date = Date::from_ymd(2023, 12, 8).unwrap();
+        /// let date = Date::from_components(DateComponents::from_ymd(2023, 12, 8)).unwrap();
         /// let chrono_date = date.to_chrono_0_4().unwrap();
         /// assert_eq!(chrono_date, NaiveDate::from_ymd_opt(2023, 12, 8).unwrap());
         /// ```
         pub fn to_chrono_0_4(&self) -> Option<chrono::NaiveDate> {
-            self.to_chrono()
+            let days_sinc_epoch = chrono::Duration::try_days(self.days)?;
+            let epoch = chrono::NaiveDate::from_yo_opt(1970, 1).unwrap();
+            epoch.checked_add_signed(days_sinc_epoch)
         }
     }
 

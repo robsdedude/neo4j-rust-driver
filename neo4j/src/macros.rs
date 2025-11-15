@@ -385,10 +385,10 @@ macro_rules! __value_unexpected {
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-
     use crate::value::spatial::*;
     use crate::value::ValueSend;
+
+    use rstest::rstest;
 
     #[test]
     fn test_null() {

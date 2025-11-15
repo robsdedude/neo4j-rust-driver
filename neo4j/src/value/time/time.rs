@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::components::TimeComponents;
 use super::local_time::LocalTime;
 
 /// Represents a time value (hour, minute, second, nanosecond) within a time
@@ -25,7 +26,7 @@ pub struct Time {
 }
 
 impl Time {
-    /// Makes a new `Time` from nanoseconds since midnight and a fixed UTC offset.
+    /// Make a new `Time` from nanoseconds since midnight and a fixed UTC offset.
     /// The offset is given in seconds east of UTC, i.e., the number of seconds to add to the
     /// timestamp to convert from UTC to local time.
     ///
@@ -85,7 +86,11 @@ impl Time {
         self.utc_offset
     }
 
-    /// Makes a new `Time` from the hour, minute, second, nanosecond.
+    /// Make a new `Time` from [`TimeComponents`] along with a fixed UTC offset.
+    /// The offset is given in seconds east of UTC, i.e., the number of seconds to add to the
+    /// time to convert from UTC to local time.
+    ///
+    /// The components are given in UTC (not the local time), i.e., without the offset applied.
     ///
     /// # Errors
     /// Returns `None` if:
@@ -97,34 +102,36 @@ impl Time {
     /// # Example
     ///
     /// ```
-    /// use neo4j::value::time::Time;
+    /// use neo4j::value::time::{Time, TimeComponents};
     ///
-    /// assert!(Time::from_hms_nano_offset(0, 0, 0, 0, 0).is_some());
-    /// assert!(Time::from_hms_nano_offset(13, 37, 11, 123_456_789, 3600).is_some());
-    /// assert!(Time::from_hms_nano_offset(23, 59, 59, 999_999_999, -3600).is_some());
-    /// assert!(Time::from_hms_nano_offset(24, 0, 0, 0, 0).is_none());
-    /// assert!(Time::from_hms_nano_offset(0, 60, 0, 0, 0).is_none());
-    /// assert!(Time::from_hms_nano_offset(0, 0, 60, 0, 0).is_none());
-    /// assert!(Time::from_hms_nano_offset(0, 0, 59, 1_000_000_000, 0).is_none());
-    /// assert!(Time::from_hms_nano_offset(0, 0, 0, 1_000_000_000, 0).is_none());
+    /// let from_hms_nano_offset = |hour, min, sec, nano, offset| {
+    ///     let components = TimeComponents::from_hms_nano(hour, min, sec, nano);
+    ///     Time::from_utc_components(components, offset)
+    /// };
+    ///
+    /// assert!(from_hms_nano_offset(0, 0, 0, 0, 0).is_some());
+    /// assert!(from_hms_nano_offset(13, 37, 11, 123_456_789, 3600).is_some());
+    /// assert!(from_hms_nano_offset(23, 59, 59, 999_999_999, -3600).is_some());
+    /// assert!(from_hms_nano_offset(24, 0, 0, 0, 0).is_none());
+    /// assert!(from_hms_nano_offset(0, 60, 0, 0, 0).is_none());
+    /// assert!(from_hms_nano_offset(0, 0, 60, 0, 0).is_none());
+    /// assert!(from_hms_nano_offset(0, 0, 59, 1_000_000_000, 0).is_none());
+    /// assert!(from_hms_nano_offset(0, 0, 0, 1_000_000_000, 0).is_none());
     /// ```
-    pub fn from_hms_nano_offset(
-        hour: u8,
-        minute: u8,
-        second: u8,
-        nanosecond: u32,
-        utc_offset: i32,
-    ) -> Option<Self> {
-        let time = LocalTime::from_hms_nano(hour, minute, second, nanosecond)?;
+    pub fn from_utc_components(components: TimeComponents, utc_offset: i32) -> Option<Self> {
+        let time = LocalTime::from_components(components)?;
         Some(Self { time, utc_offset })
     }
 
-    /// Return the `Time` as (hour, minute, second, nanosecond, utc_offset) tuple,
-    /// where the `utc_offset` is in seconds.
+    /// Return the `Time` as [`TimeComponents`] along with the fixed UTC offset.
+    /// The offset is given in seconds east of UTC, i.e., the number of seconds to add to the
+    /// time to convert from UTC to local time.
+    ///
+    /// The components are given in UTC (not the local time), i.e., without the offset applied.
     ///
     /// # Example
     /// ```
-    /// use neo4j::value::time::Time;
+    /// use neo4j::value::time::{Time, TimeComponents};
     ///
     /// let time = Time::from_nanos_since_midnight(
     ///     // Hour 1
@@ -139,11 +146,14 @@ impl Time {
     ///     7200,
     /// )
     /// .unwrap();
-    /// assert_eq!(time.hms_nano_offset(), (1, 2, 3, 4, 7200));
+    ///
+    /// let (components, offset) = time.to_utc_components();
+    ///
+    /// assert_eq!(components, TimeComponents::from_hms_nano(1, 2, 3, 4));
+    /// assert_eq!(offset, 7200);
     /// ```
-    pub fn hms_nano_offset(&self) -> (u8, u8, u8, u32, i32) {
-        let (hour, min, sec, nano) = self.time.hms_nano();
-        (hour, min, sec, nano, self.utc_offset)
+    pub fn to_utc_components(&self) -> (TimeComponents, i32) {
+        (self.time.to_components(), self.utc_offset)
     }
 }
 
@@ -170,12 +180,14 @@ mod chrono_0_4_impl {
         /// ```
         /// # use chrono_0_4 as chrono;
         /// use chrono::NaiveTime;
-        /// use neo4j::value::time::Time;
+        /// use neo4j::value::time::{Time, TimeComponents};
         ///
         /// let chrono_time = NaiveTime::from_hms_nano_opt(1, 2, 3, 4).unwrap();
         /// let chrono_tz = chrono::FixedOffset::east_opt(3600).unwrap();
         /// let time = Time::from_chrono_0_4(chrono_time, chrono_tz).unwrap();
-        /// assert_eq!(time.hms_nano_offset(), (1, 2, 3, 4, 3600));
+        /// let (components, offset) = time.to_utc_components();
+        /// assert_eq!(components, TimeComponents::from_hms_nano(1, 2, 3, 4));
+        /// assert_eq!(offset, 3600)
         /// ```
         pub fn from_chrono_0_4(time: chrono::NaiveTime, tz: chrono::FixedOffset) -> Option<Self> {
             let time = LocalTime::from_chrono_0_4(time)?;
@@ -202,9 +214,10 @@ mod chrono_0_4_impl {
         /// ```
         /// # use chrono_0_4 as chrono;
         /// use chrono::NaiveTime;
-        /// use neo4j::value::time::Time;
+        /// use neo4j::value::time::{Time, TimeComponents};
         ///
-        /// let time = Time::from_hms_nano_offset(4, 3, 2, 1, -7200).unwrap();
+        /// let time = TimeComponents::from_hms_nano(4, 3, 2, 1);
+        /// let time = Time::from_utc_components(time, -7200).unwrap();
         /// let (chrono_time, chrono_tz) = time.to_chrono_0_4().unwrap();
         /// assert_eq!(
         ///     chrono_time,
