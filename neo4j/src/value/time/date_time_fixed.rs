@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{chrono, local_date_time_from_timestamp, DateTimeComponents};
+use super::{chrono, DateTimeComponents};
 
 /// Represents a date (year, month, day) and time (hour, minute, second, nanoseconds) within a time
 /// zone with fixed UTC offset in the DBMS.
@@ -101,8 +101,7 @@ impl DateTimeFixed {
         self.utc_offset
     }
 
-    /// Make a new `DateTimeFixed` from the given UTC date and time components along with a fixed
-    /// UTC offset.
+    /// Make a new `DateTimeFixed` from [`DateTimeComponents`] in UTC along with a fixed UTC offset.
     /// The offset is given in seconds east of UTC, i.e., the number of seconds to add to the
     /// timestamp to convert from UTC to local time.
     ///
@@ -125,10 +124,10 @@ impl DateTimeFixed {
     /// assert_eq!(dt.utc_timestamp(), (0, 0));
     /// assert_eq!(dt.utc_offset(), 0);
     ///
-    /// let components = DateTimeComponents::from_ymd(i32::MAX, 1, 1);
+    /// let components = DateTimeComponents::from_ymd(i64::MAX, 1, 1);
     /// assert!(DateTimeFixed::from_utc_components(components, 0).is_none());
     ///
-    /// let components = DateTimeComponents::from_ymd(i32::MIN, 1, 1);
+    /// let components = DateTimeComponents::from_ymd(i64::MIN, 1, 1);
     /// assert!(DateTimeFixed::from_utc_components(components, 0).is_none());
     ///
     /// let components = DateTimeComponents::from_ymd(1970, 0, 1);
@@ -138,22 +137,15 @@ impl DateTimeFixed {
     /// assert!(DateTimeFixed::from_utc_components(components, 0).is_none());
     /// ```
     pub fn from_utc_components(components: DateTimeComponents, tz_offset: i32) -> Option<Self> {
-        let dt_utc = components.to_chrono()?.and_utc();
-        let sec = dt_utc.timestamp();
-        let nano = dt_utc.timestamp_subsec_nanos();
-        if components.nano >= 1_000_000_000 {
-            // Leap seconds are not supported
-            return None;
-        }
+        let (secs, nanos) = components.to_unix_timestamp()?;
         Some(Self {
-            secs: sec,
-            nanos: nano,
+            secs,
+            nanos,
             utc_offset: tz_offset,
         })
     }
 
-    /// Return the `DateTimeFixed` as UTC date and time components along with the fixed
-    /// UTC offset.
+    /// Return the `DateTimeFixed` as [`DateTimeComponents`] in UTC along with the fixed UTC offset.
     /// The offset is given in seconds east of UTC, i.e., the number of seconds to add to the
     /// timestamp to convert from UTC to local time.
     ///
@@ -173,19 +165,18 @@ impl DateTimeFixed {
     /// ```
     pub fn to_utc_components(self) -> Option<(DateTimeComponents, i32)> {
         let Self {
-            secs: sec,
-            nanos: nano,
+            secs,
+            nanos,
             utc_offset: tz_offset,
         } = self;
-        let dt_utc = local_date_time_from_timestamp(sec, nano)?;
-        let components = DateTimeComponents::from_chrono(&dt_utc)?;
+        let components = DateTimeComponents::from_unix_timestamp(secs, nanos);
         Some((components, tz_offset))
     }
 }
 
 #[cfg(feature = "chrono_0_4")]
 mod chrono_0_4_impl {
-    use super::super::ChronoConversionError;
+    use super::super::{local_date_time_from_timestamp, ChronoConversionError};
     use super::*;
 
     use chrono::TimeZone;
@@ -253,9 +244,9 @@ mod chrono_0_4_impl {
         /// ```
         /// # use chrono_0_4 as chrono;
         /// use chrono::NaiveDate;
-        /// use neo4j::value::time::Date;
+        /// use neo4j::value::time::{Date, DateComponents};
         ///
-        /// let date = Date::from_ymd(2023, 12, 8).unwrap();
+        /// let date = Date::from_components(DateComponents::from_ymd(2023, 12, 8)).unwrap();
         /// let chrono_date = date.to_chrono_0_4().unwrap();
         /// assert_eq!(chrono_date, NaiveDate::from_ymd_opt(2023, 12, 8).unwrap());
         /// ```

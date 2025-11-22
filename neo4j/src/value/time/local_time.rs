@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::components::TimeComponents;
+
 /// Represents a time value (hour, minute, second, nanosecond) without time zone information in the
 /// DBMS.
 ///
@@ -28,7 +30,7 @@ impl LocalTime {
         Self { nanos }
     }
 
-    /// Makes a new `LocalTime` from nanoseconds since midnight.
+    /// Make a new `LocalTime` from nanoseconds since midnight.
     ///
     /// Leap seconds are not supported.
     ///
@@ -74,42 +76,47 @@ impl LocalTime {
         self.nanos
     }
 
-    /// Makes a new `LocalTime` from the hour, minute, second, nanosecond.
+    /// Make a new `LocalTime` from [`TimeComponents`].
     ///
     /// # Errors
     /// Returns `None` if:
-    /// - The value for `hour`, `minute`, `second`, or `nanosecond` is invalid.
+    /// - The `components` are invalid. E.g.,
+    ///   - `nanoseconds` must be less than `1_000_000_000`.
+    ///     I.e., leap seconds are not supported.
+    ///   - Any value is out of range (e.g., `hour` > 23).
     /// - The represented `LocalTime` is out of range for the computation or storage.  
     ///   The exact range valid is considered an implementation detail and might change.
     ///
     /// # Example
     ///
     /// ```
-    /// use neo4j::value::time::LocalTime;
+    /// use neo4j::value::time::{LocalTime, TimeComponents};
     ///
-    /// assert!(LocalTime::from_hms_nano(0, 0, 0, 0).is_some());
-    /// assert!(LocalTime::from_hms_nano(13, 37, 11, 123_456_789).is_some());
-    /// assert!(LocalTime::from_hms_nano(23, 59, 59, 999_999_999).is_some());
-    /// assert!(LocalTime::from_hms_nano(24, 0, 0, 0).is_none());
-    /// assert!(LocalTime::from_hms_nano(0, 60, 0, 0).is_none());
-    /// assert!(LocalTime::from_hms_nano(0, 0, 60, 0).is_none());
-    /// assert!(LocalTime::from_hms_nano(0, 0, 59, 1_000_000_000).is_none());
-    /// assert!(LocalTime::from_hms_nano(0, 0, 0, 1_000_000_000).is_none());
+    /// let from_hms_nano = |hour, min, sec, nano| {
+    ///     let components = TimeComponents::from_hms_nano(hour, min, sec, nano);
+    ///     LocalTime::from_components(components)
+    /// };
+    ///
+    /// assert!(from_hms_nano(0, 0, 0, 0).is_some());
+    /// assert!(from_hms_nano(13, 37, 11, 123_456_789).is_some());
+    /// assert!(from_hms_nano(23, 59, 59, 999_999_999).is_some());
+    /// assert!(from_hms_nano(24, 0, 0, 0).is_none());
+    /// assert!(from_hms_nano(0, 60, 0, 0).is_none());
+    /// assert!(from_hms_nano(0, 0, 60, 0).is_none());
+    /// assert!(from_hms_nano(0, 0, 59, 1_000_000_000).is_none());
+    /// assert!(from_hms_nano(0, 0, 0, 1_000_000_000).is_none());
     /// ```
-    pub fn from_hms_nano(hour: u8, min: u8, sec: u8, nano: u32) -> Option<Self> {
-        if hour >= 24 || min >= 60 || sec >= 60 || nano >= 1_000_000_000 {
-            return None;
-        }
-        let secs = i64::from(hour) * 3600 + i64::from(min) * 60 + i64::from(sec);
-        let nanos = secs * 1_000_000_000 + i64::from(nano);
-        Some(Self::new_unchecked(nanos))
+    pub fn from_components(components: TimeComponents) -> Option<Self> {
+        components
+            .to_nanos_since_midnight()
+            .map(Self::new_unchecked)
     }
 
-    /// Return the `LocalTime` as (hour, minute, second, nanosecond) tuple.
+    /// Return the `LocalTime` as [`TimeComponents`].
     ///
     /// # Example
     /// ```
-    /// use neo4j::value::time::LocalTime;
+    /// use neo4j::value::time::{LocalTime, TimeComponents};
     ///
     /// let time = LocalTime::from_nanos_since_midnight(
     ///     // Hour 1
@@ -122,20 +129,11 @@ impl LocalTime {
     ///     + 4,
     /// )
     /// .unwrap();
-    /// assert_eq!(time.hms_nano(), (1, 2, 3, 4));
+    /// let components = time.to_components();
+    /// assert_eq!(components, TimeComponents::from_hms_nano(1, 2, 3, 4));
     /// ```
-    pub fn hms_nano(&self) -> (u8, u8, u8, u32) {
-        let nano = self.nanos % 1_000_000_000;
-        let secs = self.nanos / 1_000_000_000;
-        let sec = secs % 60;
-        let mins = secs / 60;
-        let min = mins % 60;
-        let hour = mins / 60;
-        debug_assert_eq!(hour as u8 as i64, hour);
-        debug_assert_eq!(min as u8 as i64, min);
-        debug_assert_eq!(sec as u8 as i64, sec);
-        debug_assert_eq!(nano as u32 as i64, nano);
-        (hour as u8, min as u8, sec as u8, nano as u32)
+    pub fn to_components(&self) -> TimeComponents {
+        TimeComponents::from_nanos_since_midnight(self.nanos)
     }
 }
 
@@ -161,11 +159,14 @@ mod chrono_0_4_impl {
         /// ```
         /// # use chrono_0_4 as chrono;
         /// use chrono::NaiveTime;
-        /// use neo4j::value::time::LocalTime;
+        /// use neo4j::value::time::{LocalTime, TimeComponents};
         ///
         /// let chrono_time = NaiveTime::from_hms_nano_opt(1, 2, 3, 4).unwrap();
         /// let time = LocalTime::from_chrono_0_4(chrono_time).unwrap();
-        /// assert_eq!(time.hms_nano(), (1, 2, 3, 4));
+        /// assert_eq!(
+        ///     time.to_components(),
+        ///     TimeComponents::from_hms_nano(1, 2, 3, 4)
+        /// );
         /// ```
         pub fn from_chrono_0_4(time: chrono::NaiveTime) -> Option<Self> {
             let secs: u32 = time.num_seconds_from_midnight();
@@ -191,9 +192,10 @@ mod chrono_0_4_impl {
         /// ```
         /// # use chrono_0_4 as chrono;
         /// use chrono::NaiveTime;
-        /// use neo4j::value::time::LocalTime;
+        /// use neo4j::value::time::{LocalTime, TimeComponents};
         ///
-        /// let time = LocalTime::from_hms_nano(1, 2, 3, 4).unwrap();
+        /// let time = TimeComponents::from_hms_nano(1, 2, 3, 4);
+        /// let time = LocalTime::from_components(time).unwrap();
         /// let chrono_time = time.to_chrono_0_4().unwrap();
         /// assert_eq!(
         ///     chrono_time,

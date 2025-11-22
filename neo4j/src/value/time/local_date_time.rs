@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{local_date_time_from_timestamp, DateTimeComponents};
+use super::DateTimeComponents;
 
 /// Represents a date (year, month, day) and time (hour, minute, second, nanoseconds) without
 /// time zone information in the DBMS.
@@ -68,7 +68,7 @@ impl LocalDateTime {
         (self.secs, self.nanos)
     }
 
-    /// Make a new `LocalDateTime` from the given date and time components.
+    /// Make a new `LocalDateTime` from [`DateTimeComponents`].
     ///
     /// # Errors
     /// Returns `None` if
@@ -88,10 +88,10 @@ impl LocalDateTime {
     /// let dt = LocalDateTime::from_components(components).unwrap();
     /// assert_eq!(dt.timestamp(), (0, 0));
     ///
-    /// let components = DateTimeComponents::from_ymd(i32::MAX, 1, 1);
+    /// let components = DateTimeComponents::from_ymd(i64::MAX, 1, 1);
     /// assert!(LocalDateTime::from_components(components).is_none());
     ///
-    /// let components = DateTimeComponents::from_ymd(i32::MIN, 1, 1);
+    /// let components = DateTimeComponents::from_ymd(i64::MIN, 1, 1);
     /// assert!(LocalDateTime::from_components(components).is_none());
     ///
     /// let components = DateTimeComponents::from_ymd(1970, 0, 1);
@@ -101,17 +101,11 @@ impl LocalDateTime {
     /// assert!(LocalDateTime::from_components(components).is_none());
     /// ```
     pub fn from_components(components: DateTimeComponents) -> Option<Self> {
-        let dt_utc = components.to_chrono()?.and_utc();
-        let secs = dt_utc.timestamp();
-        let nanos = dt_utc.timestamp_subsec_nanos();
-        if components.nano >= 1_000_000_000 {
-            // Leap seconds are not supported
-            return None;
-        }
+        let (secs, nanos) = components.to_unix_timestamp()?;
         Some(Self { secs, nanos })
     }
 
-    /// Return the `LocalDateTime` as date and time components.
+    /// Return the `LocalDateTime` as [`DateTimeComponents`].
     ///
     /// # Errors
     /// Returns `None` if
@@ -128,14 +122,13 @@ impl LocalDateTime {
     /// ```
     pub fn to_components(self) -> Option<DateTimeComponents> {
         let Self { secs, nanos } = self;
-        let dt_utc = local_date_time_from_timestamp(secs, nanos)?;
-        DateTimeComponents::from_chrono(&dt_utc)
+        Some(DateTimeComponents::from_unix_timestamp(secs, nanos))
     }
 }
 
 #[cfg(feature = "chrono_0_4")]
 mod chrono_0_4_impl {
-    use super::super::ChronoConversionError;
+    use super::super::{local_date_time_from_timestamp, ChronoConversionError};
     use super::*;
 
     use chrono_0_4 as chrono;
@@ -197,9 +190,9 @@ mod chrono_0_4_impl {
         /// ```
         /// # use chrono_0_4 as chrono;
         /// use chrono::NaiveDate;
-        /// use neo4j::value::time::Date;
+        /// use neo4j::value::time::{Date, DateComponents};
         ///
-        /// let date = Date::from_ymd(2023, 12, 8).unwrap();
+        /// let date = Date::from_components(DateComponents::from_ymd(2023, 12, 8)).unwrap();
         /// let chrono_date = date.to_chrono_0_4().unwrap();
         /// assert_eq!(chrono_date, NaiveDate::from_ymd_opt(2023, 12, 8).unwrap());
         /// ```

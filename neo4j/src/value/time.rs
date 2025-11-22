@@ -36,9 +36,9 @@ use thiserror::Error;
 #[allow(unused)]
 use crate::value::value_receive::ValueReceive;
 
+mod components;
 pub(crate) mod date;
 pub(crate) mod date_time;
-mod date_time_components;
 pub(crate) mod date_time_fixed;
 pub(crate) mod duration;
 pub(crate) mod local_date_time;
@@ -49,9 +49,9 @@ pub(crate) mod time;
 pub(crate) use chrono_0_4 as chrono;
 pub(crate) use chrono_tz_0_10 as chrono_tz;
 
+pub use components::{DateComponents, DateTimeComponents, TimeComponents};
 pub use date::Date;
 pub use date_time::DateTime;
-pub use date_time_components::DateTimeComponents;
 pub use date_time_fixed::DateTimeFixed;
 pub use duration::Duration;
 pub use local_date_time::LocalDateTime;

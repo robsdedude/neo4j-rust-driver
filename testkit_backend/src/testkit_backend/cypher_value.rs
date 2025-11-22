@@ -352,7 +352,7 @@ impl TryFrom<CypherValue> for ValueSend {
                 let year = try_from_value(year, "CypherDate", "year")?;
                 let month = try_from_value(month, "CypherDate", "month")?;
                 let day = try_from_value(day, "CypherDate", "day")?;
-                time::Date::from_ymd(year, month, day)
+                time::Date::from_components(time::DateComponents::from_ymd(year, month, day))
                     .ok_or_else(|| NotADriverValueError::new("CypherDate is out of range"))?
                     .into()
             }
@@ -367,13 +367,16 @@ impl TryFrom<CypherValue> for ValueSend {
                 let minute = try_from_value(minute, "CypherTime", "minute")?;
                 let second = try_from_value(second, "CypherTime", "second")?;
                 let nanosecond = try_from_value(nanosecond, "CypherTime", "nanosecond")?;
+                let components =
+                    time::TimeComponents::from_hms_nano(hour, minute, second, nanosecond);
                 let Some(utc_offset_s) = utc_offset_s else {
-                    let time = time::LocalTime::from_hms_nano(hour, minute, second, nanosecond)
+                    let time = time::LocalTime::from_components(components)
                         .ok_or_else(|| NotADriverValueError::new("CypherTime is out of range"))?;
                     return Ok(time.into());
                 };
                 let utc_offset_s = try_from_value(utc_offset_s, "CypherTime", "utc_offset_s")?;
-                time::Time::from_hms_nano_offset(hour, minute, second, nanosecond, utc_offset_s)
+                time::Time::from_utc_components(components, utc_offset_s)
+                    .ok_or_else(|| NotADriverValueError::new("CypherTime is out of range"))?
                     .into()
             }
             CypherValue::CypherDateTime(date_time) => cypher_date_time_to_value_send(date_time)?,
@@ -732,23 +735,23 @@ fn duration_to_cypher_value(value: time::Duration) -> CypherValue {
 }
 
 fn local_time_to_cypher_value(value: time::LocalTime) -> CypherValue {
-    let (hour, minute, second, nanosecond) = value.hms_nano();
+    let components = value.to_components();
     CypherValue::CypherTime {
-        hour: hour.into(),
-        minute: minute.into(),
-        second: second.into(),
-        nanosecond: nanosecond.into(),
+        hour: components.hour.into(),
+        minute: components.min.into(),
+        second: components.sec.into(),
+        nanosecond: components.nano.into(),
         utc_offset_s: None,
     }
 }
 
 fn time_to_cypher_value(value: time::Time) -> CypherValue {
-    let (hour, minute, second, nanosecond, utc_offset_s) = value.hms_nano_offset();
+    let (components, utc_offset_s) = value.to_utc_components();
     CypherValue::CypherTime {
-        hour: hour.into(),
-        minute: minute.into(),
-        second: second.into(),
-        nanosecond: nanosecond.into(),
+        hour: components.hour.into(),
+        minute: components.min.into(),
+        second: components.sec.into(),
+        nanosecond: components.nano.into(),
         utc_offset_s: Some(utc_offset_s.into()),
     }
 }

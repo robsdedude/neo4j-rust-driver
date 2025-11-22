@@ -316,9 +316,9 @@ pub struct UnboundRelationship {
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-
     use super::*;
+
+    use rstest::rstest;
 
     fn get_nodes(n: usize, label: impl ToString, element_id: bool) -> Vec<Node> {
         let mut nodes = Vec::with_capacity(n);

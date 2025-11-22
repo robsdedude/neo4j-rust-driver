@@ -1357,10 +1357,10 @@ impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::ChronoConve
 impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::ChronoConversionError
 pub struct neo4j::value::time::Date
 impl neo4j::value::time::Date
+pub fn neo4j::value::time::Date::from_components(components: neo4j::value::time::DateComponents) -> core::option::Option<Self>
 pub fn neo4j::value::time::Date::from_ordinal(ordinal: i64) -> core::option::Option<Self>
-pub fn neo4j::value::time::Date::from_ymd(year: i32, month: u32, day: u32) -> core::option::Option<Self>
 pub fn neo4j::value::time::Date::ordinal(&self) -> i64
-pub fn neo4j::value::time::Date::ymd(&self) -> core::option::Option<(i32, u32, u32)>
+pub fn neo4j::value::time::Date::to_components(self) -> core::option::Option<neo4j::value::time::DateComponents>
 impl core::clone::Clone for neo4j::value::time::Date
 pub fn neo4j::value::time::Date::clone(&self) -> neo4j::value::time::Date
 impl core::cmp::Eq for neo4j::value::time::Date
@@ -1386,6 +1386,36 @@ impl core::marker::Sync for neo4j::value::time::Date
 impl core::marker::Unpin for neo4j::value::time::Date
 impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::Date
 impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::Date
+pub struct neo4j::value::time::DateComponents
+pub neo4j::value::time::DateComponents::day: u8
+pub neo4j::value::time::DateComponents::month: u8
+pub neo4j::value::time::DateComponents::year: i64
+impl neo4j::value::time::DateComponents
+pub fn neo4j::value::time::DateComponents::from_ymd(year: i64, month: u8, day: u8) -> Self
+pub fn neo4j::value::time::DateComponents::new() -> Self
+pub fn neo4j::value::time::DateComponents::with_hms(self, hour: u8, min: u8, sec: u8) -> neo4j::value::time::DateTimeComponents
+pub fn neo4j::value::time::DateComponents::with_hms_nano(self, hour: u8, min: u8, sec: u8, nano: u32) -> neo4j::value::time::DateTimeComponents
+pub fn neo4j::value::time::DateComponents::with_ymd(self, year: i64, month: u8, day: u8) -> Self
+pub fn neo4j::value::time::DateComponents::ymd(&self) -> (i64, u8, u8)
+impl core::clone::Clone for neo4j::value::time::DateComponents
+pub fn neo4j::value::time::DateComponents::clone(&self) -> neo4j::value::time::DateComponents
+impl core::cmp::Eq for neo4j::value::time::DateComponents
+impl core::cmp::PartialEq for neo4j::value::time::DateComponents
+pub fn neo4j::value::time::DateComponents::eq(&self, other: &neo4j::value::time::DateComponents) -> bool
+impl core::default::Default for neo4j::value::time::DateComponents
+pub fn neo4j::value::time::DateComponents::default() -> Self
+impl core::fmt::Debug for neo4j::value::time::DateComponents
+pub fn neo4j::value::time::DateComponents::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::value::time::DateComponents
+pub fn neo4j::value::time::DateComponents::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+impl core::marker::Copy for neo4j::value::time::DateComponents
+impl core::marker::StructuralPartialEq for neo4j::value::time::DateComponents
+impl core::marker::Freeze for neo4j::value::time::DateComponents
+impl core::marker::Send for neo4j::value::time::DateComponents
+impl core::marker::Sync for neo4j::value::time::DateComponents
+impl core::marker::Unpin for neo4j::value::time::DateComponents
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::DateComponents
+impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::DateComponents
 pub struct neo4j::value::time::DateTime
 impl neo4j::value::time::DateTime
 pub fn neo4j::value::time::DateTime::from_utc_components<S: core::convert::Into<alloc::string::String>>(components: neo4j::value::time::DateTimeComponents, tz_name: S) -> core::option::Option<Self>
@@ -1418,19 +1448,28 @@ impl core::marker::Unpin for neo4j::value::time::DateTime
 impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::DateTime
 impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::DateTime
 pub struct neo4j::value::time::DateTimeComponents
-pub neo4j::value::time::DateTimeComponents::day: u32
-pub neo4j::value::time::DateTimeComponents::hour: u32
-pub neo4j::value::time::DateTimeComponents::min: u32
-pub neo4j::value::time::DateTimeComponents::month: u32
+pub neo4j::value::time::DateTimeComponents::day: u8
+pub neo4j::value::time::DateTimeComponents::hour: u8
+pub neo4j::value::time::DateTimeComponents::min: u8
+pub neo4j::value::time::DateTimeComponents::month: u8
 pub neo4j::value::time::DateTimeComponents::nano: u32
-pub neo4j::value::time::DateTimeComponents::sec: u32
-pub neo4j::value::time::DateTimeComponents::year: i32
+pub neo4j::value::time::DateTimeComponents::sec: u8
+pub neo4j::value::time::DateTimeComponents::year: i64
 impl neo4j::value::time::DateTimeComponents
-pub fn neo4j::value::time::DateTimeComponents::from_ymd(year: i32, month: u32, day: u32) -> Self
+pub fn neo4j::value::time::DateTimeComponents::combine(date: neo4j::value::time::DateComponents, time: neo4j::value::time::TimeComponents) -> Self
+pub fn neo4j::value::time::DateTimeComponents::date(&self) -> neo4j::value::time::DateComponents
+pub fn neo4j::value::time::DateTimeComponents::from_date(date: neo4j::value::time::DateComponents) -> Self
+pub fn neo4j::value::time::DateTimeComponents::from_hms(hour: u8, min: u8, sec: u8) -> Self
+pub fn neo4j::value::time::DateTimeComponents::from_hms_nano(hour: u8, min: u8, sec: u8, nano: u32) -> Self
+pub fn neo4j::value::time::DateTimeComponents::from_time(time: neo4j::value::time::TimeComponents) -> Self
+pub fn neo4j::value::time::DateTimeComponents::from_ymd(year: i64, month: u8, day: u8) -> Self
 pub fn neo4j::value::time::DateTimeComponents::new() -> Self
-pub fn neo4j::value::time::DateTimeComponents::with_hms(self, hour: u32, min: u32, sec: u32) -> Self
-pub fn neo4j::value::time::DateTimeComponents::with_hms_nano(self, hour: u32, min: u32, sec: u32, nano: u32) -> Self
-pub fn neo4j::value::time::DateTimeComponents::with_ymd(self, year: i32, month: u32, day: u32) -> Self
+pub fn neo4j::value::time::DateTimeComponents::time(&self) -> neo4j::value::time::TimeComponents
+pub fn neo4j::value::time::DateTimeComponents::with_date(self, date: neo4j::value::time::DateComponents) -> Self
+pub fn neo4j::value::time::DateTimeComponents::with_hms(self, hour: u8, min: u8, sec: u8) -> Self
+pub fn neo4j::value::time::DateTimeComponents::with_hms_nano(self, hour: u8, min: u8, sec: u8, nano: u32) -> Self
+pub fn neo4j::value::time::DateTimeComponents::with_time(self, time: neo4j::value::time::TimeComponents) -> Self
+pub fn neo4j::value::time::DateTimeComponents::with_ymd(self, year: i64, month: u8, day: u8) -> Self
 impl core::clone::Clone for neo4j::value::time::DateTimeComponents
 pub fn neo4j::value::time::DateTimeComponents::clone(&self) -> neo4j::value::time::DateTimeComponents
 impl core::cmp::Eq for neo4j::value::time::DateTimeComponents
@@ -1547,10 +1586,10 @@ impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::LocalDateTi
 impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::LocalDateTime
 pub struct neo4j::value::time::LocalTime
 impl neo4j::value::time::LocalTime
-pub fn neo4j::value::time::LocalTime::from_hms_nano(hour: u8, min: u8, sec: u8, nano: u32) -> core::option::Option<Self>
+pub fn neo4j::value::time::LocalTime::from_components(components: neo4j::value::time::TimeComponents) -> core::option::Option<Self>
 pub fn neo4j::value::time::LocalTime::from_nanos_since_midnight(nanos: u64) -> core::option::Option<Self>
-pub fn neo4j::value::time::LocalTime::hms_nano(&self) -> (u8, u8, u8, u32)
 pub fn neo4j::value::time::LocalTime::nanos_since_midnight(&self) -> u64
+pub fn neo4j::value::time::LocalTime::to_components(&self) -> neo4j::value::time::TimeComponents
 impl core::clone::Clone for neo4j::value::time::LocalTime
 pub fn neo4j::value::time::LocalTime::clone(&self) -> neo4j::value::time::LocalTime
 impl core::cmp::Eq for neo4j::value::time::LocalTime
@@ -1578,10 +1617,10 @@ impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::LocalTime
 impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::LocalTime
 pub struct neo4j::value::time::Time
 impl neo4j::value::time::Time
-pub fn neo4j::value::time::Time::from_hms_nano_offset(hour: u8, minute: u8, second: u8, nanosecond: u32, utc_offset: i32) -> core::option::Option<Self>
 pub fn neo4j::value::time::Time::from_nanos_since_midnight(nanos: u64, utc_offset: i32) -> core::option::Option<Self>
-pub fn neo4j::value::time::Time::hms_nano_offset(&self) -> (u8, u8, u8, u32, i32)
+pub fn neo4j::value::time::Time::from_utc_components(components: neo4j::value::time::TimeComponents, utc_offset: i32) -> core::option::Option<Self>
 pub fn neo4j::value::time::Time::nanos_since_midnight(&self) -> u64
+pub fn neo4j::value::time::Time::to_utc_components(&self) -> (neo4j::value::time::TimeComponents, i32)
 pub fn neo4j::value::time::Time::utc_offset(&self) -> i32
 impl core::clone::Clone for neo4j::value::time::Time
 pub fn neo4j::value::time::Time::clone(&self) -> neo4j::value::time::Time
@@ -1608,6 +1647,39 @@ impl core::marker::Sync for neo4j::value::time::Time
 impl core::marker::Unpin for neo4j::value::time::Time
 impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::Time
 impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::Time
+pub struct neo4j::value::time::TimeComponents
+pub neo4j::value::time::TimeComponents::hour: u8
+pub neo4j::value::time::TimeComponents::min: u8
+pub neo4j::value::time::TimeComponents::nano: u32
+pub neo4j::value::time::TimeComponents::sec: u8
+impl neo4j::value::time::TimeComponents
+pub fn neo4j::value::time::TimeComponents::from_hms(hour: u8, min: u8, sec: u8) -> Self
+pub fn neo4j::value::time::TimeComponents::from_hms_nano(hour: u8, min: u8, sec: u8, nano: u32) -> Self
+pub fn neo4j::value::time::TimeComponents::hms(&self) -> (u8, u8, u8)
+pub fn neo4j::value::time::TimeComponents::hms_nano(&self) -> (u8, u8, u8, u32)
+pub fn neo4j::value::time::TimeComponents::new() -> Self
+pub fn neo4j::value::time::TimeComponents::with_hms(self, hour: u8, min: u8, sec: u8) -> Self
+pub fn neo4j::value::time::TimeComponents::with_hms_nano(self, hour: u8, min: u8, sec: u8, nano: u32) -> Self
+pub fn neo4j::value::time::TimeComponents::with_ymd(self, year: i64, month: u8, day: u8) -> neo4j::value::time::DateTimeComponents
+impl core::clone::Clone for neo4j::value::time::TimeComponents
+pub fn neo4j::value::time::TimeComponents::clone(&self) -> neo4j::value::time::TimeComponents
+impl core::cmp::Eq for neo4j::value::time::TimeComponents
+impl core::cmp::PartialEq for neo4j::value::time::TimeComponents
+pub fn neo4j::value::time::TimeComponents::eq(&self, other: &neo4j::value::time::TimeComponents) -> bool
+impl core::default::Default for neo4j::value::time::TimeComponents
+pub fn neo4j::value::time::TimeComponents::default() -> Self
+impl core::fmt::Debug for neo4j::value::time::TimeComponents
+pub fn neo4j::value::time::TimeComponents::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::value::time::TimeComponents
+pub fn neo4j::value::time::TimeComponents::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+impl core::marker::Copy for neo4j::value::time::TimeComponents
+impl core::marker::StructuralPartialEq for neo4j::value::time::TimeComponents
+impl core::marker::Freeze for neo4j::value::time::TimeComponents
+impl core::marker::Send for neo4j::value::time::TimeComponents
+impl core::marker::Sync for neo4j::value::time::TimeComponents
+impl core::marker::Unpin for neo4j::value::time::TimeComponents
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::TimeComponents
+impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::TimeComponents
 #[non_exhaustive] pub enum neo4j::value::ValueReceive
 pub neo4j::value::ValueReceive::Boolean(bool)
 pub neo4j::value::ValueReceive::BrokenValue(neo4j::value::BrokenValue)

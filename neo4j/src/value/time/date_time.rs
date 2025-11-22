@@ -113,8 +113,7 @@ impl DateTime {
         &self.tz_name
     }
 
-    /// Make a new `DateTime` from the given UTC date and time components along with the time zone
-    /// name.
+    /// Make a new `DateTime` from [`DateTimeComponents`] in UTC along with the time zone name.
     ///
     /// # Errors
     /// Returns `None` if
@@ -141,10 +140,10 @@ impl DateTime {
     /// let components = DateTimeComponents::from_ymd(1970, 13, 1);
     /// assert!(DateTime::from_utc_components(components, "UTC").is_none());
     ///
-    /// let components = DateTimeComponents::from_ymd(i32::MAX, 1, 1);
+    /// let components = DateTimeComponents::from_ymd(i64::MAX, 1, 1);
     /// assert!(DateTime::from_utc_components(components, "UTC").is_none());
     ///
-    /// let components = DateTimeComponents::from_ymd(i32::MIN, 1, 1);
+    /// let components = DateTimeComponents::from_ymd(i64::MIN, 1, 1);
     /// assert!(DateTime::from_utc_components(components, "UTC").is_none());
     ///
     /// let components = DateTimeComponents::from_ymd(1970, 0, 1);
@@ -158,16 +157,10 @@ impl DateTime {
         tz_name: S,
     ) -> Option<Self> {
         fn inner(components: DateTimeComponents, tz_name: String) -> Option<DateTime> {
-            let dt_utc = components.to_chrono()?.and_utc();
-            let sec = dt_utc.timestamp();
-            let nano = dt_utc.timestamp_subsec_nanos();
-            if components.nano >= 1_000_000_000 {
-                // Leap seconds are not supported
-                return None;
-            }
+            let (secs, nanos) = components.to_unix_timestamp()?;
             Some(DateTime {
-                secs: sec,
-                nanos: nano,
+                secs,
+                nanos,
                 tz_name,
             })
         }
@@ -175,7 +168,7 @@ impl DateTime {
         inner(components, tz_name.into())
     }
 
-    /// Return the `DateTime` as UTC date and time components along with the time zone name.
+    /// Return the `DateTime` as [`DateTimeComponents`] in UTC along with the time zone name.
     ///
     /// # Errors
     /// Returns `None` if
@@ -193,12 +186,11 @@ impl DateTime {
     /// ```
     pub fn to_utc_components(&self) -> Option<(DateTimeComponents, &str)> {
         let Self {
-            secs: sec,
-            nanos: nano,
-            tz_name,
-        } = self;
-        let dt_utc = local_date_time_from_timestamp(*sec, *nano)?;
-        let components = DateTimeComponents::from_chrono(&dt_utc)?;
+            secs,
+            nanos,
+            ref tz_name,
+        } = *self;
+        let components = DateTimeComponents::from_unix_timestamp(secs, nanos);
         Some((components, tz_name))
     }
 }
