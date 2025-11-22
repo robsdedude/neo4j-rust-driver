@@ -187,7 +187,7 @@ mod chrono_0_4_impl {
         /// let time = Time::from_chrono_0_4(chrono_time, chrono_tz).unwrap();
         /// let (components, offset) = time.to_utc_components();
         /// assert_eq!(components, TimeComponents::from_hms_nano(1, 2, 3, 4));
-        /// assert_eq!(offset, 3600)
+        /// assert_eq!(offset, 3600);
         /// ```
         pub fn from_chrono_0_4(time: chrono::NaiveTime, tz: chrono::FixedOffset) -> Option<Self> {
             let time = LocalTime::from_chrono_0_4(time)?;

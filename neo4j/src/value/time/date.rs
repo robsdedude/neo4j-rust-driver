@@ -25,7 +25,7 @@ pub struct Date {
 impl Date {
     /// Make a new `Date` from an ordinal since UNIX epoch.
     ///
-    /// The ordinal is the number of days passed sinc UNIX epoch (1970-01-01) and
+    /// The ordinal is the number of days passed since UNIX epoch (1970-01-01) and
     /// can be negative.
     ///
     /// # Errors
@@ -59,7 +59,7 @@ impl Date {
 
     /// Return the `Date`'s ordinal since UNIX epoch.
     ///
-    /// The ordinal is the number of days passed sinc UNIX epoch (1970-01-01) and
+    /// The ordinal is the number of days passed since UNIX epoch (1970-01-01) and
     /// can be negative.
     ///
     /// # Example
@@ -194,9 +194,9 @@ mod chrono_0_4_impl {
         /// assert_eq!(chrono_date, NaiveDate::from_ymd_opt(2023, 12, 8).unwrap());
         /// ```
         pub fn to_chrono_0_4(&self) -> Option<chrono::NaiveDate> {
-            let days_sinc_epoch = chrono::Duration::try_days(self.days)?;
+            let days_since_epoch = chrono::Duration::try_days(self.days)?;
             let epoch = chrono::NaiveDate::from_yo_opt(1970, 1).unwrap();
-            epoch.checked_add_signed(days_sinc_epoch)
+            epoch.checked_add_signed(days_since_epoch)
         }
     }
 
