@@ -16,7 +16,6 @@
 #[allow(unused)]
 use super::super::{DateTime, DateTimeFixed, LocalDateTime};
 
-use super::date_components::DAYS_IN_400_YEARS;
 use super::time_components::SECONDS_PER_DAY;
 use super::{DateComponents, TimeComponents};
 
@@ -89,20 +88,13 @@ impl DateTimeComponents {
         let nanos = nanos % 1_000_000_000;
         debug_assert_eq!(nanos as u32 as i64, nanos);
         let nanos = nanos as u32;
-        if self.year < 0 {
-            let mut date = self.date();
-            date.year += 400;
-            let ordinal = date.to_unix_ordinal()?;
-            let seconds = ordinal
-                .checked_mul(SECONDS_PER_DAY)?
-                .checked_add(seconds)?
-                .checked_add(DAYS_IN_400_YEARS * SECONDS_PER_DAY)?;
-            Some((seconds, nanos))
-        } else {
-            let ordinal = self.date().to_unix_ordinal()?;
-            let seconds = ordinal.checked_mul(SECONDS_PER_DAY)?.checked_add(seconds)?;
-            Some((seconds, nanos))
-        }
+        let ordinal = self.date().to_unix_ordinal()?;
+        let sign = ordinal.signum();
+        let seconds = (ordinal - sign)
+            .checked_mul(SECONDS_PER_DAY)?
+            .checked_add(seconds)?
+            .checked_add(sign * SECONDS_PER_DAY)?;
+        Some((seconds, nanos))
     }
 
     /// Create `DateTimeComponents` for 1970-01-01T00:00:00 (UNIX epoch).
@@ -383,5 +375,69 @@ impl DateTimeComponents {
     /// ```
     pub fn from_time(time: TimeComponents) -> Self {
         Self::default().with_time(time)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use rstest::rstest;
+
+    #[rstest]
+    #[case((i64::MAX, 999999999), (292277026596, 12, 4, 15, 30, 7, 999999999))]
+    #[case((i64::MAX >> 21, 0), (141338, 7, 19, 2, 25, 3, 0))]
+    #[case((3476426399, 999999999), (2080, 2, 29, 9, 59, 59, 999999999))]
+    #[case((0, 0), (1970, 1, 1, 0, 0, 0, 0))]
+    #[case((-17957984383, 1337), (1400, 12, 7, 23, 0, 17, 1337))]
+    #[case((-62135596800, 123), (1, 1, 1, 0, 0, 0, 123))]
+    #[case((-62167219200, 123), (0, 1, 1, 0, 0, 0, 123))]
+    #[case((-65292000772, 123456789), (-100, 12, 24, 13, 7, 8, 123456789))]
+    #[case((-93719080801, 999999999), (-1000, 2, 28, 9, 59, 59, 999999999))]
+    #[case((i64::MIN >> 21, 0), (-137399, 6, 15, 21, 34, 56, 0))]
+    #[case((i64::MIN, 0), (-292277022657, 1, 27, 8, 29, 52, 0))]
+    fn test_from_unix_timestamp(
+        #[case] input: (i64, u32),
+        #[case] expected: (i64, u8, u8, u8, u8, u8, u32),
+    ) {
+        let components = DateTimeComponents::from_unix_timestamp(input.0, input.1);
+        dbg!(components);
+        assert_eq!(components.year, expected.0);
+        assert_eq!(components.month, expected.1);
+        assert_eq!(components.day, expected.2);
+        assert_eq!(components.hour, expected.3);
+        assert_eq!(components.min, expected.4);
+        assert_eq!(components.sec, expected.5);
+        assert_eq!(components.nano, expected.6);
+    }
+
+    #[rstest]
+    #[case((i64::MAX, 999999999), (292277026596, 12, 4, 15, 30, 7, 999999999))]
+    #[case((i64::MAX >> 21, 0), (141338, 7, 19, 2, 25, 3, 0))]
+    #[case((3476426399, 999999999), (2080, 2, 29, 9, 59, 59, 999999999))]
+    #[case((0, 0), (1970, 1, 1, 0, 0, 0, 0))]
+    #[case((-17957984383, 1337), (1400, 12, 7, 23, 0, 17, 1337))]
+    #[case((-62135596800, 123), (1, 1, 1, 0, 0, 0, 123))]
+    #[case((-62167219200, 123), (0, 1, 1, 0, 0, 0, 123))]
+    #[case((-65292000772, 123456789), (-100, 12, 24, 13, 7, 8, 123456789))]
+    #[case((-93719080801, 999999999), (-1000, 2, 28, 9, 59, 59, 999999999))]
+    #[case((i64::MIN >> 21, 0), (-137399, 6, 15, 21, 34, 56, 0))]
+    #[case((i64::MIN, 0), (-292277022657, 1, 27, 8, 29, 52, 0))]
+    fn test_to_unix_timestamp(
+        #[case] expected: (i64, u32),
+        #[case] input: (i64, u8, u8, u8, u8, u8, u32),
+    ) {
+        let components = DateTimeComponents {
+            year: input.0,
+            month: input.1,
+            day: input.2,
+            hour: input.3,
+            min: input.4,
+            sec: input.5,
+            nano: input.6,
+        };
+        let (secs, nanos) = components.to_unix_timestamp().unwrap();
+        assert_eq!(secs, expected.0);
+        assert_eq!(nanos, expected.1);
     }
 }
