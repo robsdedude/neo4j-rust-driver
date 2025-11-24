@@ -47,7 +47,7 @@ impl Date {
     /// assert_eq!(ymd(first_driver_release), (2023, 12, 8));
     /// assert_eq!(first_driver_release.ordinal(), 19699);
     ///
-    /// // 0001-01-01
+    /// // 0000-01-01
     /// let ancient = Date::from_ordinal(-719528).unwrap();
     /// assert_eq!(ymd(ancient), (0, 1, 1));
     /// assert_eq!(ancient.ordinal(), -719528);

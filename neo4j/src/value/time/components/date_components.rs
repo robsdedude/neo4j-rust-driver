@@ -78,7 +78,7 @@ impl DateComponents {
 
     fn from_ordinal_1(ordinal: i64) -> Self {
         let (year, ordinal) = if ordinal < 0 {
-            // shift ordinal up so it's in range 0399-12-31 .. 0001-01-01
+            // shift ordinal up so it's in range 0400-12-31 .. 0001-01-01
             let n = ordinal / -DAYS_IN_400_YEARS;
             let year = -400 * n + -400 + 1;
             let ordinal = ordinal - -DAYS_IN_400_YEARS * n - -DAYS_IN_400_YEARS;
