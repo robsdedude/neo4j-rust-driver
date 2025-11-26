@@ -38,12 +38,12 @@ use super::{BackendId, TestKitResultT};
 
 // [bolt-version-bump] search tag when changing bolt version support
 // https://github.com/rust-lang/rust/issues/85077
-const FEATURE_LIST: [&str; 52] = [
+const FEATURE_LIST: [&str; 53] = [
     // === FUNCTIONAL FEATURES ===
     "Feature:API:BookmarkManager",
     "Feature:API:ConnectionAcquisitionTimeout",
     "Feature:API:Driver.ExecuteQuery",
-    // "Feature:API:Driver.ExecuteQuery:WithAuth",
+    "Feature:API:Driver.ExecuteQuery:WithAuth",
     "Feature:API:Driver:GetServerInfo",
     "Feature:API:Driver.IsEncrypted",
     "Feature:API:Driver:MaxConnectionLifetime",
