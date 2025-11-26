@@ -25,6 +25,8 @@
 **🔧️ Fixes**
  - Fix accidentally merging write and read timeouts during a connection's lifetime.
  - Fix `connection_acquisition_timeout` config not being applied to limit fetching of routing tables.
+ - Fix the driver handling cluster network partitioning poorly by accepting the first routing table regardless whether
+   it contains a writer or not.
 
 
 ## 0.2.0

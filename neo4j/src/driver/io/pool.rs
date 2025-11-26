@@ -558,24 +558,22 @@ impl RoutingPool {
         let rt_key = args.rt_key();
         let rt = rts.entry(rt_key).or_insert_with(|| self.empty_rt());
         let pref_init_router = rt.initialized_without_writers;
-        let mut new_rt: Result<RoutingTable>;
         let routers = rt
             .routers
             .iter()
             .filter(|&r| r != &self.address)
-            .map(Arc::clone)
-            .collect::<Vec<_>>();
-        if pref_init_router {
-            new_rt = self.fetch_rt_from_routers(&[Arc::clone(&self.address)], args, rts)?;
-            if new_rt.is_err() && !routers.is_empty() {
-                new_rt = self.fetch_rt_from_routers(&routers, args, rts)?;
-            }
+            .map(Arc::clone);
+        let routers = if pref_init_router {
+            [Arc::clone(&self.address)]
+                .into_iter()
+                .chain(routers)
+                .collect::<Vec<_>>()
         } else {
-            new_rt = self.fetch_rt_from_routers(&routers, args, rts)?;
-            if new_rt.is_err() {
-                new_rt = self.fetch_rt_from_routers(&[Arc::clone(&self.address)], args, rts)?;
-            }
-        }
+            routers
+                .chain([Arc::clone(&self.address)])
+                .collect::<Vec<_>>()
+        };
+        let new_rt = self.fetch_rt_from_routers(&routers, args, rts)?;
         match new_rt {
             Err(err) => {
                 error!("failed to update routing table; last error: {err}");
@@ -610,6 +608,7 @@ impl RoutingPool {
         rts: &mut RoutingTables,
     ) -> Result<Result<RoutingTable>> {
         let mut last_err = None;
+        let mut rt_without_writers = None;
         for router in routers {
             for resolution in Arc::clone(router).fully_resolve(self.config.resolver.as_deref())? {
                 let Ok(resolved) = resolution else {
@@ -620,11 +619,22 @@ impl RoutingPool {
                     self.acquire_routing_address(&resolved, args)
                         .and_then(|mut con| self.fetch_rt_from_router(&mut con, args)),
                 )? {
-                    Ok(rt) => return Ok(Ok(rt)),
-                    Err(err) => last_err = Some(err),
+                    Ok(rt) if !rt.writers.is_empty() => return Ok(Ok(rt)),
+                    Ok(rt) if rt_without_writers.is_none() => rt_without_writers = Some(rt),
+                    Ok(_) => {}
+                    Err(err) => {
+                        last_err = Some(err);
+                        self.deactivate_server_locked_rts(&resolved, rts);
+                    }
                 };
-                self.deactivate_server_locked_rts(&resolved, rts);
             }
+        }
+        if let Some(rt) = rt_without_writers {
+            info!(
+                "Returning routing table without writers, \
+                 this might be the result of a network partition"
+            );
+            return Ok(Ok(rt));
         }
         Ok(Err(last_err.unwrap_or_else(|| {
             Neo4jError::disconnect("no known routers left")
