@@ -257,6 +257,7 @@ impl TryFrom<ValueReceive> for ValueSend {
             ValueReceive::Relationship(_) => return Err("cannot convert Relationship".into()),
             ValueReceive::Path(_) => return Err("cannot convert Path".into()),
             ValueReceive::Vector(v) => Self::Vector(v),
+            ValueReceive::UnsupportedType(_) => return Err("cannot convert UnsupportedType".into()),
         })
     }
 }

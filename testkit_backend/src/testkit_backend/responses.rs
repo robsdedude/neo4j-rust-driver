@@ -38,7 +38,7 @@ use super::{BackendId, TestKitResultT};
 
 // [bolt-version-bump] search tag when changing bolt version support
 // https://github.com/rust-lang/rust/issues/85077
-const FEATURE_LIST: [&str; 55] = [
+const FEATURE_LIST: &[&str] = &[
     // === FUNCTIONAL FEATURES ===
     "Feature:API:BookmarkManager",
     "Feature:API:ConnectionAcquisitionTimeout",
@@ -65,7 +65,7 @@ const FEATURE_LIST: [&str; 55] = [
     "Feature:API:Summary:GqlStatusObjects",
     "Feature:API:Type.Spatial",
     "Feature:API:Type.Temporal",
-    // "Feature:API:Type.UnsupportedType",
+    "Feature:API:Type.UnsupportedType",
     "Feature:API:Type.Vector",
     "Feature:Auth:Bearer",
     "Feature:Auth:Custom",
@@ -850,7 +850,7 @@ impl TryFrom<EagerResult> for Response {
 impl Response {
     pub(super) fn feature_list() -> Self {
         Self::FeatureList {
-            features: FEATURE_LIST.into_iter().map(String::from).collect(),
+            features: FEATURE_LIST.into_iter().map(|x| String::from(*x)).collect(),
         }
     }
 
