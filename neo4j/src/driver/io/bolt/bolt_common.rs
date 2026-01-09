@@ -36,6 +36,7 @@ pub(super) const TAG_LEGACY_DATE_TIME_ZONE_ID: u8 = b'f';
 pub(super) const TAG_LOCAL_DATE_TIME: u8 = b'd';
 pub(super) const TAG_DURATION: u8 = b'E';
 pub(super) const TAG_VECTOR: u8 = b'V';
+pub(super) const TAG_UNSUPPORTED_TYPE: u8 = b'?';
 pub(super) const VEC_TYPE_MARKER_F64: &[u8] = &[0xC1];
 pub(super) const VEC_TYPE_MARKER_F32: &[u8] = &[0xC6];
 pub(super) const VEC_TYPE_MARKER_I64: &[u8] = &[0xCB];

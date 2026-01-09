@@ -15,6 +15,7 @@
 pub mod graph;
 pub mod spatial;
 pub mod time;
+pub mod unsupported_type;
 mod value_receive;
 mod value_send;
 pub mod vector;

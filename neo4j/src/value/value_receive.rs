@@ -16,11 +16,11 @@ use std::collections::{HashMap, VecDeque};
 
 use itertools::Itertools;
 
-use super::graph;
 use super::spatial;
 use super::time;
 use super::value_send::ValueSend;
 use super::vector;
+use super::{graph, unsupported_type};
 
 /// A value received from the database.
 #[derive(Debug, Clone, PartialEq)]
@@ -49,6 +49,7 @@ pub enum ValueReceive {
     DateTime(time::DateTime),
     DateTimeFixed(time::DateTimeFixed),
     Vector(vector::Vector),
+    UnsupportedType(unsupported_type::UnsupportedType),
     /// A value that could not be received.
     /// This can have multiple reasons, for example:
     ///  * Unexpected struct data (likely a driver or server bug)
@@ -1206,10 +1207,11 @@ impl ValueReceive {
             ValueReceive::LocalDateTime(v) => format!("{v:?}"),
             ValueReceive::DateTime(v) => format!("{v:?}"),
             ValueReceive::DateTimeFixed(v) => format!("{v:?}"),
+            ValueReceive::Vector(v) => format!("{v:?}"),
+            ValueReceive::UnsupportedType(v) => format!("{v:?}"),
             ValueReceive::BrokenValue(broken_value) => {
                 format!("BrokenValue({})", broken_value.reason())
             }
-            ValueReceive::Vector(v) => format!("{v:?}"),
         }
     }
 }
