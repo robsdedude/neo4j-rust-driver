@@ -418,8 +418,8 @@ impl TryFrom<CypherValue> for ValueSend {
                                 reason: format!(
                                     "CypherVector data len for dtype {dtype} must be a multiple of \
                                     {}, was {}",
-                                    data.len(),
                                     size_of::<f64>(),
+                                    data.len(),
                                 ),
                             });
                         }
@@ -435,8 +435,8 @@ impl TryFrom<CypherValue> for ValueSend {
                                 reason: format!(
                                     "CypherVector data len for dtype {dtype} must be a multiple of \
                                     {}, was {}",
-                                    data.len(),
                                     size_of::<f32>(),
+                                    data.len(),
                                 ),
                             });
                         }
@@ -452,8 +452,8 @@ impl TryFrom<CypherValue> for ValueSend {
                                 reason: format!(
                                     "CypherVector data len for dtype {dtype} must be a multiple of \
                                     {}, was {}",
-                                    data.len(),
                                     size_of::<i64>(),
+                                    data.len(),
                                 ),
                             });
                         }
@@ -469,8 +469,8 @@ impl TryFrom<CypherValue> for ValueSend {
                                 reason: format!(
                                     "CypherVector data len for dtype {dtype} must be a multiple of \
                                     {}, was {}",
-                                    data.len(),
                                     size_of::<i32>(),
+                                    data.len(),
                                 ),
                             });
                         }
@@ -486,8 +486,8 @@ impl TryFrom<CypherValue> for ValueSend {
                                 reason: format!(
                                     "CypherVector data len for dtype {dtype} must be a multiple of \
                                     {}, was {}",
-                                    data.len(),
                                     size_of::<i16>(),
+                                    data.len(),
                                 ),
                             });
                         }
@@ -961,7 +961,7 @@ fn vector_cypher_value(value: vector::Vector) -> Result<CypherValue, BrokenValue
                 value
                     .iter()
                     .flat_map(|v| v.to_be_bytes())
-                    .map(|v| format!("{v:02x?}"))
+                    .map(|v| format!("{v:02x}"))
                     .join(" ")
             },
         },
@@ -971,7 +971,7 @@ fn vector_cypher_value(value: vector::Vector) -> Result<CypherValue, BrokenValue
                 value
                     .iter()
                     .flat_map(|v| v.to_be_bytes())
-                    .map(|v| format!("{v:02x?}"))
+                    .map(|v| format!("{v:02x}"))
                     .join(" ")
             },
         },
@@ -981,7 +981,7 @@ fn vector_cypher_value(value: vector::Vector) -> Result<CypherValue, BrokenValue
                 value
                     .iter()
                     .flat_map(|v| v.to_be_bytes())
-                    .map(|v| format!("{v:02x?}"))
+                    .map(|v| format!("{v:02x}"))
                     .join(" ")
             },
         },
@@ -991,7 +991,7 @@ fn vector_cypher_value(value: vector::Vector) -> Result<CypherValue, BrokenValue
                 value
                     .iter()
                     .flat_map(|v| v.to_be_bytes())
-                    .map(|v| format!("{v:02x?}"))
+                    .map(|v| format!("{v:02x}"))
                     .join(" ")
             },
         },
@@ -1001,7 +1001,7 @@ fn vector_cypher_value(value: vector::Vector) -> Result<CypherValue, BrokenValue
                 value
                     .iter()
                     .flat_map(|v| v.to_be_bytes())
-                    .map(|v| format!("{v:02x?}"))
+                    .map(|v| format!("{v:02x}"))
                     .join(" ")
             },
         },
@@ -1011,7 +1011,7 @@ fn vector_cypher_value(value: vector::Vector) -> Result<CypherValue, BrokenValue
                 value
                     .iter()
                     .flat_map(|v| v.to_be_bytes())
-                    .map(|v| format!("{v:02x?}"))
+                    .map(|v| format!("{v:02x}"))
                     .join(" ")
             },
         },

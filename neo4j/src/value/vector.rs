@@ -554,11 +554,11 @@ mod test {
         Vector::F32(vec![-f32::NAN]),
         "vector([NaN], 1, FLOAT32 NOT NULL)",
     )]
-    #[case::f32_nan_payload(
+    #[case::f32_nan_payload1(
         Vector::F32(vec![f32::from_bits(0x7fc00011)]),
         "vector([NaN], 1, FLOAT32 NOT NULL)",
     )]
-    #[case::f32_nan_payload(
+    #[case::f32_nan_payload2(
         Vector::F32(vec![f32::from_bits(0x7f800001)]),
         "vector([NaN], 1, FLOAT32 NOT NULL)",
     )]
