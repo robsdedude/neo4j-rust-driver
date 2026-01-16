@@ -14,8 +14,10 @@
 
 use std::convert::Infallible;
 use std::error::Error;
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Write as _};
 use std::io::Write;
+
+use usize_cast::FromUsize;
 
 use super::error::PackStreamSerializeError;
 
@@ -29,6 +31,8 @@ pub trait PackStreamSerializer {
     fn write_int(&mut self, i: i64) -> Result<(), Self::Error>;
     fn write_float(&mut self, f: f64) -> Result<(), Self::Error>;
     fn write_bytes(&mut self, b: &[u8]) -> Result<(), Self::Error>;
+    fn write_bytes_header(&mut self, size: u64) -> Result<(), Self::Error>;
+    fn write_bytes_raw(&mut self, b: &[u8]) -> Result<(), Self::Error>;
     fn write_string(&mut self, s: &str) -> Result<(), Self::Error>;
     fn write_list_header(&mut self, size: u64) -> Result<(), Self::Error>;
     fn write_dict_header(&mut self, size: u64) -> Result<(), Self::Error>;
@@ -91,7 +95,12 @@ impl<W: Write> PackStreamSerializer for PackStreamSerializerImpl<'_, W> {
     }
 
     fn write_bytes(&mut self, b: &[u8]) -> Result<(), Self::Error> {
-        let size = b.len();
+        self.write_bytes_header(u64::from_usize(b.len()))?;
+        self.writer.write_all(b)?;
+        Ok(())
+    }
+
+    fn write_bytes_header(&mut self, size: u64) -> Result<(), Self::Error> {
         if size <= 255 {
             self.writer.write_all(&[0xCC])?;
             self.writer.write_all(&u8::to_be_bytes(size as u8))?;
@@ -104,6 +113,10 @@ impl<W: Write> PackStreamSerializer for PackStreamSerializerImpl<'_, W> {
         } else {
             return Err("bytes exceed max size of 2,147,483,647".into());
         }
+        Ok(())
+    }
+
+    fn write_bytes_raw(&mut self, b: &[u8]) -> Result<(), Self::Error> {
         self.writer.write_all(b)?;
         Ok(())
     }
@@ -255,6 +268,43 @@ impl PackStreamSerializer for PackStreamSerializerDebugImpl {
     fn write_bytes(&mut self, b: &[u8]) -> Result<(), Self::Error> {
         self.buff += &format!("bytes{b:02X?}");
         self.handle_stack();
+        Ok(())
+    }
+
+    fn write_bytes_header(&mut self, size: u64) -> Result<(), Self::Error> {
+        self.buff += "bytes[";
+        if size > 0 {
+            self.buff
+                .reserve(size.try_into().unwrap_or(usize::MAX).saturating_mul(4));
+            self.stack.push(("bytes", "bytes", size));
+        } else {
+            self.buff += "]";
+        }
+        Ok(())
+    }
+
+    fn write_bytes_raw(&mut self, b: &[u8]) -> Result<(), Self::Error> {
+        let size = match self.stack.last() {
+            Some(("bytes", "bytes", size)) if *size >= u64::from_usize(b.len()) => *size,
+            last => panic!(
+                "Trying to write {} bytes not matching the header ({last:?})",
+                b.len(),
+            ),
+        };
+        b.iter().for_each(|b| {
+            self.buff
+                .write_fmt(format_args!("{b:02X}, "))
+                .expect("infallible")
+        });
+        self.stack.pop();
+        let new_size = size - u64::from_usize(b.len());
+        if new_size > 0 {
+            self.stack.push(("bytes", "bytes", new_size));
+        } else {
+            self.buff.pop();
+            self.buff.pop();
+            self.buff.push(']');
+        }
         Ok(())
     }
 

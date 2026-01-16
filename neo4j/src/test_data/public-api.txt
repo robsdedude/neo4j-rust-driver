@@ -1680,6 +1680,88 @@ impl core::marker::Sync for neo4j::value::time::TimeComponents
 impl core::marker::Unpin for neo4j::value::time::TimeComponents
 impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::time::TimeComponents
 impl core::panic::unwind_safe::UnwindSafe for neo4j::value::time::TimeComponents
+pub mod neo4j::value::vector
+#[non_exhaustive] pub enum neo4j::value::vector::Vector
+pub neo4j::value::vector::Vector::F32(alloc::vec::Vec<f32>)
+pub neo4j::value::vector::Vector::F64(alloc::vec::Vec<f64>)
+pub neo4j::value::vector::Vector::I16(alloc::vec::Vec<i16>)
+pub neo4j::value::vector::Vector::I32(alloc::vec::Vec<i32>)
+pub neo4j::value::vector::Vector::I64(alloc::vec::Vec<i64>)
+pub neo4j::value::vector::Vector::I8(alloc::vec::Vec<i8>)
+impl neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::as_vec_f32(&self) -> core::option::Option<&alloc::vec::Vec<f32>>
+pub fn neo4j::value::vector::Vector::as_vec_f32_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<f32>>
+pub fn neo4j::value::vector::Vector::try_into_vec_f32(self) -> core::result::Result<alloc::vec::Vec<f32>, Self>
+impl neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::as_vec_f64(&self) -> core::option::Option<&alloc::vec::Vec<f64>>
+pub fn neo4j::value::vector::Vector::as_vec_f64_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<f64>>
+pub fn neo4j::value::vector::Vector::try_into_vec_f64(self) -> core::result::Result<alloc::vec::Vec<f64>, Self>
+impl neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::as_vec_i16(&self) -> core::option::Option<&alloc::vec::Vec<i16>>
+pub fn neo4j::value::vector::Vector::as_vec_i16_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<i16>>
+pub fn neo4j::value::vector::Vector::try_into_vec_i16(self) -> core::result::Result<alloc::vec::Vec<i16>, Self>
+impl neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::as_vec_i32(&self) -> core::option::Option<&alloc::vec::Vec<i32>>
+pub fn neo4j::value::vector::Vector::as_vec_i32_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<i32>>
+pub fn neo4j::value::vector::Vector::try_into_vec_i32(self) -> core::result::Result<alloc::vec::Vec<i32>, Self>
+impl neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::as_vec_i64(&self) -> core::option::Option<&alloc::vec::Vec<i64>>
+pub fn neo4j::value::vector::Vector::as_vec_i64_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<i64>>
+pub fn neo4j::value::vector::Vector::try_into_vec_i64(self) -> core::result::Result<alloc::vec::Vec<i64>, Self>
+impl neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::as_vec_i8(&self) -> core::option::Option<&alloc::vec::Vec<i8>>
+pub fn neo4j::value::vector::Vector::as_vec_i8_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<i8>>
+pub fn neo4j::value::vector::Vector::try_into_vec_i8(self) -> core::result::Result<alloc::vec::Vec<i8>, Self>
+impl core::clone::Clone for neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::clone(&self) -> neo4j::value::vector::Vector
+impl core::cmp::PartialEq for neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::eq(&self, other: &neo4j::value::vector::Vector) -> bool
+impl core::convert::From<alloc::vec::Vec<f32>> for neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::from(value: alloc::vec::Vec<f32>) -> Self
+impl core::convert::From<alloc::vec::Vec<f64>> for neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::from(value: alloc::vec::Vec<f64>) -> Self
+impl core::convert::From<alloc::vec::Vec<i16>> for neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::from(value: alloc::vec::Vec<i16>) -> Self
+impl core::convert::From<alloc::vec::Vec<i32>> for neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::from(value: alloc::vec::Vec<i32>) -> Self
+impl core::convert::From<alloc::vec::Vec<i64>> for neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::from(value: alloc::vec::Vec<i64>) -> Self
+impl core::convert::From<alloc::vec::Vec<i8>> for neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::from(value: alloc::vec::Vec<i8>) -> Self
+impl core::convert::From<neo4j::value::vector::Vector> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::vector::Vector) -> Self
+impl core::convert::TryFrom<neo4j::ValueReceive> for neo4j::value::vector::Vector
+pub type neo4j::value::vector::Vector::Error = neo4j::ValueReceive
+pub fn neo4j::value::vector::Vector::try_from(value: neo4j::ValueReceive) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<neo4j::value::vector::Vector> for alloc::vec::Vec<f32>
+pub type alloc::vec::Vec<f32>::Error = neo4j::value::vector::Vector
+pub fn alloc::vec::Vec<f32>::try_from(value: neo4j::value::vector::Vector) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<neo4j::value::vector::Vector> for alloc::vec::Vec<f64>
+pub type alloc::vec::Vec<f64>::Error = neo4j::value::vector::Vector
+pub fn alloc::vec::Vec<f64>::try_from(value: neo4j::value::vector::Vector) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<neo4j::value::vector::Vector> for alloc::vec::Vec<i16>
+pub type alloc::vec::Vec<i16>::Error = neo4j::value::vector::Vector
+pub fn alloc::vec::Vec<i16>::try_from(value: neo4j::value::vector::Vector) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<neo4j::value::vector::Vector> for alloc::vec::Vec<i32>
+pub type alloc::vec::Vec<i32>::Error = neo4j::value::vector::Vector
+pub fn alloc::vec::Vec<i32>::try_from(value: neo4j::value::vector::Vector) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<neo4j::value::vector::Vector> for alloc::vec::Vec<i64>
+pub type alloc::vec::Vec<i64>::Error = neo4j::value::vector::Vector
+pub fn alloc::vec::Vec<i64>::try_from(value: neo4j::value::vector::Vector) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<neo4j::value::vector::Vector> for alloc::vec::Vec<i8>
+pub type alloc::vec::Vec<i8>::Error = neo4j::value::vector::Vector
+pub fn alloc::vec::Vec<i8>::try_from(value: neo4j::value::vector::Vector) -> core::result::Result<Self, Self::Error>
+impl core::fmt::Debug for neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for neo4j::value::vector::Vector
+pub fn neo4j::value::vector::Vector::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for neo4j::value::vector::Vector
+impl core::marker::Freeze for neo4j::value::vector::Vector
+impl core::marker::Send for neo4j::value::vector::Vector
+impl core::marker::Sync for neo4j::value::vector::Vector
+impl core::marker::Unpin for neo4j::value::vector::Vector
+impl core::panic::unwind_safe::RefUnwindSafe for neo4j::value::vector::Vector
+impl core::panic::unwind_safe::UnwindSafe for neo4j::value::vector::Vector
 #[non_exhaustive] pub enum neo4j::value::ValueReceive
 pub neo4j::value::ValueReceive::Boolean(bool)
 pub neo4j::value::ValueReceive::BrokenValue(neo4j::value::BrokenValue)
@@ -1702,6 +1784,7 @@ pub neo4j::value::ValueReceive::Path(neo4j::value::graph::Path)
 pub neo4j::value::ValueReceive::Relationship(neo4j::value::graph::Relationship)
 pub neo4j::value::ValueReceive::String(alloc::string::String)
 pub neo4j::value::ValueReceive::Time(neo4j::value::time::Time)
+pub neo4j::value::ValueReceive::Vector(neo4j::value::vector::Vector)
 pub neo4j::value::ValueReceive::WGS84_2D(neo4j::value::spatial::WGS84_2D)
 pub neo4j::value::ValueReceive::WGS84_3D(neo4j::value::spatial::WGS84_3D)
 impl neo4j::ValueReceive
@@ -1800,6 +1883,35 @@ pub fn neo4j::ValueReceive::as_time_mut(&mut self) -> core::option::Option<&mut 
 pub fn neo4j::ValueReceive::is_time(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_time(self) -> core::result::Result<neo4j::value::time::Time, Self>
 impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector(&self) -> core::option::Option<&neo4j::value::vector::Vector>
+pub fn neo4j::ValueReceive::as_vector_mut(&mut self) -> core::option::Option<&mut neo4j::value::vector::Vector>
+pub fn neo4j::ValueReceive::is_vector(&self) -> bool
+pub fn neo4j::ValueReceive::try_into_vector(self) -> core::result::Result<neo4j::value::vector::Vector, Self>
+impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector_f32(&self) -> core::option::Option<&alloc::vec::Vec<f32>>
+pub fn neo4j::ValueReceive::as_vector_f32_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<f32>>
+pub fn neo4j::ValueReceive::try_into_vector_f32(self) -> core::result::Result<alloc::vec::Vec<f32>, Self>
+impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector_f64(&self) -> core::option::Option<&alloc::vec::Vec<f64>>
+pub fn neo4j::ValueReceive::as_vector_f64_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<f64>>
+pub fn neo4j::ValueReceive::try_into_vector_f64(self) -> core::result::Result<alloc::vec::Vec<f64>, Self>
+impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector_i16(&self) -> core::option::Option<&alloc::vec::Vec<i16>>
+pub fn neo4j::ValueReceive::as_vector_i16_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<i16>>
+pub fn neo4j::ValueReceive::try_into_vector_i16(self) -> core::result::Result<alloc::vec::Vec<i16>, Self>
+impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector_i32(&self) -> core::option::Option<&alloc::vec::Vec<i32>>
+pub fn neo4j::ValueReceive::as_vector_i32_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<i32>>
+pub fn neo4j::ValueReceive::try_into_vector_i32(self) -> core::result::Result<alloc::vec::Vec<i32>, Self>
+impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector_i64(&self) -> core::option::Option<&alloc::vec::Vec<i64>>
+pub fn neo4j::ValueReceive::as_vector_i64_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<i64>>
+pub fn neo4j::ValueReceive::try_into_vector_i64(self) -> core::result::Result<alloc::vec::Vec<i64>, Self>
+impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector_i8(&self) -> core::option::Option<&alloc::vec::Vec<i8>>
+pub fn neo4j::ValueReceive::as_vector_i8_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<i8>>
+pub fn neo4j::ValueReceive::try_into_vector_i8(self) -> core::result::Result<alloc::vec::Vec<i8>, Self>
+impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_wgs84_2d(&self) -> core::option::Option<&neo4j::value::spatial::WGS84_2D>
 pub fn neo4j::ValueReceive::as_wgs84_2d_mut(&mut self) -> core::option::Option<&mut neo4j::value::spatial::WGS84_2D>
 pub fn neo4j::ValueReceive::is_wgs84_2d(&self) -> bool
@@ -1880,6 +1992,9 @@ pub fn neo4j::value::time::LocalTime::try_from(value: neo4j::ValueReceive) -> co
 impl core::convert::TryFrom<neo4j::ValueReceive> for neo4j::value::time::Time
 pub type neo4j::value::time::Time::Error = neo4j::ValueReceive
 pub fn neo4j::value::time::Time::try_from(value: neo4j::ValueReceive) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<neo4j::ValueReceive> for neo4j::value::vector::Vector
+pub type neo4j::value::vector::Vector::Error = neo4j::ValueReceive
+pub fn neo4j::value::vector::Vector::try_from(value: neo4j::ValueReceive) -> core::result::Result<Self, Self::Error>
 impl core::convert::TryFrom<neo4j::ValueReceive> for std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>
 pub type std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>::Error = neo4j::ValueReceive
 pub fn std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>::try_from(value: neo4j::ValueReceive) -> core::result::Result<Self, Self::Error>
@@ -1910,6 +2025,7 @@ pub neo4j::value::ValueSend::Map(std::collections::hash::map::HashMap<alloc::str
 pub neo4j::value::ValueSend::Null
 pub neo4j::value::ValueSend::String(alloc::string::String)
 pub neo4j::value::ValueSend::Time(neo4j::value::time::Time)
+pub neo4j::value::ValueSend::Vector(neo4j::value::vector::Vector)
 pub neo4j::value::ValueSend::WGS84_2D(neo4j::value::spatial::WGS84_2D)
 pub neo4j::value::ValueSend::WGS84_3D(neo4j::value::spatial::WGS84_3D)
 impl neo4j::ValueSend
@@ -2032,6 +2148,8 @@ impl core::convert::From<neo4j::value::time::LocalTime> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: neo4j::value::time::LocalTime) -> Self
 impl core::convert::From<neo4j::value::time::Time> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: neo4j::value::time::Time) -> Self
+impl core::convert::From<neo4j::value::vector::Vector> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::vector::Vector) -> Self
 impl core::convert::From<u16> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: u16) -> Self
 impl core::convert::From<u32> for neo4j::ValueSend
@@ -2196,6 +2314,7 @@ pub neo4j::ValueReceive::Path(neo4j::value::graph::Path)
 pub neo4j::ValueReceive::Relationship(neo4j::value::graph::Relationship)
 pub neo4j::ValueReceive::String(alloc::string::String)
 pub neo4j::ValueReceive::Time(neo4j::value::time::Time)
+pub neo4j::ValueReceive::Vector(neo4j::value::vector::Vector)
 pub neo4j::ValueReceive::WGS84_2D(neo4j::value::spatial::WGS84_2D)
 pub neo4j::ValueReceive::WGS84_3D(neo4j::value::spatial::WGS84_3D)
 impl neo4j::ValueReceive
@@ -2294,6 +2413,35 @@ pub fn neo4j::ValueReceive::as_time_mut(&mut self) -> core::option::Option<&mut 
 pub fn neo4j::ValueReceive::is_time(&self) -> bool
 pub fn neo4j::ValueReceive::try_into_time(self) -> core::result::Result<neo4j::value::time::Time, Self>
 impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector(&self) -> core::option::Option<&neo4j::value::vector::Vector>
+pub fn neo4j::ValueReceive::as_vector_mut(&mut self) -> core::option::Option<&mut neo4j::value::vector::Vector>
+pub fn neo4j::ValueReceive::is_vector(&self) -> bool
+pub fn neo4j::ValueReceive::try_into_vector(self) -> core::result::Result<neo4j::value::vector::Vector, Self>
+impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector_f32(&self) -> core::option::Option<&alloc::vec::Vec<f32>>
+pub fn neo4j::ValueReceive::as_vector_f32_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<f32>>
+pub fn neo4j::ValueReceive::try_into_vector_f32(self) -> core::result::Result<alloc::vec::Vec<f32>, Self>
+impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector_f64(&self) -> core::option::Option<&alloc::vec::Vec<f64>>
+pub fn neo4j::ValueReceive::as_vector_f64_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<f64>>
+pub fn neo4j::ValueReceive::try_into_vector_f64(self) -> core::result::Result<alloc::vec::Vec<f64>, Self>
+impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector_i16(&self) -> core::option::Option<&alloc::vec::Vec<i16>>
+pub fn neo4j::ValueReceive::as_vector_i16_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<i16>>
+pub fn neo4j::ValueReceive::try_into_vector_i16(self) -> core::result::Result<alloc::vec::Vec<i16>, Self>
+impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector_i32(&self) -> core::option::Option<&alloc::vec::Vec<i32>>
+pub fn neo4j::ValueReceive::as_vector_i32_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<i32>>
+pub fn neo4j::ValueReceive::try_into_vector_i32(self) -> core::result::Result<alloc::vec::Vec<i32>, Self>
+impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector_i64(&self) -> core::option::Option<&alloc::vec::Vec<i64>>
+pub fn neo4j::ValueReceive::as_vector_i64_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<i64>>
+pub fn neo4j::ValueReceive::try_into_vector_i64(self) -> core::result::Result<alloc::vec::Vec<i64>, Self>
+impl neo4j::ValueReceive
+pub fn neo4j::ValueReceive::as_vector_i8(&self) -> core::option::Option<&alloc::vec::Vec<i8>>
+pub fn neo4j::ValueReceive::as_vector_i8_mut(&mut self) -> core::option::Option<&mut alloc::vec::Vec<i8>>
+pub fn neo4j::ValueReceive::try_into_vector_i8(self) -> core::result::Result<alloc::vec::Vec<i8>, Self>
+impl neo4j::ValueReceive
 pub fn neo4j::ValueReceive::as_wgs84_2d(&self) -> core::option::Option<&neo4j::value::spatial::WGS84_2D>
 pub fn neo4j::ValueReceive::as_wgs84_2d_mut(&mut self) -> core::option::Option<&mut neo4j::value::spatial::WGS84_2D>
 pub fn neo4j::ValueReceive::is_wgs84_2d(&self) -> bool
@@ -2374,6 +2522,9 @@ pub fn neo4j::value::time::LocalTime::try_from(value: neo4j::ValueReceive) -> co
 impl core::convert::TryFrom<neo4j::ValueReceive> for neo4j::value::time::Time
 pub type neo4j::value::time::Time::Error = neo4j::ValueReceive
 pub fn neo4j::value::time::Time::try_from(value: neo4j::ValueReceive) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<neo4j::ValueReceive> for neo4j::value::vector::Vector
+pub type neo4j::value::vector::Vector::Error = neo4j::ValueReceive
+pub fn neo4j::value::vector::Vector::try_from(value: neo4j::ValueReceive) -> core::result::Result<Self, Self::Error>
 impl core::convert::TryFrom<neo4j::ValueReceive> for std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>
 pub type std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>::Error = neo4j::ValueReceive
 pub fn std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>::try_from(value: neo4j::ValueReceive) -> core::result::Result<Self, Self::Error>
@@ -2404,6 +2555,7 @@ pub neo4j::ValueSend::Map(std::collections::hash::map::HashMap<alloc::string::St
 pub neo4j::ValueSend::Null
 pub neo4j::ValueSend::String(alloc::string::String)
 pub neo4j::ValueSend::Time(neo4j::value::time::Time)
+pub neo4j::ValueSend::Vector(neo4j::value::vector::Vector)
 pub neo4j::ValueSend::WGS84_2D(neo4j::value::spatial::WGS84_2D)
 pub neo4j::ValueSend::WGS84_3D(neo4j::value::spatial::WGS84_3D)
 impl neo4j::ValueSend
@@ -2526,6 +2678,8 @@ impl core::convert::From<neo4j::value::time::LocalTime> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: neo4j::value::time::LocalTime) -> Self
 impl core::convert::From<neo4j::value::time::Time> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: neo4j::value::time::Time) -> Self
+impl core::convert::From<neo4j::value::vector::Vector> for neo4j::ValueSend
+pub fn neo4j::ValueSend::from(value: neo4j::value::vector::Vector) -> Self
 impl core::convert::From<u16> for neo4j::ValueSend
 pub fn neo4j::ValueSend::from(value: u16) -> Self
 impl core::convert::From<u32> for neo4j::ValueSend

@@ -4,6 +4,9 @@
 
 ## NEXT
 ***
+**⭐️ New Features**
+ - Add Support for Bolt 6.0: vector types.
+
 **👏️ Improvements**
  - Reduce network latency in some cases by setting `TCP_NODELAY`.
  - ⚠️ Reduce the size of `Neo4jError`. The `ServerError` variant is now wrapped in a Box.

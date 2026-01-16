@@ -19,21 +19,27 @@ use usize_cast::IntoIsize;
 
 use super::super::bolt5x0::Bolt5x0StructTranslator;
 use super::super::bolt_common::*;
-use super::super::{BoltStructTranslator, BoltStructTranslatorWithUtcPatch};
-use crate::driver::io::bolt::PackStreamSerializer;
+use super::super::{BoltStructTranslator, BoltStructTranslatorWithUtcPatch, PackStreamSerializer};
 use crate::value::graph::{Node, Path, Relationship, UnboundRelationship};
 use crate::value::time::chrono::{FixedOffset, LocalResult, Offset, TimeZone};
 use crate::value::time::chrono_tz::Tz;
 use crate::value::time::{local_date_time_from_timestamp, DateTime, DateTimeFixed};
 use crate::value::{BrokenValue, BrokenValueInner, ValueReceive, ValueSend};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Bolt4x4StructTranslator {
     utc_patch: bool,
     bolt5x0_translator: Bolt5x0StructTranslator,
 }
 
 impl BoltStructTranslator for Bolt4x4StructTranslator {
+    fn new(bolt_version: ServerAwareBoltVersion) -> Self {
+        Self {
+            utc_patch: false,
+            bolt5x0_translator: Bolt5x0StructTranslator::new(bolt_version),
+        }
+    }
+
     fn serialize<S: PackStreamSerializer>(
         &self,
         serializer: &mut S,

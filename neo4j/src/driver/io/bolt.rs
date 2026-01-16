@@ -23,6 +23,7 @@ mod bolt5x4;
 mod bolt5x6;
 mod bolt5x7;
 mod bolt5x8;
+mod bolt6x0;
 mod bolt_handler;
 mod bolt_state;
 mod chunk;
@@ -64,6 +65,7 @@ use bolt5x4::{Bolt5x4, Bolt5x4StructTranslator};
 use bolt5x6::{Bolt5x6, Bolt5x6StructTranslator};
 use bolt5x7::{Bolt5x7, Bolt5x7StructTranslator};
 use bolt5x8::{Bolt5x8, Bolt5x8StructTranslator};
+use bolt6x0::{Bolt6x0, Bolt6x0StructTranslator};
 use bolt_common::ServerAwareBoltVersion;
 use bolt_handler::{
     BeginHandler, CommitHandler, DiscardHandler, GoodbyeHandler, HandleResponseHandler,
@@ -203,6 +205,7 @@ pub(crate) struct Bolt<RW: Read + Write> {
     protocol: BoltProtocol,
 }
 
+// [bolt-version-bump] search tag when changing bolt version support
 impl<RW: Read + Write> Bolt<RW> {
     fn new(
         version: (u8, u8),
@@ -211,44 +214,39 @@ impl<RW: Read + Write> Bolt<RW> {
         local_port: Option<u16>,
         address: Arc<Address>,
     ) -> Self {
-        let (protocol_version, protocol) = match version {
-            (5, 8) => (
-                ServerAwareBoltVersion::V5x8,
-                Bolt5x8::<Bolt5x0StructTranslator>::default().into(),
-            ),
-            (5, 7) => (
-                ServerAwareBoltVersion::V5x7,
-                Bolt5x7::<Bolt5x0StructTranslator>::default().into(),
-            ),
-            (5, 6) => (
-                ServerAwareBoltVersion::V5x6,
-                Bolt5x6::<Bolt5x0StructTranslator>::default().into(),
-            ),
-            (5, 4) => (
-                ServerAwareBoltVersion::V5x4,
-                Bolt5x4::<Bolt5x0StructTranslator>::default().into(),
-            ),
-            (5, 3) => (
-                ServerAwareBoltVersion::V5x3,
-                Bolt5x3::<Bolt5x0StructTranslator>::default().into(),
-            ),
-            (5, 2) => (
-                ServerAwareBoltVersion::V5x2,
-                Bolt5x2::<Bolt5x0StructTranslator>::default().into(),
-            ),
-            (5, 1) => (
-                ServerAwareBoltVersion::V5x1,
-                Bolt5x1::<Bolt5x0StructTranslator>::default().into(),
-            ),
-            (5, 0) => (
-                ServerAwareBoltVersion::V5x0,
-                Bolt5x0::<Bolt5x0StructTranslator>::default().into(),
-            ),
-            (4, 4) => (
-                ServerAwareBoltVersion::V4x4,
-                Bolt4x4::<Bolt4x4StructTranslator>::default().into(),
-            ),
-            _ => panic!("implement protocol for version {version:?}"),
+        let protocol_version = ServerAwareBoltVersion::parse(version.0, version.1)
+            .unwrap_or_else(|| panic!("implement protocol for version {version:?}"));
+        let protocol = match protocol_version {
+            ServerAwareBoltVersion::V6x0 => {
+                Bolt6x0::<Bolt6x0StructTranslator>::new(protocol_version).into()
+            }
+            ServerAwareBoltVersion::V5x8 => {
+                Bolt5x8::<Bolt5x8StructTranslator>::new(protocol_version).into()
+            }
+            ServerAwareBoltVersion::V5x7 => {
+                Bolt5x7::<Bolt5x7StructTranslator>::new(protocol_version).into()
+            }
+            ServerAwareBoltVersion::V5x6 => {
+                Bolt5x6::<Bolt5x6StructTranslator>::new(protocol_version).into()
+            }
+            ServerAwareBoltVersion::V5x4 => {
+                Bolt5x4::<Bolt5x4StructTranslator>::new(protocol_version).into()
+            }
+            ServerAwareBoltVersion::V5x3 => {
+                Bolt5x3::<Bolt5x3StructTranslator>::new(protocol_version).into()
+            }
+            ServerAwareBoltVersion::V5x2 => {
+                Bolt5x2::<Bolt5x2StructTranslator>::new(protocol_version).into()
+            }
+            ServerAwareBoltVersion::V5x1 => {
+                Bolt5x1::<Bolt5x1StructTranslator>::new(protocol_version).into()
+            }
+            ServerAwareBoltVersion::V5x0 => {
+                Bolt5x0::<Bolt5x0StructTranslator>::new(protocol_version).into()
+            }
+            ServerAwareBoltVersion::V4x4 => {
+                Bolt4x4::<Bolt4x4StructTranslator>::new(protocol_version).into()
+            }
         };
         let data = BoltData::new(
             version,
@@ -505,6 +503,7 @@ enum BoltProtocol {
     V5x6(Bolt5x6<Bolt5x6StructTranslator>),
     V5x7(Bolt5x7<Bolt5x7StructTranslator>),
     V5x8(Bolt5x8<Bolt5x8StructTranslator>),
+    V6x0(Bolt6x0<Bolt6x0StructTranslator>),
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -783,7 +782,9 @@ impl AuthResetHandle {
     }
 }
 
-pub(crate) trait BoltStructTranslator: Debug + Default {
+pub(crate) trait BoltStructTranslator: Debug {
+    fn new(bolt_version: ServerAwareBoltVersion) -> Self;
+
     fn serialize<S: PackStreamSerializer>(
         &self,
         serializer: &mut S,
@@ -794,6 +795,10 @@ pub(crate) trait BoltStructTranslator: Debug + Default {
 }
 
 impl<T: BoltStructTranslator> BoltStructTranslator for Arc<AtomicRefCell<T>> {
+    fn new(bolt_version: ServerAwareBoltVersion) -> Self {
+        Arc::new(AtomicRefCell::new(T::new(bolt_version)))
+    }
+
     fn serialize<S: PackStreamSerializer>(
         &self,
         serializer: &mut S,

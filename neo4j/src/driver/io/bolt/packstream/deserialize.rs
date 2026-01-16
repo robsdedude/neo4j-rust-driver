@@ -16,8 +16,8 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::io::Read;
 
+use super::super::BoltStructTranslator;
 use super::error::PackStreamDeserializeError;
-use crate::driver::io::bolt::BoltStructTranslator;
 use crate::value::ValueReceive;
 
 pub(crate) trait PackStreamDeserializer {

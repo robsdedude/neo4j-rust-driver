@@ -37,6 +37,8 @@ use crate::driver::{DriverConfig, ExecuteQueryBuilder};
 #[allow(unused)]
 use crate::session::SessionConfig;
 #[allow(unused)]
+use crate::value::vector::Vector;
+#[allow(unused)]
 use crate::value::ValueSend;
 
 type BoxError = Box<dyn StdError + Send + Sync>;
@@ -82,6 +84,7 @@ pub enum Neo4jError {
     ///    * A temporal value that is out of range.
     ///      The exact conditions for this depend on the protocol version negotiated with the
     ///      server.
+    ///    * A [`Vector`] when a protocol version before 6.0 was negotiated.
     ///  * Connecting with an incompatible server/using a feature that's not
     ///    supported over the negotiated protocol version.
     ///  * Can be generated using [`Neo4jError::from::<GetSingleRecordError>`]
