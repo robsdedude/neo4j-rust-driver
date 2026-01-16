@@ -15,7 +15,7 @@ jobs:
       - name: Install nightly toolchain for cargo-check-external-types
         uses: dtolnay/rust-toolchain@v1
         with:
-          toolchain: nightly-2024-06-30
+          toolchain: nightly-2025-10-18
       - name: Install latest nightly toolchain for rustfmt
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -28,8 +28,9 @@ jobs:
         run: |
           set -x
           rustup show
-          cargo --version 
-          cargo +nightly --version 
+          cargo --version
+          cargo +nightly --version
+          cargo +nightly-2025-10-18 --version
           cargo clippy --version
       - name: cargo fmt
         run: cargo +nightly fmt --all -- --check
@@ -37,12 +38,12 @@ jobs:
         run: cargo clippy --all --all-features --tests -- -D warnings
       - name: clippy driver
         run: cargo clippy -p neo4j -- -D warnings
-      - name:  Check exported dependencies
+      - name: Check exported dependencies
         run: |
           set -x
           pushd neo4j
-          cargo install --locked cargo-check-external-types@0.1.13
-          cargo +nightly-2024-06-30 check-external-types
+          cargo install --locked cargo-check-external-types@0.4.0
+          cargo +nightly-2025-10-18 check-external-types --all-features
           popd
       - name: API stability check
         run: cargo test --workspace --features _internal_public_api public_api
@@ -52,7 +53,7 @@ jobs:
     runs-on: "ubuntu-latest"
     strategy:
       matrix:
-        rust-version: [ "1.71", "stable" ]
+        rust-version: ["1.71", "stable"]
     steps:
       - name: Pull neo4j docker image
         run: docker pull neo4j:5.26-enterprise
@@ -82,7 +83,7 @@ jobs:
       - name: Versions
         run: |
           rustup show
-          cargo --version 
+          cargo --version
           cargo clippy --version
       - name: cargo check
         working-directory: driver
@@ -140,11 +141,11 @@ jobs:
 
   testkit:
     name: TestKit
-    needs: [ tests, lints ]
+    needs: [tests, lints]
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        tests: [ TESTKIT_TESTS ]
+        tests: [TESTKIT_TESTS]
         # [bolt-version-bump] search tag when changing bolt version support
         config:
           - 4.4-enterprise-neo4j
@@ -203,7 +204,7 @@ jobs:
   ci-end:
     name: CI End
     if: ${{ cancelled() || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'failure') }}
-    needs: [ tests, lints, testkit ]
+    needs: [tests, lints, testkit]
     runs-on: ubuntu-latest
     steps:
       - run: |

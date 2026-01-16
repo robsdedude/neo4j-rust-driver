@@ -54,8 +54,8 @@ repos:
         entry: >
           bash -ec "
           cd neo4j;
-          cargo +nightly-2025-08-06 install --locked cargo-check-external-types@0.3.0
-          && cargo +nightly-2025-08-06 check-external-types --all-features"
+          cargo +nightly-2025-10-18 install --locked cargo-check-external-types@0.4.0
+          && cargo +nightly-2025-10-18 check-external-types --all-features"
         language: system
         types_or: [rust, toml]
         pass_filenames: false
