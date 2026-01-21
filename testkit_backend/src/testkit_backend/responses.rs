@@ -850,7 +850,7 @@ impl TryFrom<EagerResult> for Response {
 impl Response {
     pub(super) fn feature_list() -> Self {
         Self::FeatureList {
-            features: FEATURE_LIST.into_iter().map(|x| String::from(*x)).collect(),
+            features: FEATURE_LIST.iter().map(|x| String::from(*x)).collect(),
         }
     }
 
