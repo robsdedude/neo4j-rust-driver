@@ -36,7 +36,7 @@ use neo4j::value::graph::{
     UnboundRelationship as Neo4jUnboundRelationship,
 };
 use neo4j::value::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
-use neo4j::value::{time, vector, ValueReceive, ValueSend};
+use neo4j::value::{time, unsupported_type, vector, ValueReceive, ValueSend};
 
 #[derive(Debug)]
 #[repr(transparent)]
@@ -120,6 +120,12 @@ pub(super) enum CypherValue {
     CypherVector {
         dtype: String,
         data: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    CypherUnsupportedType {
+        name: String,
+        minimum_protocol: String,
+        message: Option<String>,
     },
 }
 
@@ -511,6 +517,11 @@ impl TryFrom<CypherValue> for ValueSend {
                     }
                 }
             }
+            CypherValue::CypherUnsupportedType { .. } => {
+                return Err(NotADriverValueError::new(
+                    "UnsupportedType cannot be used as input type",
+                ))
+            }
         })
     }
 }
@@ -690,7 +701,7 @@ impl TryFrom<ValueSend> for CypherValue {
             ValueSend::LocalDateTime(value) => local_date_time_to_cypher_value(value)?,
             ValueSend::DateTime(value) => date_time_to_cypher_value(value)?,
             ValueSend::DateTimeFixed(value) => date_time_fixed_to_cypher_value(value)?,
-            ValueSend::Vector(value) => vector_cypher_value(value)?,
+            ValueSend::Vector(value) => vector_to_cypher_value(value)?,
             _ => {
                 return Err(TestKitError::backend_err(format!(
                     "Failed to serialize ValueSend to json: {v:?}",
@@ -834,7 +845,8 @@ impl TryFrom<ValueReceive> for CypherValue {
             ValueReceive::LocalDateTime(value) => local_date_time_to_cypher_value(value)?,
             ValueReceive::DateTime(value) => date_time_to_cypher_value(value)?,
             ValueReceive::DateTimeFixed(value) => date_time_fixed_to_cypher_value(value)?,
-            ValueReceive::Vector(value) => vector_cypher_value(value)?,
+            ValueReceive::Vector(value) => vector_to_cypher_value(value)?,
+            ValueReceive::UnsupportedType(value) => unsupported_type_to_cypher_value(value),
             ValueReceive::BrokenValue(v) => {
                 return Err(BrokenValueError::BrokenValue {
                     reason: v.reason().into(),
@@ -953,7 +965,7 @@ fn date_time_fixed_to_cypher_value(
     }))
 }
 
-fn vector_cypher_value(value: vector::Vector) -> Result<CypherValue, BrokenValueError> {
+fn vector_to_cypher_value(value: vector::Vector) -> Result<CypherValue, BrokenValueError> {
     Ok(match value {
         vector::Vector::F64(value) => CypherValue::CypherVector {
             dtype: String::from("f64"),
@@ -1019,6 +1031,18 @@ fn vector_cypher_value(value: vector::Vector) -> Result<CypherValue, BrokenValue
             return Err(BrokenValueError::UnhandledVectorType(value));
         }
     })
+}
+
+fn unsupported_type_to_cypher_value(value: unsupported_type::UnsupportedType) -> CypherValue {
+    CypherValue::CypherUnsupportedType {
+        name: value.name().to_owned(),
+        minimum_protocol: format!(
+            "{}.{}",
+            value.minimum_protocol_version().0,
+            value.minimum_protocol_version().1
+        ),
+        message: value.message().map(String::from),
+    }
 }
 
 #[allow(clippy::result_large_err)]

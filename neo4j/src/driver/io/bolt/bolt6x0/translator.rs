@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::VecDeque;
 use std::mem::size_of;
 
 use usize_cast::FromUsize;
@@ -91,9 +92,9 @@ impl BoltStructTranslator for Bolt6x0StructTranslator {
     }
 
     fn deserialize_struct(&self, tag: u8, mut fields: Vec<ValueReceive>) -> ValueReceive {
+        let size = fields.len();
         match tag {
             TAG_VECTOR => {
-                let size = fields.len();
                 if size != 2 {
                     return invalid_struct(format!(
                         "expected 2 fields for vector struct b'V', found {size}"
@@ -179,6 +180,44 @@ impl BoltStructTranslator for Bolt6x0StructTranslator {
                             "unknown vector type marker {type_marker:?}"
                         ));
                     }
+                })
+            }
+            TAG_UNSUPPORTED_TYPE => {
+                let mut fields = VecDeque::from(fields);
+                if size != 4 {
+                    return invalid_struct(format!(
+                        "expected 4 fields for unsupported type struct b'?', found {size}"
+                    ));
+                }
+                let name = as_string!(fields.pop_front().unwrap(), "unsupported type name");
+                let min_major = as_int!(fields.pop_front().unwrap(), "unsupported type min major");
+                let min_minor = as_int!(fields.pop_front().unwrap(), "unsupported type min minor");
+
+                let Ok(min_major) = u8::try_from(min_major) else {
+                    return invalid_struct(format!(
+                        "unsupported type minimum major version must be u8, found {min_major}"
+                    ));
+                };
+
+                let Ok(min_minor) = u8::try_from(min_minor) else {
+                    return invalid_struct(format!(
+                        "unsupported type minimum minor version must be u8, found {min_minor}"
+                    ));
+                };
+
+                let mut extra = as_map!(fields.pop_front().unwrap(), "unsupported type extra");
+
+                let message = extra.remove("message");
+
+                let message = match message {
+                    Some(text) => Some(as_string!(text, "unsupported type extra::message")),
+                    None => None,
+                };
+
+                ValueReceive::UnsupportedType(crate::value::unsupported_type::UnsupportedType {
+                    name,
+                    minimum_protocol_version: (min_major, min_minor),
+                    message,
                 })
             }
             _ => self.bolt5x8_translator.deserialize_struct(tag, fields),
