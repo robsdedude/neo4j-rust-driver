@@ -125,7 +125,7 @@
 //! ### Main Mechanisms for Query Execution
 //! There are three main ways to execute queries:
 //! - [`Driver::execute_query()`] is the easiest way to run a query.
-//!   Prefer it whenever possible as it most efficient.
+//!   Prefer it whenever possible as it's most efficient.
 //! - [`Session::transaction()`] gives you full control over the transaction.
 //! - [`Session::auto_commit()`] is a special method for running queries that manage their own
 //!   transactions, such as `CALL {...} IN TRANSACTION`.
@@ -137,9 +137,9 @@
 //! To provide stronger guarantees, the server sends a bookmark to the client after every
 //! successful transaction that applies a write.
 //! These bookmarks are abstract tokens that represent some state of the database.
-//! By passing them back to the server along with a transaction, the client requests the server to
-//! wait until the state(s) represented by the bookmark(s) have been established before executing
-//! the transaction.
+//! By passing them back to the server when starting a transaction, the client requests the server to
+//! wait until the state(s) represented by the bookmark(s) have been established before beginning
+//! said transaction.
 //!
 //! To point out the obvious: relying on bookmarks can be slow because of the wait described above.
 //! Not using them, however, can lead to stale reads which will be unacceptable in some cases.

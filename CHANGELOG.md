@@ -5,7 +5,7 @@
 ## NEXT
 ***
 **⭐️ New Features**
- - Add Support for Bolt 6.0: vector types.
+ - Add Support for Bolt 6.0: vector types & unsupported type.
 
 **👏️ Improvements**
  - Reduce network latency in some cases by setting `TCP_NODELAY`.

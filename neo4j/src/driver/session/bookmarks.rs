@@ -246,7 +246,7 @@ pub trait BookmarkManager: Debug + Send + Sync {
     /// Provide the bookmarks to be used for the next transaction.
     ///
     /// Before staring work configured with with bookmark manager, the driver will call this method
-    /// to get the bookmarks to.
+    /// to get the bookmarks to be sent to the server.
     ///
     /// If the method fails, the driver will return [`Neo4jError::UserCallback`] with
     /// [`UserCallbackError::BookmarkManagerGet`].
