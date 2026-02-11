@@ -21,7 +21,7 @@ use super::super::packstream::{
 };
 use super::super::response::{BoltResponse, ResponseMessage};
 use super::super::{
-    bolt_debug, debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltStructTranslator,
+    BoltData, BoltStructTranslator, bolt_debug, debug_buf, debug_buf_end, debug_buf_start,
 };
 use super::common::write_auth_dict;
 use crate::error_::Result;

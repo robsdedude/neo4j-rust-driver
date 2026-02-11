@@ -26,7 +26,7 @@ use super::super::packstream::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
 use super::super::response::{BoltMeta, BoltResponse, ResponseCallbacks, ResponseMessage};
-use super::super::{debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltStructTranslator};
+use super::super::{BoltData, BoltStructTranslator, debug_buf, debug_buf_end, debug_buf_start};
 use super::common::{notification_filter_entries_count, write_notification_filter_entries};
 use super::hello_5x0::HelloHandler5x0;
 use super::hello_5x3::HelloHandler5x3;

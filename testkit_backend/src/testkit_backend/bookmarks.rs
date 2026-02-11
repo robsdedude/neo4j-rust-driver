@@ -18,13 +18,13 @@ use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
 
-use neo4j::bookmarks::{bookmark_managers, BookmarkManager, Bookmarks};
+use neo4j::bookmarks::{BookmarkManager, Bookmarks, bookmark_managers};
 
+use super::BackendIo;
 use super::backend_id::{BackendId, Generator};
 use super::errors::TestKitError;
 use super::requests::Request;
 use super::responses::Response;
-use super::BackendIo;
 
 type BoxError = Box<dyn StdError + Send + Sync>;
 

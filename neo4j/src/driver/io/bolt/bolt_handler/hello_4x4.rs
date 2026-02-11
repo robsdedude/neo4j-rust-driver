@@ -28,7 +28,7 @@ use super::super::packstream::{
 };
 use super::super::response::{BoltResponse, ResponseCallbacks, ResponseMessage};
 use super::super::{
-    debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltStructTranslatorWithUtcPatch,
+    BoltData, BoltStructTranslatorWithUtcPatch, debug_buf, debug_buf_end, debug_buf_start,
 };
 use super::common::{check_no_notification_filter, write_auth_entries};
 use super::hello_5x0::HelloHandler5x0;

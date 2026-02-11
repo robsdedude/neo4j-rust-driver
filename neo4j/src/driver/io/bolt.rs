@@ -42,8 +42,8 @@ use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
 use std::ops::Deref;
 use std::result;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use atomic_refcell::AtomicRefCell;
@@ -56,6 +56,13 @@ use crate::driver::auth::AuthToken;
 use crate::error_::{Neo4jError, Result, ServerError};
 use crate::time::Instant;
 use crate::value::{ValueReceive, ValueSend};
+use bolt_common::ServerAwareBoltVersion;
+use bolt_handler::{
+    BeginHandler, CommitHandler, DiscardHandler, GoodbyeHandler, HandleResponseHandler,
+    HelloHandler, LoadValueHandler, PullHandler, ReauthHandler, ResetHandler, RollbackHandler,
+    RouteHandler, RunHandler, TelemetryHandler,
+};
+use bolt_state::{BoltState, BoltStateTracker};
 use bolt4x4::{Bolt4x4, Bolt4x4StructTranslator};
 use bolt5x0::{Bolt5x0, Bolt5x0StructTranslator};
 use bolt5x1::{Bolt5x1, Bolt5x1StructTranslator};
@@ -66,15 +73,8 @@ use bolt5x6::{Bolt5x6, Bolt5x6StructTranslator};
 use bolt5x7::{Bolt5x7, Bolt5x7StructTranslator};
 use bolt5x8::{Bolt5x8, Bolt5x8StructTranslator};
 use bolt6x0::{Bolt6x0, Bolt6x0StructTranslator};
-use bolt_common::ServerAwareBoltVersion;
-use bolt_handler::{
-    BeginHandler, CommitHandler, DiscardHandler, GoodbyeHandler, HandleResponseHandler,
-    HelloHandler, LoadValueHandler, PullHandler, ReauthHandler, ResetHandler, RollbackHandler,
-    RouteHandler, RunHandler, TelemetryHandler,
-};
-use bolt_state::{BoltState, BoltStateTracker};
 use chunk::{Chunker, Dechunker};
-pub(crate) use handshake::{open, TcpConnector};
+pub(crate) use handshake::{TcpConnector, open};
 use message::BoltMessage;
 use message_parameters::{
     BeginParameters, CommitParameters, DiscardParameters, GoodbyeParameters, HelloParameters,
@@ -92,7 +92,7 @@ macro_rules! debug_buf_start {
         let mut $name = None;
         {
             #![allow(unused_imports)]
-            use log::{log_enabled, Level};
+            use log::{Level, log_enabled};
 
             if log_enabled!(Level::Debug) {
                 $name = Some(String::new());
@@ -696,10 +696,10 @@ impl<RW: Read + Write> BoltData<RW> {
     }
 
     fn needs_reset(&self) -> bool {
-        if let Some(response) = self.responses.iter().last() {
-            if response.message == ResponseMessage::Reset {
-                return false;
-            }
+        if let Some(response) = self.responses.iter().last()
+            && response.message == ResponseMessage::Reset
+        {
+            return false;
         }
         if self.connection_state != ConnectionState::Healthy {
             return false;

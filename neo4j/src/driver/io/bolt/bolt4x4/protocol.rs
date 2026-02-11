@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
 
+use super::super::BoltStructTranslatorWithUtcPatch;
 use super::super::bolt_common::ServerAwareBoltVersion;
 use super::super::bolt_handler::{
     begin_5x0::BeginHandler5x0, commit_5x0::CommitHandler5x0, goodbye_5x0::GoodbyeHandler5x0,
@@ -29,7 +30,6 @@ use super::super::bolt_handler::{
     reset_5x0::ResetHandler5x0, rollback_5x0::RollbackHandler5x0, route_5x0::RouteHandler5x0,
     run_5x0::RunHandler5x0, telemetry_no_op::TelemetryNoOpHandler,
 };
-use super::super::BoltStructTranslatorWithUtcPatch;
 
 #[derive(Debug)]
 pub(crate) struct Bolt4x4<T: BoltStructTranslatorWithUtcPatch + Sync + Send + 'static> {

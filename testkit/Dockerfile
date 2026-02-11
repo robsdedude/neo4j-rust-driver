@@ -1,4 +1,4 @@
-FROM rust:1.73.0-bookworm
+FROM rust:1.88-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \

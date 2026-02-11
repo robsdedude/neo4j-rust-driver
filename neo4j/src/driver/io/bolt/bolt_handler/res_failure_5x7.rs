@@ -15,7 +15,7 @@
 use std::io::{Read, Write};
 
 use super::super::response::BoltResponse;
-use super::super::{bolt_debug, BoltData, BoltStructTranslator, OnServerErrorCb};
+use super::super::{BoltData, BoltStructTranslator, OnServerErrorCb, bolt_debug};
 use super::common::{assert_response_field_count, enrich_failure_diag_record};
 use super::res_failure_5x0::ResultFailureHandler5x0;
 use crate::error_::{Neo4jError, Result, ServerError};

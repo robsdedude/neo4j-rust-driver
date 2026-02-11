@@ -128,7 +128,7 @@ impl LocalDateTime {
 
 #[cfg(feature = "chrono_0_4")]
 mod chrono_0_4_impl {
-    use super::super::{local_date_time_from_timestamp, ChronoConversionError};
+    use super::super::{ChronoConversionError, local_date_time_from_timestamp};
     use super::*;
 
     use chrono_0_4 as chrono;

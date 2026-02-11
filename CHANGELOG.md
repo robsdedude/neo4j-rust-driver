@@ -13,7 +13,7 @@
  - Update dependencies.  
   - ⚠️ Switching from [`rustls-native-certs`](https://crates.io/crates/rustls-native-certs) to [`rustls-platform-verifier`](https://crates.io/crates/rustls-platform-verifier) for loading system certificates.  
     This might imply subtle behavior changes when using `ConnectionConfig::with_encryption_trust_default_cas` or equivalent configurations.
-  - ⚠️ Bump MSRV to 1.71.
+  - ⚠️ Bump MSRV to 1.88.
 
 **🧹️ Clean-up**
  - Remove all exposed 3rd party types.

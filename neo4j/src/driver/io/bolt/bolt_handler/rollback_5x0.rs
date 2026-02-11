@@ -17,7 +17,7 @@ use std::io::{Read, Write};
 use super::super::message_parameters::RollbackParameters;
 use super::super::packstream::{PackStreamSerializer, PackStreamSerializerImpl};
 use super::super::response::{BoltResponse, ResponseMessage};
-use super::super::{bolt_debug, BoltData, BoltStructTranslator};
+use super::super::{BoltData, BoltStructTranslator, bolt_debug};
 use crate::error_::Result;
 
 pub(in super::super) struct RollbackHandler5x0();

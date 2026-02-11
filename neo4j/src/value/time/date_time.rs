@@ -16,7 +16,7 @@ use std::str::FromStr;
 
 use chrono::TimeZone;
 
-use super::{chrono, chrono_tz, local_date_time_from_timestamp, DateTimeComponents};
+use super::{DateTimeComponents, chrono, chrono_tz, local_date_time_from_timestamp};
 
 /// Represents a date (year, month, day) and time (hour, minute, second, nanoseconds) within a named
 /// time zone in the DBMS.

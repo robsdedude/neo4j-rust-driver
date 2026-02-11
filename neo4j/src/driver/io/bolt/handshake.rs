@@ -25,9 +25,9 @@ use rustls::ClientConfig;
 use socket2::{Socket as Socket2, TcpKeepalive};
 
 use super::super::deadline::DeadlineIO;
-use super::super::varint::{read_var_int, write_var_int, ReadVarIntError};
+use super::super::varint::{ReadVarIntError, read_var_int, write_var_int};
 pub(crate) use super::socket::{BufTcpStream, Socket};
-use super::{dbg_extra, socket_debug, Bolt};
+use super::{Bolt, dbg_extra, socket_debug};
 use crate::address_::Address;
 use crate::driver::config::KeepAliveConfig;
 use crate::error_::{Neo4jError, Result};
@@ -715,7 +715,7 @@ mod tests {
                     })
                 } else {
                     n -= 1;
-                    Err(io::Error::new(io::ErrorKind::Other, "scripted failure"))
+                    Err(io::Error::other("scripted failure"))
                 }
             })
         }

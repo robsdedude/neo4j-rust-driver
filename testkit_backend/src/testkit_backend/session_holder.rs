@@ -527,8 +527,8 @@ impl SessionHolderRunner {
                                         }
                                     }
                                     Command::ResultConsume(ResultConsume { result_id }) => {
-                                        if let Some(stream) = streams.get_mut(&result_id) {
-                                            if let Some(stream) = stream.take() {
+                                        if let Some(stream) = streams.get_mut(&result_id)
+                                            && let Some(stream) = stream.take() {
                                                 match stream.consume() {
                                                     Ok(summary) => {
                                                         summaries.insert(
@@ -553,7 +553,6 @@ impl SessionHolderRunner {
                                                     }
                                                 }
                                             }
-                                        }
                                         if let Some(summary) = summaries.get(&result_id) {
                                             let msg = ResultConsumeResult {
                                                 result: Ok(SummaryWithQuery {
@@ -678,8 +677,11 @@ impl SessionHolderRunner {
                         });
                         match command {
                             Command::TransactionRun(_) => {
-                                let err = res.expect_err("unmanaged transaction left of successful run");
-                                self.tx_res.send(TransactionRunResult{ result:Err(err) }.into()).unwrap();
+                                let err =
+                                    res.expect_err("unmanaged transaction left of successful run");
+                                self.tx_res
+                                    .send(TransactionRunResult { result: Err(err) }.into())
+                                    .unwrap();
                             }
                             Command::CommitTransaction(command) => {
                                 command.real_response(res, &self.tx_res)
@@ -699,7 +701,8 @@ impl SessionHolderRunner {
                                 return;
                             }
                             command @ (Command::BeginTransaction(_)
-                                | Command::TransactionFunction(_)|Command::AutoCommit(_)) => {
+                            | Command::TransactionFunction(_)
+                            | Command::AutoCommit(_)) => {
                                 res.expect("expected failed transaction to not error");
                                 _ = buffered_command.insert(command);
                             }
@@ -1424,10 +1427,10 @@ enum TxFailState {
 }
 
 #[derive(Debug)]
-struct TransactionFunctionStateTracker<'gen> {
+struct TransactionFunctionStateTracker<'ge> {
     state: TransactionFunctionState,
     errors: HashMap<BackendId, TransactionFunctionError>,
-    generator: &'gen Generator,
+    generator: &'ge Generator,
 }
 
 #[derive(Debug)]
@@ -1442,8 +1445,8 @@ enum TransactionFunctionError {
     Neo4j(Neo4jError),
 }
 
-impl<'gen> TransactionFunctionStateTracker<'gen> {
-    fn new(generator: &'gen Generator) -> Self {
+impl<'ge> TransactionFunctionStateTracker<'ge> {
+    fn new(generator: &'ge Generator) -> Self {
         Self {
             state: TransactionFunctionState::Ok,
             errors: Default::default(),

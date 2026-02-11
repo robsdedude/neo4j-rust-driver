@@ -25,7 +25,7 @@ use chrono_0_4 as chrono;
 use chrono_tz_0_10 as chrono_tz;
 use itertools::Itertools;
 use serde::de::Unexpected;
-use serde::{de::Error as DeError, de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as DeError, de::Visitor};
 use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue, Value};
 use thiserror::Error;
 
@@ -36,7 +36,7 @@ use neo4j::value::graph::{
     UnboundRelationship as Neo4jUnboundRelationship,
 };
 use neo4j::value::spatial::{Cartesian2D, Cartesian3D, WGS84_2D, WGS84_3D};
-use neo4j::value::{time, unsupported_type, vector, ValueReceive, ValueSend};
+use neo4j::value::{ValueReceive, ValueSend, time, unsupported_type, vector};
 
 #[derive(Debug)]
 #[repr(transparent)]
@@ -324,17 +324,17 @@ impl TryFrom<CypherValue> for ValueSend {
             CypherValue::Node(_) => {
                 return Err(NotADriverValueError::new(
                     "Nodes cannot be used as input type",
-                ))
+                ));
             }
             CypherValue::CypherRelationship(_) => {
                 return Err(NotADriverValueError::new(
                     "Relationships cannot be used as input type",
-                ))
+                ));
             }
             CypherValue::CypherPath { .. } => {
                 return Err(NotADriverValueError::new(
                     "Paths cannot be used as input type",
-                ))
+                ));
             }
             CypherValue::CypherPoint {
                 system: PointSystem::Cartesian,
@@ -513,14 +513,14 @@ impl TryFrom<CypherValue> for ValueSend {
                     _ => {
                         return Err(NotADriverValueError {
                             reason: format!("CypherVector dtype {dtype} is not supported"),
-                        })
+                        });
                     }
                 }
             }
             CypherValue::CypherUnsupportedType { .. } => {
                 return Err(NotADriverValueError::new(
                     "UnsupportedType cannot be used as input type",
-                ))
+                ));
             }
         })
     }
@@ -705,7 +705,7 @@ impl TryFrom<ValueSend> for CypherValue {
             _ => {
                 return Err(TestKitError::backend_err(format!(
                     "Failed to serialize ValueSend to json: {v:?}",
-                )))
+                )));
             }
         })
     }
@@ -851,7 +851,7 @@ impl TryFrom<ValueReceive> for CypherValue {
                 return Err(BrokenValueError::BrokenValue {
                     reason: v.reason().into(),
                 }
-                .into())
+                .into());
             }
             _ => {
                 return Err(BrokenValueError::UnhandledType(Box::new(v)).into());

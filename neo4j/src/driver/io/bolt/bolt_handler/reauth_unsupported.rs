@@ -14,7 +14,7 @@
 
 use std::io::{Read, Write};
 
-use super::super::bolt_common::{unsupported_protocol_feature_error, ServerAwareBoltVersion};
+use super::super::bolt_common::{ServerAwareBoltVersion, unsupported_protocol_feature_error};
 use super::super::message_parameters::ReauthParameters;
 use super::super::{BoltData, BoltStructTranslator};
 use crate::error_::Result;

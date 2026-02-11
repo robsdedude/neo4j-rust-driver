@@ -16,7 +16,7 @@ use std::io::{Read, Write};
 
 use super::super::message_parameters::GoodbyeParameters;
 use super::super::packstream::{PackStreamSerializer, PackStreamSerializerImpl};
-use super::super::{bolt_debug, BoltData, BoltStructTranslator, ConnectionState};
+use super::super::{BoltData, BoltStructTranslator, ConnectionState, bolt_debug};
 use crate::error_::Result;
 
 pub(in super::super) struct GoodbyeHandler5x0();

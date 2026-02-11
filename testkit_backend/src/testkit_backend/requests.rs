@@ -16,9 +16,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use serde_json::Value as JsonValue;
 
+use neo4j::ValueSend;
 use neo4j::bookmarks::{BookmarkManager, Bookmarks};
 use neo4j::driver::auth::AuthToken;
 use neo4j::driver::notification::{
@@ -27,7 +28,6 @@ use neo4j::driver::notification::{
 use neo4j::driver::{ConnectionConfig, DriverConfig, RoutingControl};
 use neo4j::session::SessionConfig;
 use neo4j::transaction::TransactionTimeout;
-use neo4j::ValueSend;
 
 use super::auth::TestKitAuthManagers;
 use super::bookmarks::new_bookmark_manager;
@@ -646,7 +646,7 @@ fn load_notification_filter(
             _ => {
                 return Err(TestKitError::backend_err(format!(
                     "unknown minimum notification severity: {severity:?}"
-                )))
+                )));
             }
         }),
     };
@@ -668,7 +668,7 @@ fn load_notification_filter(
                         _ => {
                             return Err(TestKitError::backend_err(format!(
                                 "unknown disabled notification category: {category:?}"
-                            )))
+                            )));
                         }
                     })
                 })
@@ -693,7 +693,7 @@ fn load_notification_filter(
                         _ => {
                             return Err(TestKitError::backend_err(format!(
                                 "unknown disabled notification classification: {classification:?}"
-                            )))
+                            )));
                         }
                     })
                 })
@@ -730,10 +730,10 @@ impl Request {
             Request::NewDriver { .. } => self.new_driver(backend)?,
             Request::NewAuthTokenManager { .. } => self.new_auth_token_manager(backend)?,
             Request::AuthTokenManagerGetAuthCompleted { .. } => {
-                return self.unexpected_resolution()
+                return self.unexpected_resolution();
             }
             Request::AuthTokenManagerHandleSecurityExceptionCompleted { .. } => {
-                return self.unexpected_resolution()
+                return self.unexpected_resolution();
             }
             Request::AuthTokenManagerClose { .. } => self.auth_token_manager_close(backend)?,
             Request::NewBasicAuthTokenManager { .. } => {
@@ -744,7 +744,7 @@ impl Request {
                 self.new_bearer_auth_token_manager(backend)?
             }
             Request::BearerAuthTokenProviderCompleted { .. } => {
-                return self.unexpected_resolution()
+                return self.unexpected_resolution();
             }
             Request::VerifyConnectivity { .. } => self.verify_connectivity(backend)?,
             Request::GetServerInfo { .. } => self.get_server_info(backend)?,
@@ -790,7 +790,7 @@ impl Request {
             _ => {
                 return Err(TestKitError::backend_err(format!(
                     "Unhandled request {self:?}"
-                )))
+                )));
             }
         }
         Ok(())

@@ -50,8 +50,8 @@ use super::message_parameters::{
     RunParameters, TelemetryParameters,
 };
 use super::{BoltData, BoltMessage, OnServerErrorCb, ResponseCallbacks};
-use crate::error_::Result;
 use crate::ValueReceive;
+use crate::error_::Result;
 use std::borrow::Borrow;
 use std::fmt::Debug;
 use std::io::{Read, Write};

@@ -54,7 +54,11 @@ impl Display for Relationship {
         write!(
             f,
             "Relationship(type={}, element_id={}, start_node_element_id={}, end_node_element_id={}, properties={:?})",
-            self.type_, self.element_id, self.start_node_element_id, self.end_node_element_id, self.properties
+            self.type_,
+            self.element_id,
+            self.start_node_element_id,
+            self.end_node_element_id,
+            self.properties
         )
     }
 }
@@ -134,7 +138,7 @@ impl Path {
         if self.nodes.is_empty() {
             return Err(PathInvariantError::EmptyNodes {});
         }
-        if self.indices.len() % 2 != 0 {
+        if !self.indices.len().is_multiple_of(2) {
             return Err(PathInvariantError::UnevenIndicesCount {});
         }
         let rel_len = self.relationships.len();
@@ -270,7 +274,9 @@ pub enum PathInvariantError {
     #[non_exhaustive]
     TooManyNodes {},
     /// [`Path::nodes`] must be <= [`isize::MAX`].
-    #[error("indices[{index}]={value} must be in the range -{relationships_len}..=-1 or 1..={relationships_len}")]
+    #[error(
+        "indices[{index}]={value} must be in the range -{relationships_len}..=-1 or 1..={relationships_len}"
+    )]
     #[non_exhaustive]
     EvenIndexOutOfRange {
         index: usize,

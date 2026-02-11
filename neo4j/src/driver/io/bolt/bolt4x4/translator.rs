@@ -17,13 +17,13 @@ use std::str::FromStr;
 
 use usize_cast::IntoIsize;
 
-use super::super::bolt5x0::Bolt5x0StructTranslator;
 use super::super::bolt_common::*;
+use super::super::bolt5x0::Bolt5x0StructTranslator;
 use super::super::{BoltStructTranslator, BoltStructTranslatorWithUtcPatch, PackStreamSerializer};
 use crate::value::graph::{Node, Path, Relationship, UnboundRelationship};
 use crate::value::time::chrono::{FixedOffset, LocalResult, Offset, TimeZone};
 use crate::value::time::chrono_tz::Tz;
-use crate::value::time::{local_date_time_from_timestamp, DateTime, DateTimeFixed};
+use crate::value::time::{DateTime, DateTimeFixed, local_date_time_from_timestamp};
 use crate::value::{BrokenValue, BrokenValueInner, ValueReceive, ValueSend};
 
 #[derive(Debug)]
@@ -191,7 +191,7 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                     v => {
                         return invalid_struct(format!(
                             "expected path nodes to be a list, found {v:?}"
-                        ))
+                        ));
                     }
                 };
                 let raw_indices = as_vec!(fields.pop_front().unwrap(), "path indices");
@@ -300,7 +300,7 @@ impl BoltStructTranslator for Bolt4x4StructTranslator {
                 };
                 let dt = match dt.and_local_timezone(tz) {
                     LocalResult::None => {
-                        return invalid_struct("DateTimeZoneId contains invalid local date time")
+                        return invalid_struct("DateTimeZoneId contains invalid local date time");
                     }
                     LocalResult::Single(dt) => dt,
                     // This sure looks funny ;)

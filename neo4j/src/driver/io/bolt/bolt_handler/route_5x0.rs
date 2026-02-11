@@ -21,7 +21,7 @@ use super::super::packstream::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
 use super::super::response::{BoltResponse, ResponseCallbacks, ResponseMessage};
-use super::super::{debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltStructTranslator};
+use super::super::{BoltData, BoltStructTranslator, debug_buf, debug_buf_end, debug_buf_start};
 use super::common::{write_bookmarks_list, write_db_entry, write_imp_user_entry};
 use crate::error_::Result;
 

@@ -24,12 +24,12 @@ use std::sync::Arc;
 
 use atomic_refcell::AtomicRefCell;
 
-use super::eager_result::EagerResult;
-use super::io::bolt::message_parameters::{BeginParameters, RunParameters};
-use super::io::bolt::ResponseCallbacks;
-use super::io::PooledBolt;
-use super::record_stream::{GetSingleRecordError, RecordStream, SharedErrorPropagator};
 use super::Record;
+use super::eager_result::EagerResult;
+use super::io::PooledBolt;
+use super::io::bolt::ResponseCallbacks;
+use super::io::bolt::message_parameters::{BeginParameters, RunParameters};
+use super::record_stream::{GetSingleRecordError, RecordStream, SharedErrorPropagator};
 use crate::error_::{Neo4jError, Result};
 use crate::summary::Summary;
 use crate::value::{ValueReceive, ValueSend};
@@ -114,10 +114,10 @@ pub struct TransactionRecordStream<'driver, 'tx>(
 
 impl Drop for TransactionRecordStream<'_, '_> {
     fn drop(&mut self) {
-        if let Err(err) = self.0.consume() {
-            if self.1.drop_result.borrow().is_ok() {
-                let _ = self.1.drop_result.replace(Err(err));
-            }
+        if let Err(err) = self.0.consume()
+            && self.1.drop_result.borrow().is_ok()
+        {
+            let _ = self.1.drop_result.replace(Err(err));
         }
     }
 }

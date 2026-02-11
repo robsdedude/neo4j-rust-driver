@@ -128,21 +128,21 @@ impl AuthToken {
         if let Some(principal) = principal {
             data.insert("principal".into(), principal.into());
         }
-        if let Some(credentials) = credentials {
-            if !credentials.is_empty() {
-                data.insert("credentials".into(), credentials.into());
-            }
+        if let Some(credentials) = credentials
+            && !credentials.is_empty()
+        {
+            data.insert("credentials".into(), credentials.into());
         }
-        if let Some(realm) = realm {
-            if !realm.is_empty() {
-                data.insert("realm".into(), realm.into());
-            }
+        if let Some(realm) = realm
+            && !realm.is_empty()
+        {
+            data.insert("realm".into(), realm.into());
         }
         data.insert("scheme".into(), scheme.into());
-        if let Some(parameters) = parameters {
-            if !parameters.is_empty() {
-                data.insert("parameters".into(), parameters.into());
-            }
+        if let Some(parameters) = parameters
+            && !parameters.is_empty()
+        {
+            data.insert("parameters".into(), parameters.into());
         }
         Self { data }
     }

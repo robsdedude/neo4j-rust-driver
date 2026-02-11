@@ -20,7 +20,7 @@ use super::super::packstream::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
 use super::super::response::{BoltResponse, ResponseCallbacks, ResponseMessage};
-use super::super::{debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltStructTranslator};
+use super::super::{BoltData, BoltStructTranslator, debug_buf, debug_buf_end, debug_buf_start};
 use crate::error_::Result;
 
 pub(in super::super) struct PullHandler5x0();

@@ -60,11 +60,11 @@ impl BoltStateTracker {
         bolt_local_port: Option<u16>,
         bolt_meta: Result<&HashMap<String, ValueReceive>, E>,
     ) {
-        if let ValueReceive::Map(meta) = meta {
-            if let Some(ValueReceive::Boolean(true)) = meta.get("has_more") {
-                // nothing to do
-                return;
-            }
+        if let ValueReceive::Map(meta) = meta
+            && let Some(ValueReceive::Boolean(true)) = meta.get("has_more")
+        {
+            // nothing to do
+            return;
         }
 
         let pre_state = self.state;

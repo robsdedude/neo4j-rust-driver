@@ -24,7 +24,7 @@ use std::time::Instant;
 use super::auth::AuthToken;
 use crate::value::spatial;
 use crate::value::vector;
-use crate::{value, ValueSend};
+use crate::{ValueSend, value};
 
 #[derive(Debug)]
 pub(super) struct HomeDbCache {

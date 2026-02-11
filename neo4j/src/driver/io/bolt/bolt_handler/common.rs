@@ -20,12 +20,12 @@ use std::sync::Arc;
 
 use usize_cast::FromUsize;
 
-use super::super::bolt_common::{unsupported_protocol_feature_error, ServerAwareBoltVersion};
+use super::super::bolt_common::{ServerAwareBoltVersion, unsupported_protocol_feature_error};
 use super::super::packstream::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
 use super::super::response::ResponseCallbacks;
-use super::super::{debug_buf, BoltData, BoltMeta, BoltStructTranslator};
+use super::super::{BoltData, BoltMeta, BoltStructTranslator, debug_buf};
 use crate::bookmarks::Bookmarks;
 use crate::driver::auth::AuthToken;
 use crate::driver::config::notification::NotificationFilter;
@@ -171,18 +171,18 @@ pub(super) fn write_tx_metadata_entry(
     data: &BoltData<impl Read + Write>,
     tx_metadata: Option<&HashMap<impl Borrow<str> + Debug, ValueSend>>,
 ) -> Result<()> {
-    if let Some(tx_metadata) = tx_metadata {
-        if !tx_metadata.is_empty() {
-            write_dict_entry(
-                translator,
-                log_buf,
-                serializer,
-                dbg_serializer,
-                data,
-                "tx_metadata",
-                tx_metadata,
-            )?;
-        }
+    if let Some(tx_metadata) = tx_metadata
+        && !tx_metadata.is_empty()
+    {
+        write_dict_entry(
+            translator,
+            log_buf,
+            serializer,
+            dbg_serializer,
+            data,
+            "tx_metadata",
+            tx_metadata,
+        )?;
     }
     Ok(())
 }
@@ -193,10 +193,10 @@ pub(super) fn write_mode_entry(
     dbg_serializer: &mut PackStreamSerializerDebugImpl,
     mode: Option<&str>,
 ) -> Result<()> {
-    if let Some(mode) = mode {
-        if mode != "w" {
-            write_str_entry(log_buf, serializer, dbg_serializer, "mode", mode)?;
-        }
+    if let Some(mode) = mode
+        && mode != "w"
+    {
+        write_str_entry(log_buf, serializer, dbg_serializer, "mode", mode)?;
     }
     Ok(())
 }
@@ -220,17 +220,17 @@ pub(super) fn write_bookmarks_entry(
     data: &BoltData<impl Read + Write>,
     bookmarks: Option<&Bookmarks>,
 ) -> Result<()> {
-    if let Some(bookmarks) = bookmarks {
-        if !bookmarks.is_empty() {
-            serializer.write_string("bookmarks")?;
-            data.serialize_str_iter(serializer, bookmarks.raw())?;
-            debug_buf!(log_buf, "{}", {
-                dbg_serializer.write_string("bookmarks").unwrap();
-                data.serialize_str_iter(dbg_serializer, bookmarks.raw())
-                    .unwrap();
-                dbg_serializer.flush()
-            });
-        }
+    if let Some(bookmarks) = bookmarks
+        && !bookmarks.is_empty()
+    {
+        serializer.write_string("bookmarks")?;
+        data.serialize_str_iter(serializer, bookmarks.raw())?;
+        debug_buf!(log_buf, "{}", {
+            dbg_serializer.write_string("bookmarks").unwrap();
+            data.serialize_str_iter(dbg_serializer, bookmarks.raw())
+                .unwrap();
+            dbg_serializer.flush()
+        });
     }
     Ok(())
 }

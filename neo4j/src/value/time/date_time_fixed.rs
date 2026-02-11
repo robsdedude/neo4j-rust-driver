@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{chrono, DateTimeComponents};
+use super::{DateTimeComponents, chrono};
 
 /// Represents a date (year, month, day) and time (hour, minute, second, nanoseconds) within a time
 /// zone with fixed UTC offset in the DBMS.
@@ -176,7 +176,7 @@ impl DateTimeFixed {
 
 #[cfg(feature = "chrono_0_4")]
 mod chrono_0_4_impl {
-    use super::super::{local_date_time_from_timestamp, ChronoConversionError};
+    use super::super::{ChronoConversionError, local_date_time_from_timestamp};
     use super::*;
 
     use chrono::TimeZone;
