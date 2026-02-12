@@ -121,7 +121,7 @@ pub trait RetryPolicy {
 ///
 /// The policy will return a [`RetryError::Neo4jError`] if the work function returns a
 /// non-retryable [`Neo4jError`].
-/// It will return a [`RetryError::Timeout`] the policy would start another attempt, but the time
+/// It will return a [`RetryError::Timeout`] if the policy would start another attempt, but the time
 /// since the end of the first attempt exceeds the maximum retry time.
 #[derive(Debug, Clone, Copy)]
 pub struct ExponentialBackoff {
