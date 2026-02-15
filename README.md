@@ -4,20 +4,20 @@ Neo4j Driver for Rust
 Disclaimer:
  * While I'm currently affiliated with Neo4j, this is my private hobby project.
    It's not an officially supported piece of software by Neo4j.
- * This is a work in progress, and it's mostly developed in my spare time.
+ * This software is mostly developed in my spare time.
  * This project is primarily meant for private studies.
    Yet, I decided to publish it as it might be useful for others as well.
 
 
 ## Driver
-This is a driver for Neo4j using the [Bolt protocol](https://7687.org) written in and for Rust.
+This is a driver for Neo4j using the [Bolt protocol](https://neo4j.com/docs/bolt/) written in and for Rust.
 It’s designed to mirror many concepts of the official drivers while leveraging Rust’s expressive type system and lifetime management to provide a safer API that prevents many common pitfalls already at compile time.
 
 ### Compatibility
-This driver supports bolt protocol version 4.4, and 5.0 - 5.8.
-This corresponds to Neo4j versions 4.4, and the whole 5.x series.
+This driver supports bolt protocol version 4.4, 5.0 - 5.8, and 6.0.
+This corresponds to Neo4j versions 4.4, the whole 5.x series, and 2025.01 - 2026.02.
 Newer versions of Neo4j are supported as long as they keep support for at least one of the protocol versions mentioned above.
-For details of bolt protocol compatibility, see the [official Neo4j documentation](https://7687.org/bolt-compatibility/).
+For details of bolt protocol compatibility, see the [official Neo4j documentation](https://neo4j.com/docs/bolt/current/bolt-compatibility/).
 
 ### Basic Example
 
@@ -167,7 +167,7 @@ A bump in MSRV is considered a minor breaking change.
    * [x] 5.8 (home db resolution cache)
    * [x] 6.0
      * [x] (vector types)
-     * [ ] (unsupported type)
+     * [x] (unsupported type)
  * [x] Types
    * [x] `Null`
    * [x] `Integer`
@@ -182,14 +182,17 @@ A bump in MSRV is considered a minor breaking change.
    * [x] `Path`
    * [x] `Spatial` (point)
    * [x] `Temporal` (date, time, datetime, duration)
- * [ ] Proper Unit Tests
+   * [x] `Vector`
+   * [x] `Unsupported`
  * [x] CI
    * [x] rustfmt
    * [x] clippy
    * [x] Unit Tests
      * [x] Public API SemVer Compatibility Tests ([cargo-public-api](https://github.com/enselic/cargo-public-api))
+     * [ ] High test coverage
    * [x] Exposed Dependency Types Check ([cargo-check-external-types](https://github.com/awslabs/cargo-check-external-types))
-   * [x] TestKit
+   * [x] [TestKit](https://github.com/neo4j-drivers/testkit/) integration (acceptance testing framework for drivers developed by neo4j)
+   * [ ] [Trusted publishing](https://crates.io/docs/trusted-publishing)
 
 
 ## Note on async
