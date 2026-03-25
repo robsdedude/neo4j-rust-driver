@@ -30,6 +30,7 @@
  - Fix `connection_acquisition_timeout` config not being applied to limit fetching of routing tables.
  - Fix the driver handling cluster network partitioning poorly by accepting the first routing table regardless whether
    it contains a writer or not.
+ - Fix auto-commit such that any connectivity error after sending the `RUN` message is considered to have happened `during_commit`.
 
 
 ## 0.2.0

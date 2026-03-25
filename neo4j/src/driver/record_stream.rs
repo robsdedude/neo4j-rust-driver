@@ -96,17 +96,13 @@ impl<'driver> RecordStream<'driver> {
         let mut res = self.connection.borrow_mut().run(parameters, callbacks);
         if self.auto_commit {
             res = res.and_then(|_| self.connection.borrow_mut().write_all(None));
-            res = match res.and_then(|_| self.pull(true)) {
-                Err(e) => {
-                    let mut listener = self.listener.borrow_mut();
-                    listener.state = RecordListenerState::Done;
-                    return Err(e);
-                }
-                Ok(res) => Ok(res),
+            if let Err(e) = res {
+                let mut listener = self.listener.borrow_mut();
+                listener.state = RecordListenerState::Done;
+                return Err(e);
             }
-        } else {
-            res = self.pull(true);
         }
+        res = res.and_then(|_| self.pull(true));
 
         if let Err(e) = res.and_then(|_| {
             // read until only response(s) to PULL is/are left
