@@ -27,10 +27,10 @@ use atomic_refcell::AtomicRefCell;
 use duplicate::duplicate_item;
 use thiserror::Error;
 
+use super::Record;
 use super::io::bolt::message_parameters::{DiscardParameters, PullParameters, RunParameters};
 use super::io::bolt::{BoltMeta, BoltRecordFields, ResponseCallbacks};
 use super::summary::Summary;
-use super::Record;
 use crate::driver::eager_result::EagerResult;
 use crate::driver::io::PooledBolt;
 use crate::error_::{Neo4jError, Result, ServerError};
@@ -136,7 +136,7 @@ impl<'driver> RecordStream<'driver> {
                         RecordListenerState::ForeignError(e) => {
                             return Err(Neo4jError::ServerError {
                                 error: e.deref().clone().into(),
-                            })
+                            });
                         }
                         _ => panic!("checked state to be error above"),
                     }
@@ -381,12 +381,11 @@ impl Iterator for RecordStream<'_> {
                 AtomicRefCell::borrow(&*self.listener).state,
                 RecordListenerState::Streaming | RecordListenerState::Discarding
             ) && RefCell::borrow(&self.connection).expects_reply()
+                && let Err(err) = self.connection.borrow_mut().read_one(None)
             {
-                if let Err(err) = self.connection.borrow_mut().read_one(None) {
-                    self.listener
-                        .borrow_mut()
-                        .set_error(self.failed_commit(err));
-                }
+                self.listener
+                    .borrow_mut()
+                    .set_error(self.failed_commit(err));
             }
             if let Some(record) = self.listener.borrow_mut().buffer.pop_front() {
                 return Some(Ok(record));
@@ -425,7 +424,7 @@ impl Iterator for RecordStream<'_> {
                         RecordListenerState::ForeignError(e) => {
                             return Some(Err(Neo4jError::ServerError {
                                 error: e.deref().clone().into(),
-                            }))
+                            }));
                         }
                         _ => panic!("checked state to be foreign error above"),
                     }
@@ -639,10 +638,10 @@ impl ErrorPropagator {
     ) {
         let error = Arc::new(error.clone_with_reason(reason));
         for listener in self.listeners.iter() {
-            if let Some(source) = source.as_ref() {
-                if source.ptr_eq(listener) {
-                    continue;
-                }
+            if let Some(source) = source.as_ref()
+                && source.ptr_eq(listener)
+            {
+                continue;
             }
             if let Some(listener) = listener.upgrade() {
                 listener.borrow_mut().set_foreign_error(Arc::clone(&error));

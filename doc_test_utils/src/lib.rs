@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::env;
-use std::panic::{catch_unwind, resume_unwind, UnwindSafe};
+use std::panic::{UnwindSafe, catch_unwind, resume_unwind};
 use std::sync::Arc;
 
 use named_lock::NamedLock;

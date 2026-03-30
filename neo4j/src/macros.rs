@@ -385,8 +385,8 @@ macro_rules! __value_unexpected {
 
 #[cfg(test)]
 mod tests {
-    use crate::value::spatial::*;
     use crate::value::ValueSend;
+    use crate::value::spatial::*;
 
     use rstest::rstest;
 

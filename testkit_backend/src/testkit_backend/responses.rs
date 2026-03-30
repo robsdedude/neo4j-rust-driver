@@ -20,14 +20,14 @@ use std::sync::OnceLock;
 
 use chrono_tz::Tz;
 use chrono_tz_0_10 as chrono_tz;
-use lazy_regex::{regex, Regex};
+use lazy_regex::{Regex, regex};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 use crate::testkit_backend::cypher_value::ConvertableValueReceive;
+use neo4j::ValueSend;
 use neo4j::driver::EagerResult;
 use neo4j::summary::SummaryQueryType;
-use neo4j::ValueSend;
 
 use super::backend_id::Generator;
 use super::cypher_value::{CypherDateTime, CypherValue, CypherValues};
@@ -543,7 +543,7 @@ impl TryFrom<neo4j::summary::Severity> for Severity {
             v => {
                 return Err(TestKitError::backend_err(format!(
                     "TODO: implement serializing Severity value {v:?}"
-                )))
+                )));
             }
         })
     }
@@ -584,7 +584,7 @@ impl TryFrom<neo4j::summary::Category> for Category {
             v => {
                 return Err(TestKitError::backend_err(format!(
                     "TODO: implement serializing Category value {v:?}"
-                )))
+                )));
             }
         })
     }
@@ -722,7 +722,7 @@ impl TryFrom<SummaryQueryType> for QueryType {
             v => {
                 return Err(TestKitError::backend_err(format!(
                     "TODO: implement serializing SummaryQueryType value {v:?}"
-                )))
+                )));
             }
         })
     }
@@ -811,7 +811,7 @@ impl TryFrom<neo4j::error::GqlErrorClassification> for GqlErrorClassification {
             v => {
                 return Err(TestKitError::backend_err(format!(
                     "TODO: implement serializing GqlErrorClassification value {v:?}"
-                )))
+                )));
             }
         })
     }
@@ -870,7 +870,9 @@ impl Response {
         match test_name.as_str() {
             "neo4j.datatypes.test_temporal_types.TestDataTypes.test_date_time_cypher_created_tz_id"
             | "neo4j.datatypes.test_temporal_types.TestDataTypes.test_should_echo_all_timezone_ids" =>
-                return Self::RunSubTests,
+            {
+                return Self::RunSubTests;
+            }
             _ => {}
         }
         Self::RunTest
@@ -881,13 +883,15 @@ impl Response {
         arguments: HashMap<String, JsonValue>,
     ) -> TestKitResultT<Self> {
         match test_name.as_str() {
-            "neo4j.datatypes.test_temporal_types.TestDataTypes.test_date_time_cypher_created_tz_id" =>
-                Self::run_sub_test_test_date_time_cypher_created_tz_id(arguments),
-            "neo4j.datatypes.test_temporal_types.TestDataTypes.test_should_echo_all_timezone_ids" =>
-                Self::run_sub_test_test_should_echo_all_timezone_ids(arguments),
-            _ => Err(TestKitError::backend_err(
-                format!("Backend didn't request to check sub tests for {test_name}")
-            )),
+            "neo4j.datatypes.test_temporal_types.TestDataTypes.test_date_time_cypher_created_tz_id" => {
+                Self::run_sub_test_test_date_time_cypher_created_tz_id(arguments)
+            }
+            "neo4j.datatypes.test_temporal_types.TestDataTypes.test_should_echo_all_timezone_ids" => {
+                Self::run_sub_test_test_should_echo_all_timezone_ids(arguments)
+            }
+            _ => Err(TestKitError::backend_err(format!(
+                "Backend didn't request to check sub tests for {test_name}"
+            ))),
         }
     }
 
@@ -956,7 +960,7 @@ impl Response {
             _ => {
                 return Err(TestKitError::backend_err(
                     "expected key `dt` to be a CypherDateTime",
-                ))
+                ));
             }
         };
         let data = dt
@@ -1034,7 +1038,7 @@ impl Response {
             e @ TestKitError::FatalError { .. } => {
                 return Err(TestKitError::backend_err(format!(
                     "cannot serialize FatalError (bug in backend): {e}"
-                )))
+                )));
             }
         })
     }

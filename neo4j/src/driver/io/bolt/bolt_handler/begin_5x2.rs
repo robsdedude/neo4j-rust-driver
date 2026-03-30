@@ -21,7 +21,7 @@ use super::super::packstream::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
 use super::super::response::{BoltResponse, ResponseCallbacks, ResponseMessage};
-use super::super::{debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltStructTranslator};
+use super::super::{BoltData, BoltStructTranslator, debug_buf, debug_buf_end, debug_buf_start};
 use super::common::{notification_filter_entries_count, write_notification_filter_entries};
 use crate::error_::Result;
 
@@ -69,17 +69,17 @@ impl BeginHandler5x2 {
         });
         serializer.write_dict_header(extra_size)?;
 
-        if let Some(bookmarks) = bookmarks {
-            if !bookmarks.is_empty() {
-                debug_buf!(log_buf, "{}", {
-                    dbg_serializer.write_string("bookmarks").unwrap();
-                    data.serialize_str_iter(&mut dbg_serializer, bookmarks.raw())
-                        .unwrap();
-                    dbg_serializer.flush()
-                });
-                serializer.write_string("bookmarks").unwrap();
-                data.serialize_str_iter(&mut serializer, bookmarks.raw())?;
-            }
+        if let Some(bookmarks) = bookmarks
+            && !bookmarks.is_empty()
+        {
+            debug_buf!(log_buf, "{}", {
+                dbg_serializer.write_string("bookmarks").unwrap();
+                data.serialize_str_iter(&mut dbg_serializer, bookmarks.raw())
+                    .unwrap();
+                dbg_serializer.flush()
+            });
+            serializer.write_string("bookmarks").unwrap();
+            data.serialize_str_iter(&mut serializer, bookmarks.raw())?;
         }
 
         if let Some(tx_timeout) = tx_timeout {
@@ -92,17 +92,17 @@ impl BeginHandler5x2 {
             serializer.write_int(tx_timeout)?;
         }
 
-        if let Some(tx_metadata) = tx_metadata {
-            if !tx_metadata.is_empty() {
-                debug_buf!(log_buf, "{}", {
-                    dbg_serializer.write_string("tx_metadata").unwrap();
-                    data.serialize_dict(&mut dbg_serializer, translator, tx_metadata)
-                        .unwrap();
-                    dbg_serializer.flush()
-                });
-                serializer.write_string("tx_metadata")?;
-                data.serialize_dict(&mut serializer, translator, tx_metadata)?;
-            }
+        if let Some(tx_metadata) = tx_metadata
+            && !tx_metadata.is_empty()
+        {
+            debug_buf!(log_buf, "{}", {
+                dbg_serializer.write_string("tx_metadata").unwrap();
+                data.serialize_dict(&mut dbg_serializer, translator, tx_metadata)
+                    .unwrap();
+                dbg_serializer.flush()
+            });
+            serializer.write_string("tx_metadata")?;
+            data.serialize_dict(&mut serializer, translator, tx_metadata)?;
         }
 
         if let Some(mode) = mode {

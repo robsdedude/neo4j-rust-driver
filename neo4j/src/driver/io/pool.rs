@@ -33,13 +33,13 @@ use rustls::ClientConfig;
 
 use super::bolt::message_parameters::RouteParameters;
 use super::bolt::{BoltData, ResponseCallbacks};
-use crate::address_::resolution::AddressResolver;
 use crate::address_::Address;
+use crate::address_::resolution::AddressResolver;
 use crate::bookmarks::Bookmarks;
-use crate::driver::config::auth::{auth_managers, AuthToken};
+use crate::driver::RoutingControl;
+use crate::driver::config::auth::{AuthToken, auth_managers};
 use crate::driver::config::notification::NotificationFilter;
 use crate::driver::config::{AuthConfig, KeepAliveConfig};
-use crate::driver::RoutingControl;
 use crate::error_::{Neo4jError, Result, ServerError};
 use crate::sync::MostlyRLock;
 use crate::time::Instant;

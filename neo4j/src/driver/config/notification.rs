@@ -14,9 +14,9 @@
 
 // imports for docs
 #[allow(unused)]
-use super::super::session::config::SessionConfig;
-#[allow(unused)]
 use super::super::ExecuteQueryBuilder;
+#[allow(unused)]
+use super::super::session::config::SessionConfig;
 #[allow(unused)]
 use super::DriverConfig;
 #[allow(unused)]

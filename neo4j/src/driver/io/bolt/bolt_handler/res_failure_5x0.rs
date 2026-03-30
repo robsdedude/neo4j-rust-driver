@@ -17,7 +17,7 @@ use std::io::{Read, Write};
 use log::warn;
 
 use super::super::response::BoltResponse;
-use super::super::{bolt_debug, BoltData, BoltStructTranslator, OnServerErrorCb};
+use super::super::{BoltData, BoltStructTranslator, OnServerErrorCb, bolt_debug};
 use super::common::assert_response_field_count;
 use crate::error::ServerError;
 use crate::error_::{Neo4jError, Result};

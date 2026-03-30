@@ -21,7 +21,7 @@ use super::super::packstream::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
 use super::super::response::{BoltResponse, ResponseCallbacks, ResponseMessage};
-use super::super::{debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltStructTranslator};
+use super::super::{BoltData, BoltStructTranslator, debug_buf, debug_buf_end, debug_buf_start};
 use super::common::{
     check_no_notification_filter, write_bookmarks_entry, write_db_entry, write_imp_user_entry,
     write_mode_entry, write_tx_metadata_entry, write_tx_timeout_entry,

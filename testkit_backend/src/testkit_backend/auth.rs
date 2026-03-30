@@ -18,16 +18,16 @@ use std::time::Duration;
 use atomic_refcell::AtomicRefCell;
 
 use neo4j::driver::auth::{
-    auth_managers, AuthManager, AuthToken, ManagerGetAuthReturn, ManagerHandleErrReturn,
+    AuthManager, AuthToken, ManagerGetAuthReturn, ManagerHandleErrReturn, auth_managers,
 };
 use neo4j::error::ServerError;
 use neo4j::time::Instant;
 
+use super::BackendIo;
 use super::backend_id::{BackendId, Generator};
 use super::errors::TestKitError;
 use super::requests::{AuthTokenAndExpiration, Request, TestKitAuth};
 use super::responses::Response;
-use super::BackendIo;
 
 pub(super) struct TestKitAuthManagers {}
 

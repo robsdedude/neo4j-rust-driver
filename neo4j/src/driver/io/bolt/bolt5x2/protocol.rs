@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::super::BoltStructTranslator;
 use super::super::bolt_common::ServerAwareBoltVersion;
 use super::super::bolt_handler::{
     begin_5x2::BeginHandler5x2, commit_5x0::CommitHandler5x0, goodbye_5x0::GoodbyeHandler5x0,
@@ -24,7 +25,6 @@ use super::super::bolt_handler::{
     reset_5x0::ResetHandler5x0, rollback_5x0::RollbackHandler5x0, route_5x0::RouteHandler5x0,
     run_5x2::RunHandler5x2, telemetry_no_op::TelemetryNoOpHandler,
 };
-use super::super::BoltStructTranslator;
 
 #[derive(Debug, Default)]
 pub(crate) struct Bolt5x2<T: BoltStructTranslator> {

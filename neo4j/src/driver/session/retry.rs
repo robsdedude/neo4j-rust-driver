@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use log::warn;
 use rand;
-use rand::Rng;
+use rand::RngExt;
 use thiserror::Error;
 
 use crate::error_::{Neo4jError, Result};
@@ -26,9 +26,9 @@ use crate::time::Instant;
 
 // imports for docs
 #[allow(unused)]
-use crate::driver::session::TransactionBuilder;
-#[allow(unused)]
 use crate::driver::ExecuteQueryBuilder;
+#[allow(unused)]
+use crate::driver::session::TransactionBuilder;
 
 /// Specifies how to retry work.
 ///

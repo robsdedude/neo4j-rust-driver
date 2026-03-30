@@ -32,7 +32,7 @@ use std::time::Duration;
 
 #[cfg(feature = "_internal_testkit_backend")]
 use crate::address_::Address;
-use crate::bookmarks::{bookmark_managers, BookmarkManager};
+use crate::bookmarks::{BookmarkManager, bookmark_managers};
 use crate::error_::Result;
 use crate::value::ValueSend;
 use config::auth::AuthToken;
@@ -42,9 +42,9 @@ pub use config::{
 };
 pub use eager_result::{EagerResult, ScalarError};
 use home_db_cache::HomeDbCache;
-use io::bolt::message_parameters::TelemetryAPI;
 #[cfg(feature = "_internal_testkit_backend")]
 pub use io::ConnectionPoolMetrics;
+use io::bolt::message_parameters::TelemetryAPI;
 use io::{AcquireConfig, Pool, PoolConfig, PooledBolt, SessionAuth, UpdateRtArgs, UpdateRtDb};
 use notification::NotificationFilter;
 pub use record::Record;
@@ -52,8 +52,8 @@ use record_stream::RecordStream;
 use session::config::InternalSessionConfig;
 use session::retry::RetryPolicy;
 use session::{
-    default_receiver, DefaultMeta, DefaultMetaKey, DefaultParam, DefaultParamKey, DefaultReceiver,
-    Session, SessionConfig,
+    DefaultMeta, DefaultMetaKey, DefaultParam, DefaultParamKey, DefaultReceiver, Session,
+    SessionConfig, default_receiver,
 };
 use summary::ServerInfo;
 use transaction::TransactionTimeout;
@@ -478,15 +478,15 @@ impl<'driver, Q: AsRef<str>>
 }
 
 impl<
-        'driver,
-        Q: AsRef<str>,
-        KP: Borrow<str> + Debug,
-        P: Borrow<HashMap<KP, ValueSend>>,
-        KM: Borrow<str> + Debug,
-        M: Borrow<HashMap<KM, ValueSend>>,
-        R,
-        FRes: FnMut(&mut RecordStream) -> Result<R>,
-    > ExecuteQueryBuilder<'driver, Q, KP, P, KM, M, FRes>
+    'driver,
+    Q: AsRef<str>,
+    KP: Borrow<str> + Debug,
+    P: Borrow<HashMap<KP, ValueSend>>,
+    KM: Borrow<str> + Debug,
+    M: Borrow<HashMap<KM, ValueSend>>,
+    R,
+    FRes: FnMut(&mut RecordStream) -> Result<R>,
+> ExecuteQueryBuilder<'driver, Q, KP, P, KM, M, FRes>
 {
     /// Configure query parameters.
     ///
@@ -1023,13 +1023,13 @@ impl<
 }
 
 impl<
-        Q: AsRef<str>,
-        KP: Borrow<str> + Debug,
-        P: Borrow<HashMap<KP, ValueSend>>,
-        KM: Borrow<str> + Debug,
-        M: Borrow<HashMap<KM, ValueSend>>,
-        FRes,
-    > Debug for ExecuteQueryBuilder<'_, Q, KP, P, KM, M, FRes>
+    Q: AsRef<str>,
+    KP: Borrow<str> + Debug,
+    P: Borrow<HashMap<KP, ValueSend>>,
+    KM: Borrow<str> + Debug,
+    M: Borrow<HashMap<KM, ValueSend>>,
+    FRes,
+> Debug for ExecuteQueryBuilder<'_, Q, KP, P, KM, M, FRes>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExecuteQueryBuilder")

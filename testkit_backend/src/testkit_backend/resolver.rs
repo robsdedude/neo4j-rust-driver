@@ -78,7 +78,7 @@ impl TestKitResolver {
             _ => {
                 return Err(Box::new(TestKitError::backend_err(format!(
                     "expected ResolverResolutionCompleted, received {request:?}"
-                ))))
+                ))));
             }
         };
         Ok(addresses
@@ -116,7 +116,7 @@ impl TestKitResolver {
             _ => {
                 return testkit_to_io_error(Err(TestKitError::backend_err(format!(
                     "expected DomainNameResolutionCompleted, received {request:?}",
-                ))))
+                ))));
             }
         };
         addresses_out
@@ -130,7 +130,7 @@ impl TestKitResolver {
 fn testkit_to_io_error<T>(res: TestKitResultT<T>) -> IoResult<T> {
     res.map_err(|err| {
         error!("TestKit messed up DNS resolution request: {err:?}");
-        IoError::new(std::io::ErrorKind::Other, err)
+        IoError::other(err)
     })
 }
 

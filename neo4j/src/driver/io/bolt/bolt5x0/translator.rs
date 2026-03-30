@@ -319,7 +319,7 @@ impl BoltStructTranslator for Bolt5x0StructTranslator {
                     v => {
                         return invalid_struct(format!(
                             "expected path nodes to be a list, found {v:?}"
-                        ))
+                        ));
                     }
                 };
                 let raw_indices = as_vec!(fields.pop_front().unwrap(), "path indices");

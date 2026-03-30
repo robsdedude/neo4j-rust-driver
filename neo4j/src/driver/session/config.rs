@@ -15,16 +15,16 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::super::config::ConfigureFetchSizeError;
 use super::super::config::auth::AuthToken;
 use super::super::config::notification::NotificationFilter;
-use super::super::config::ConfigureFetchSizeError;
 use super::super::session::bookmarks::{BookmarkManager, Bookmarks};
 
 // imports for docs
 #[allow(unused)]
-use super::super::config::DriverConfig;
-#[allow(unused)]
 use super::super::Driver;
+#[allow(unused)]
+use super::super::config::DriverConfig;
 #[allow(unused)]
 use super::Session;
 #[allow(unused)]

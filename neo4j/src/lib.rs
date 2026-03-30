@@ -221,9 +221,9 @@ pub mod value;
 #[allow(unused)]
 use bookmarks::{BookmarkManager, Bookmarks};
 #[allow(unused)]
-use driver::record_stream::RecordStream;
-#[allow(unused)]
 use driver::Driver;
+#[allow(unused)]
+use driver::record_stream::RecordStream;
 #[allow(unused)]
 use session::{Session, SessionConfig};
 

@@ -8,7 +8,7 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
-      - id: check-msrv-all-features
+      - id: check-all-features
         name: cargo check (all features)
         entry: cargo +stable check --all --tests --all-features --
         language: system
@@ -16,19 +16,19 @@ repos:
         pass_filenames: false
       - id: check-msrv
         name: cargo check MSRV
-        entry: cargo +1.71 check --all --tests --
+        entry: cargo +1.88 check --all --tests --
         language: system
         types: [rust]
         pass_filenames: false
       - id: check-msrv-all-features
         name: cargo check MSRV (all features)
-        entry: cargo +1.71 check --all --tests --all-features --
+        entry: cargo +1.88 check --all --tests --all-features --
         language: system
         types: [rust]
         pass_filenames: false
       - id: fmt
-        name: rustfmt fmt
-        entry: rustfmt +nightly --
+        name: cargo fmt
+        entry: cargo +nightly fmt --
         language: system
         types: [rust]
       - id: clippy driver

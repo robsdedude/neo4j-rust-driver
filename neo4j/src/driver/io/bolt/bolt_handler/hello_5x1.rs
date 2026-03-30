@@ -18,7 +18,7 @@ use super::super::message_parameters::HelloParameters;
 use super::super::packstream::{
     PackStreamSerializer, PackStreamSerializerDebugImpl, PackStreamSerializerImpl,
 };
-use super::super::{debug_buf, debug_buf_end, debug_buf_start, BoltData, BoltStructTranslator};
+use super::super::{BoltData, BoltStructTranslator, debug_buf, debug_buf_end, debug_buf_start};
 use super::common::check_no_notification_filter;
 use super::hello_5x0::HelloHandler5x0;
 use crate::error_::Result;

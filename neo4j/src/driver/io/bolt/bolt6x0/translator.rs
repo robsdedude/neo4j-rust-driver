@@ -17,10 +17,10 @@ use std::mem::size_of;
 
 use usize_cast::FromUsize;
 
-use super::super::bolt5x8::Bolt5x8StructTranslator;
 use super::super::bolt_common::*;
+use super::super::bolt5x8::Bolt5x8StructTranslator;
 use super::super::{BoltStructTranslator, PackStreamSerializer};
-use crate::value::{vector, ValueReceive, ValueSend};
+use crate::value::{ValueReceive, ValueSend, vector};
 
 #[derive(Debug)]
 pub(crate) struct Bolt6x0StructTranslator {

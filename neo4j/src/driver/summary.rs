@@ -16,8 +16,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::io::bolt::BoltMeta;
 use super::io::PooledBolt;
+use super::io::bolt::BoltMeta;
 use crate::address_::Address;
 use crate::error_::{Neo4jError, Result};
 use crate::value::ValueReceive;
@@ -278,7 +278,7 @@ impl SummaryQueryType {
                 _ => {
                     return Err(Neo4jError::protocol_error(format!(
                         "query type in summary was an unknown string {query_type:?}"
-                    )))
+                    )));
                 }
             }));
         }

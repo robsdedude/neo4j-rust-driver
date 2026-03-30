@@ -44,7 +44,7 @@ use crate::error_::{Neo4jError, Result};
 use crate::time::Instant;
 use crate::transaction::InnerTransaction;
 use crate::value::{ValueReceive, ValueSend};
-use bookmarks::{bookmark_managers, BookmarkManager, Bookmarks};
+use bookmarks::{BookmarkManager, Bookmarks, bookmark_managers};
 use config::InternalSessionConfig;
 pub use config::SessionConfig;
 use retry::RetryPolicy;
@@ -306,12 +306,12 @@ impl<'driver> Session<'driver> {
             target_db.pinned = true;
             return Ok(());
         }
-        if self.pool.ssr_enabled() {
-            if let Some(cached_db) = self.home_db_cache.get(self.home_db_cache_key()) {
-                debug!("Targeting cached home db: {:?}", cached_db.as_str());
-                *target_db = SessionTargetDb::new_guess(cached_db);
-                return Ok(());
-            }
+        if self.pool.ssr_enabled()
+            && let Some(cached_db) = self.home_db_cache.get(self.home_db_cache_key())
+        {
+            debug!("Targeting cached home db: {:?}", cached_db.as_str());
+            *target_db = SessionTargetDb::new_guess(cached_db);
+            return Ok(());
         }
         drop(target_db);
 
@@ -606,16 +606,16 @@ impl<'driver, 'session, Q: AsRef<str>>
 }
 
 impl<
-        'driver,
-        'session,
-        Q: AsRef<str>,
-        KP: Borrow<str> + Debug,
-        P: Borrow<HashMap<KP, ValueSend>>,
-        KM: Borrow<str> + Debug,
-        M: Borrow<HashMap<KM, ValueSend>>,
-        R,
-        FRes: FnOnce(&mut RecordStream) -> Result<R>,
-    > AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>
+    'driver,
+    'session,
+    Q: AsRef<str>,
+    KP: Borrow<str> + Debug,
+    P: Borrow<HashMap<KP, ValueSend>>,
+    KM: Borrow<str> + Debug,
+    M: Borrow<HashMap<KM, ValueSend>>,
+    R,
+    FRes: FnOnce(&mut RecordStream) -> Result<R>,
+> AutoCommitBuilder<'driver, 'session, Q, KP, P, KM, M, FRes>
 {
     /// Configure query parameters.
     ///
@@ -889,13 +889,13 @@ impl<
 }
 
 impl<
-        Q: AsRef<str>,
-        KP: Borrow<str> + Debug,
-        P: Borrow<HashMap<KP, ValueSend>>,
-        KM: Borrow<str> + Debug,
-        M: Borrow<HashMap<KM, ValueSend>>,
-        FRes,
-    > Debug for AutoCommitBuilder<'_, '_, Q, KP, P, KM, M, FRes>
+    Q: AsRef<str>,
+    KP: Borrow<str> + Debug,
+    P: Borrow<HashMap<KP, ValueSend>>,
+    KM: Borrow<str> + Debug,
+    M: Borrow<HashMap<KM, ValueSend>>,
+    FRes,
+> Debug for AutoCommitBuilder<'_, '_, Q, KP, P, KM, M, FRes>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AutoCommitBuilder")

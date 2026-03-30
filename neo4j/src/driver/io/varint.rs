@@ -109,8 +109,8 @@ mod tests {
 
     #[rstest]
     #[case(
-        make_read_err(IoError::new(std::io::ErrorKind::Other, "Some error")),
-        ReadVarIntError::Io(IoError::new(std::io::ErrorKind::Other, "Some error"))
+        make_read_err(IoError::other("Some error")),
+        ReadVarIntError::Io(IoError::other("Some error"))
     )]
     #[case(
         make_read(&[0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02]),

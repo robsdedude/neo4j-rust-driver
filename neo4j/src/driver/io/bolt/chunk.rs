@@ -18,7 +18,7 @@ use std::io::{self, Read};
 use std::ops::Deref;
 use std::thread::panicking;
 
-use log::{error, log_enabled, trace, Level};
+use log::{Level, error, log_enabled, trace};
 use usize_cast::IntoUsize;
 
 use crate::util::truncate_string;

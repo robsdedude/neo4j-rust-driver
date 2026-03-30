@@ -16,8 +16,8 @@ use std::collections::{HashMap, HashSet};
 
 use rstest::rstest;
 
-use super::super::super::bolt::bolt_common::ServerAwareBoltVersion;
 use super::super::super::bolt::BoltStructTranslator;
+use super::super::super::bolt::bolt_common::ServerAwareBoltVersion;
 use super::super::bolt5x0::Bolt5x0StructTranslator;
 use super::deserialize::{PackStreamDeserializer, PackStreamDeserializerImpl};
 use super::error::{PackStreamDeserializeError, PackStreamSerializeError};
@@ -440,10 +440,10 @@ fn test_encode_string(#[case] input: &str, #[case] output: Vec<u8>) {
 #[case(0xFFFF, vec![0xD1, 0xFF, 0xFF])]
 #[case(0x10000, vec![0xD2, 0x00, 0x01, 0x00, 0x00])]
 fn test_encode_long_string(#[case] size: usize, #[case] mut header: Vec<u8>) {
-    header.extend(std::iter::repeat(0x41).take(size));
+    header.extend(std::iter::repeat_n(0x41, size));
     let output = header;
     let mut input = String::with_capacity(size);
-    input.extend(std::iter::repeat('A').take(size));
+    input.extend(std::iter::repeat_n('A', size));
 
     let result = encode(&ValueSend::String(input));
 
@@ -489,7 +489,7 @@ fn test_encode_list(#[case] input: Vec<ValueSend>, #[case] output: Vec<u8>) {
 #[case(0xFFFF, vec![0xD5, 0xFF, 0xFF])]
 #[case(0x10000, vec![0xD6, 0x00, 0x01, 0x00, 0x00])]
 fn test_encode_long_list(#[case] size: usize, #[case] mut header: Vec<u8>) {
-    header.extend(std::iter::repeat(0x01).take(size));
+    header.extend(std::iter::repeat_n(0x01, size));
     let output = header;
     let mut input = Vec::with_capacity(size);
     input.extend(std::iter::repeat_with(|| ValueSend::Integer(1)).take(size));

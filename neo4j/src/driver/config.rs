@@ -28,18 +28,18 @@ use rustls::ClientConfig;
 use thiserror::Error;
 use uriparse::{Query, URI};
 
-use crate::address_::resolution::AddressResolver;
 use crate::address_::Address;
 use crate::address_::DEFAULT_PORT;
+use crate::address_::resolution::AddressResolver;
 use crate::value::ValueSend;
 use auth::{AuthManager, AuthToken};
 use notification::NotificationFilter;
 
 // imports for docs
 #[allow(unused)]
-use super::session::{AutoCommitBuilder, SessionConfig, TransactionBuilder};
-#[allow(unused)]
 use super::ExecuteQueryBuilder;
+#[allow(unused)]
+use super::session::{AutoCommitBuilder, SessionConfig, TransactionBuilder};
 #[allow(unused)]
 use crate::error_::Neo4jError;
 
@@ -664,7 +664,7 @@ impl ConnectionConfig {
                 return Err(TlsConfigError {
                     message,
                     config: self,
-                })
+                });
             }
         });
         Ok(self)
@@ -726,7 +726,7 @@ impl ConnectionConfig {
                 return Err(ConnectionConfigParseError(format!(
                     "unknown scheme in URI {scheme} expected `neo4j`, `neo4j`, `neo4j+s`, \
                      `neo4j+ssc`, `bolt`, `bolt+s`, or `bolt+ssc`"
-                )))
+                )));
             }
         };
 
@@ -970,11 +970,11 @@ mod mockable {
         use std::result::Result as StdResult;
         use std::sync::Arc;
 
+        use rustls::Error as RustlsError;
+        use rustls::client::WebPkiServerVerifier;
         use rustls::client::danger::{
             HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
         };
-        use rustls::client::WebPkiServerVerifier;
-        use rustls::Error as RustlsError;
         use rustls::{DigitallySignedStruct, RootCertStore, SignatureScheme};
         use rustls_pki_types::{CertificateDer, Der, ServerName, TrustAnchor, UnixTime};
 

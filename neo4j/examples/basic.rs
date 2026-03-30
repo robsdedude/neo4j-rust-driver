@@ -18,7 +18,7 @@ use neo4j::address::Address;
 use neo4j::driver::auth::AuthToken;
 use neo4j::driver::{ConnectionConfig, Driver, DriverConfig, RoutingControl};
 use neo4j::retry::ExponentialBackoff;
-use neo4j::{value_map, ValueReceive};
+use neo4j::{ValueReceive, value_map};
 
 const HOST: &str = "localhost";
 const PORT: u16 = 7687;

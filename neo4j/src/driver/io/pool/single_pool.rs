@@ -18,7 +18,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::Duration;
 
-use log::{info, log_enabled, Level};
+use log::{Level, info, log_enabled};
 use parking_lot::lock_api::MutexGuard;
 use parking_lot::{Condvar, Mutex, RawMutex};
 
@@ -27,8 +27,8 @@ use super::super::bolt::{self, AuthResetHandle, OnServerErrorCb, TcpBolt, TcpRW}
 use super::super::pool::ssr_tracker::SsrTracker;
 use super::PoolConfig;
 use crate::address_::Address;
-use crate::driver::config::auth::{auth_managers, AuthToken};
 use crate::driver::config::AuthConfig;
+use crate::driver::config::auth::{AuthToken, auth_managers};
 use crate::error_::{Neo4jError, Result};
 use crate::time::Instant;
 
@@ -82,9 +82,10 @@ impl InnerPool {
         sync.reservations -= 1;
         let connection = connection?;
         sync.borrowed += 1;
-        assert!(sync
-            .borrowed_auth_reset
-            .insert(connection.auth_reset_handler()));
+        assert!(
+            sync.borrowed_auth_reset
+                .insert(connection.auth_reset_handler())
+        );
         Ok(connection)
     }
 
@@ -260,9 +261,11 @@ impl SimplePool {
         let connection = synced.raw_pool.pop_front();
         if let Some(connection) = connection.as_ref() {
             synced.borrowed += 1;
-            assert!(synced
-                .borrowed_auth_reset
-                .insert(connection.auth_reset_handler()));
+            assert!(
+                synced
+                    .borrowed_auth_reset
+                    .insert(connection.auth_reset_handler())
+            );
         }
         connection
     }
@@ -278,9 +281,10 @@ impl SimplePool {
             }
         }
         let mut lock = inner_pool.synced.lock();
-        assert!(lock
-            .borrowed_auth_reset
-            .remove(&connection.auth_reset_handler()));
+        assert!(
+            lock.borrowed_auth_reset
+                .remove(&connection.auth_reset_handler())
+        );
         lock.borrowed -= 1;
         if connection.closed() {
             inner_pool.made_room_condition.notify_one();
@@ -337,13 +341,13 @@ impl UnpreparedSinglePooledBolt {
             }
             Some(mut connection) => {
                 // room for health check etc. (return None on failed health check)
-                if let Some(max_lifetime) = self.pool.config.max_connection_lifetime {
-                    if connection.is_older_than(max_lifetime) {
-                        connection.debug_log(|| String::from("connection reached max lifetime"));
-                        connection.close();
-                        self.bolt = Some(connection);
-                        return Ok(None);
-                    }
+                if let Some(max_lifetime) = self.pool.config.max_connection_lifetime
+                    && connection.is_older_than(max_lifetime)
+                {
+                    connection.debug_log(|| String::from("connection reached max lifetime"));
+                    connection.close();
+                    self.bolt = Some(connection);
+                    return Ok(None);
                 }
                 match idle_time_before_connection_test {
                     None => {}

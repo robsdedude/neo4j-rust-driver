@@ -20,6 +20,7 @@ use std::time::Duration;
 use flume::{Receiver, Sender};
 use log::warn;
 
+use neo4j::ValueSend;
 use neo4j::address::Address;
 use neo4j::bookmarks::BookmarkManager;
 use neo4j::driver::auth::AuthToken;
@@ -30,7 +31,6 @@ use neo4j::retry::ExponentialBackoff;
 use neo4j::session::SessionConfig;
 use neo4j::summary::ServerInfo;
 use neo4j::transaction::TransactionTimeout;
-use neo4j::ValueSend;
 
 use super::backend_id::{BackendId, Generator};
 use super::errors::TestKitError;

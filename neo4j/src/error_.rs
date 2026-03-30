@@ -37,9 +37,9 @@ use crate::driver::{DriverConfig, ExecuteQueryBuilder};
 #[allow(unused)]
 use crate::session::SessionConfig;
 #[allow(unused)]
-use crate::value::vector::Vector;
-#[allow(unused)]
 use crate::value::ValueSend;
+#[allow(unused)]
+use crate::value::vector::Vector;
 
 type BoxError = Box<dyn StdError + Send + Sync>;
 
