@@ -53,6 +53,14 @@ fn get_log_buffer() -> &'static LogBuffer {
 
 pub(super) fn init() {
     let buffer = get_log_buffer();
+    let level = match std::env::var("RUST_LOG") {
+        Err(std::env::VarError::NotPresent) => LevelFilter::Debug,
+        Err(e) => panic!("failed to read RUST_LOG environment variable: {e}"),
+        Ok(s) if s.is_empty() => LevelFilter::Debug,
+        Ok(s) => s
+            .parse()
+            .expect("failed to parse RUST_LOG environment variable"),
+    };
     fern::Dispatch::new()
         .chain(
             fern::Dispatch::new()
@@ -65,7 +73,7 @@ pub(super) fn init() {
                         message
                     ))
                 })
-                .level(LevelFilter::Debug)
+                .level(level)
                 .chain(io::stdout()),
         )
         .chain(
@@ -74,7 +82,7 @@ pub(super) fn init() {
                     out.finish(format_args!("[{:<7}] {}", record.level(), message))
                 })
                 .filter(|meta| !meta.target().starts_with("testkit_backend::"))
-                .level(LevelFilter::Debug)
+                .level(level)
                 .chain(Box::new(buffer.clone()) as Box<dyn Write + Send>),
         )
         .apply()
