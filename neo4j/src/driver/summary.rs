@@ -807,10 +807,20 @@ impl PlanProfileCommon {
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+/// A single execution steps in a Cypher query execution plan.
+///
+/// If you prefix a query with `EXPLAIN `, the server will create an execution plan for the query
+/// and, without executing the query, attach the plan to the summary (see [`Summary::plan`]).
+///
+/// The full Plan is a tree of such Plan steps (see [`Profile::children`]).
 pub struct Plan {
-    pub args: HashMap<String, ValueReceive>,
+    /// The name of the operator used in the associated execution step.
     pub op_type: String,
+    /// The argument map for the associated execution step.
+    pub args: HashMap<String, ValueReceive>,
+    /// The set of identifiers used in this execution step.
     pub identifiers: Vec<String>,
+    /// The children of this execution step.
     pub children: Vec<Plan>,
 }
 
@@ -852,21 +862,35 @@ impl Plan {
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+/// Statistics from the profiler of a particular step in the execution plan.
+///
+/// If you prefix a query with `PROFILE `, the server will execute the query and attach execution
+/// statistics to the summary (see [`Summary::profile`]).
+///
+/// The full Profile is a tree of such Profile steps (see [`Profile::children`]).
 pub struct Profile {
-    pub args: HashMap<String, ValueReceive>,
+    /// The name of the operator used in the associated execution step.
     pub op_type: String,
+    /// The argument map for the associated execution step.
+    pub args: HashMap<String, ValueReceive>,
+    /// The set of identifiers used in this execution step.
     pub identifiers: Vec<String>,
+    /// The children of this execution step.
     pub children: Vec<Profile>,
-    pub db_hits: i64,
-    pub rows: i64,
-
-    /// If `false`, the following stats were not reported by the server and are set to some default
-    /// value instead.
-    pub has_page_cache_stats: bool,
-    pub page_cache_hit_ratio: f64,
-    pub page_cache_hits: i64,
-    pub page_cache_misses: i64,
-    pub time: i64,
+    /// The number of database hits (potential disk accesses) caused by executing the associated execution step.
+    pub db_hits: Option<i64>,
+    /// The number of rows processed by the associated execution step if it was recorded.
+    pub rows: Option<i64>,
+    /// The ratio of page cache hits to total number of lookups if page cache stats were recorded.
+    pub page_cache_hit_ratio: Option<f64>,
+    /// The number of page cache hits caused by executing the associated execution step
+    /// if it was recorded.
+    pub page_cache_hits: Option<i64>,
+    /// The number of page cache misses caused by executing the associated execution step
+    /// if it was recorded.
+    pub page_cache_misses: Option<i64>,
+    /// The amount of time spent in the associated execution step if it was recorded.
+    pub time: Option<i64>,
 }
 
 impl Profile {
@@ -896,38 +920,31 @@ impl Profile {
                     .collect()
             })
             .unwrap_or_else(|| Ok(Default::default()))?;
+
         let db_hits = meta
             .remove("dbHits")
             .map(|v| try_into_int(v, "dbHits in profile"))
-            .unwrap_or_else(|| Ok(Default::default()))?;
+            .transpose()?;
         let page_cache_hit_ratio = meta
             .remove("pageCacheHitRatio")
-            .map(|v| try_into_float(v, "pageCacheHitRatio in profile").map(Some))
-            .unwrap_or(Ok(None))?;
+            .map(|v| try_into_float(v, "pageCacheHitRatio in profile"))
+            .transpose()?;
         let page_cache_hits = meta
             .remove("pageCacheHits")
-            .map(|v| try_into_int(v, "pageCacheHits in profile").map(Some))
-            .unwrap_or(Ok(None))?;
+            .map(|v| try_into_int(v, "pageCacheHits in profile"))
+            .transpose()?;
         let page_cache_misses = meta
             .remove("pageCacheMisses")
-            .map(|v| try_into_int(v, "pageCacheMisses in profile").map(Some))
-            .unwrap_or(Ok(None))?;
-        let time = meta
-            .remove("time")
-            .map(|v| try_into_int(v, "time in profile").map(Some))
-            .unwrap_or(Ok(None))?;
-        let has_page_cache_stats = page_cache_hit_ratio.is_some()
-            || page_cache_hits.is_some()
-            || page_cache_misses.is_some()
-            || time.is_some();
-        let page_cache_hit_ratio = page_cache_hit_ratio.unwrap_or_default();
-        let page_cache_hits = page_cache_hits.unwrap_or_default();
-        let page_cache_misses = page_cache_misses.unwrap_or_default();
-        let time = time.unwrap_or_default();
+            .map(|v| try_into_int(v, "pageCacheMisses in profile"))
+            .transpose()?;
         let rows = meta
             .remove("rows")
             .map(|v| try_into_int(v, "rows in profile"))
-            .unwrap_or_else(|| Ok(Default::default()))?;
+            .transpose()?;
+        let time = meta
+            .remove("time")
+            .map(|v| try_into_int(v, "time in profile"))
+            .transpose()?;
         Ok(Self {
             args,
             op_type,
@@ -935,7 +952,6 @@ impl Profile {
             children,
             db_hits,
             rows,
-            has_page_cache_stats,
             page_cache_hit_ratio,
             page_cache_hits,
             page_cache_misses,

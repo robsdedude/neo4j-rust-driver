@@ -953,15 +953,14 @@ impl core::panic::unwind_safe::UnwindSafe for neo4j::summary::Position
 #[non_exhaustive] pub struct neo4j::summary::Profile
 pub neo4j::summary::Profile::args: std::collections::hash::map::HashMap<alloc::string::String, neo4j::ValueReceive>
 pub neo4j::summary::Profile::children: alloc::vec::Vec<neo4j::summary::Profile>
-pub neo4j::summary::Profile::db_hits: i64
-pub neo4j::summary::Profile::has_page_cache_stats: bool
+pub neo4j::summary::Profile::db_hits: core::option::Option<i64>
 pub neo4j::summary::Profile::identifiers: alloc::vec::Vec<alloc::string::String>
 pub neo4j::summary::Profile::op_type: alloc::string::String
-pub neo4j::summary::Profile::page_cache_hit_ratio: f64
-pub neo4j::summary::Profile::page_cache_hits: i64
-pub neo4j::summary::Profile::page_cache_misses: i64
-pub neo4j::summary::Profile::rows: i64
-pub neo4j::summary::Profile::time: i64
+pub neo4j::summary::Profile::page_cache_hit_ratio: core::option::Option<f64>
+pub neo4j::summary::Profile::page_cache_hits: core::option::Option<i64>
+pub neo4j::summary::Profile::page_cache_misses: core::option::Option<i64>
+pub neo4j::summary::Profile::rows: core::option::Option<i64>
+pub neo4j::summary::Profile::time: core::option::Option<i64>
 impl core::clone::Clone for neo4j::summary::Profile
 pub fn neo4j::summary::Profile::clone(&self) -> neo4j::summary::Profile
 impl core::fmt::Debug for neo4j::summary::Profile

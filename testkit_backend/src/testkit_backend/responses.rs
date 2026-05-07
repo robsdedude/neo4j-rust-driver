@@ -634,8 +634,10 @@ pub(super) struct Profile {
     operator_type: String,
     identifiers: Vec<String>,
     children: Vec<Profile>,
-    db_hits: i64,
-    rows: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    db_hits: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rows: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     page_cache_hit_ratio: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -672,22 +674,10 @@ impl TryFrom<neo4j::summary::Profile> for Profile {
                 .collect::<Result<_, _>>()?,
             db_hits: profile.db_hits,
             rows: profile.rows,
-            page_cache_hit_ratio: match profile.has_page_cache_stats {
-                true => Some(profile.page_cache_hit_ratio),
-                false => None,
-            },
-            page_cache_hits: match profile.has_page_cache_stats {
-                true => Some(profile.page_cache_hits),
-                false => None,
-            },
-            page_cache_misses: match profile.has_page_cache_stats {
-                true => Some(profile.page_cache_misses),
-                false => None,
-            },
-            time: match profile.has_page_cache_stats {
-                true => Some(profile.time),
-                false => None,
-            },
+            page_cache_hit_ratio: profile.page_cache_hit_ratio,
+            page_cache_hits: profile.page_cache_hits,
+            page_cache_misses: profile.page_cache_misses,
+            time: profile.time,
         })
     }
 }
