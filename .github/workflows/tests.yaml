@@ -6,6 +6,10 @@ on:
   pull_request:
     branches:
       - master
+  workflow_dispatch:
+    inputs:
+      testKitRef:
+        description: 'Git ref to use for TestKit (defaults `rust` branch)'
 jobs:
   lints:
     name: Linting
@@ -174,7 +178,7 @@ jobs:
         with:
           repository: robsdedude/testkit
           path: testkit
-          ref: ${{ steps.testkit_vars.outputs.testkit_version_ref }}
+          ref: ${{ inputs.testKitRef || steps.testkit_vars.outputs.testkit_version_ref }}
 
       - name: Run TestKit
         env:
