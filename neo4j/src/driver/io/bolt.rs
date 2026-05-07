@@ -34,6 +34,7 @@ mod packstream;
 mod response;
 mod socket;
 
+use std::backtrace::Backtrace;
 use std::borrow::Borrow;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Formatter};
@@ -168,6 +169,23 @@ macro_rules! bolt_debug {
     }};
 }
 pub(crate) use bolt_debug;
+
+macro_rules! bolt_trace {
+    ($bolt:expr, $($args:tt)+) => {{
+        #![allow(unused_imports)]
+        use log::trace;
+
+        use crate::driver::io::bolt::bolt_debug_extra;
+
+        trace!(
+            "{}{}",
+            bolt_debug_extra!($bolt.meta.try_borrow(), $bolt.local_port),
+            format!($($args)*)
+        );
+    }};
+}
+#[allow(unused_imports, reason = "exported like the other macros")]
+pub(crate) use bolt_trace;
 
 macro_rules! socket_debug {
     ($local_port:expr, $($args:tt)+) => {{
@@ -422,6 +440,7 @@ impl<RW: Read + Write> Bolt<RW> {
     fn wrap_read_result<T>(&mut self, res: Result<T>) -> Result<T> {
         if let Err(err) = &res {
             bolt_debug!(self.data, "read failed: {err:?}");
+            bolt_trace!(self.data, "{}", Backtrace::capture());
             self.data.connection_state = ConnectionState::Broken;
             self.data
                 .socket
@@ -677,6 +696,7 @@ impl<RW: Read + Write> BoltData<RW> {
 
     fn handle_write_error(&mut self, err: &Neo4jError) {
         bolt_debug!(self, "write failed: {}", err);
+        bolt_trace!(self, "{}", Backtrace::capture());
         self.connection_state = ConnectionState::Broken;
         self.socket
             .deref()
