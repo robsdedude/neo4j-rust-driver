@@ -152,6 +152,8 @@ impl core::cmp::PartialEq for neo4j::driver::notification::DisabledCategory
 pub fn neo4j::driver::notification::DisabledCategory::eq(&self, other: &neo4j::driver::notification::DisabledCategory) -> bool
 impl core::fmt::Debug for neo4j::driver::notification::DisabledCategory
 pub fn neo4j::driver::notification::DisabledCategory::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::driver::notification::DisabledCategory
+pub fn neo4j::driver::notification::DisabledCategory::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 impl core::marker::Copy for neo4j::driver::notification::DisabledCategory
 impl core::marker::StructuralPartialEq for neo4j::driver::notification::DisabledCategory
 impl core::marker::Freeze for neo4j::driver::notification::DisabledCategory
@@ -171,6 +173,8 @@ impl core::cmp::PartialEq for neo4j::driver::notification::MinimumSeverity
 pub fn neo4j::driver::notification::MinimumSeverity::eq(&self, other: &neo4j::driver::notification::MinimumSeverity) -> bool
 impl core::fmt::Debug for neo4j::driver::notification::MinimumSeverity
 pub fn neo4j::driver::notification::MinimumSeverity::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::driver::notification::MinimumSeverity
+pub fn neo4j::driver::notification::MinimumSeverity::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 impl core::marker::Copy for neo4j::driver::notification::MinimumSeverity
 impl core::marker::StructuralPartialEq for neo4j::driver::notification::MinimumSeverity
 impl core::marker::Freeze for neo4j::driver::notification::MinimumSeverity
@@ -329,10 +333,13 @@ pub neo4j::driver::RoutingControl::Read
 pub neo4j::driver::RoutingControl::Write
 impl core::clone::Clone for neo4j::driver::RoutingControl
 pub fn neo4j::driver::RoutingControl::clone(&self) -> neo4j::driver::RoutingControl
+impl core::cmp::Eq for neo4j::driver::RoutingControl
 impl core::cmp::PartialEq for neo4j::driver::RoutingControl
 pub fn neo4j::driver::RoutingControl::eq(&self, other: &neo4j::driver::RoutingControl) -> bool
 impl core::fmt::Debug for neo4j::driver::RoutingControl
 pub fn neo4j::driver::RoutingControl::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::driver::RoutingControl
+pub fn neo4j::driver::RoutingControl::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 impl core::marker::Copy for neo4j::driver::RoutingControl
 impl core::marker::StructuralPartialEq for neo4j::driver::RoutingControl
 impl core::marker::Freeze for neo4j::driver::RoutingControl
@@ -569,9 +576,15 @@ pub neo4j::error::GqlErrorClassification::TransientError
 pub neo4j::error::GqlErrorClassification::Unknown
 impl core::clone::Clone for neo4j::error::GqlErrorClassification
 pub fn neo4j::error::GqlErrorClassification::clone(&self) -> neo4j::error::GqlErrorClassification
+impl core::cmp::Eq for neo4j::error::GqlErrorClassification
+impl core::cmp::PartialEq for neo4j::error::GqlErrorClassification
+pub fn neo4j::error::GqlErrorClassification::eq(&self, other: &neo4j::error::GqlErrorClassification) -> bool
 impl core::fmt::Debug for neo4j::error::GqlErrorClassification
 pub fn neo4j::error::GqlErrorClassification::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::error::GqlErrorClassification
+pub fn neo4j::error::GqlErrorClassification::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 impl core::marker::Copy for neo4j::error::GqlErrorClassification
+impl core::marker::StructuralPartialEq for neo4j::error::GqlErrorClassification
 impl core::marker::Freeze for neo4j::error::GqlErrorClassification
 impl core::marker::Send for neo4j::error::GqlErrorClassification
 impl core::marker::Sync for neo4j::error::GqlErrorClassification
@@ -813,6 +826,8 @@ impl core::cmp::PartialEq for neo4j::summary::Category
 pub fn neo4j::summary::Category::eq(&self, other: &neo4j::summary::Category) -> bool
 impl core::fmt::Debug for neo4j::summary::Category
 pub fn neo4j::summary::Category::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::summary::Category
+pub fn neo4j::summary::Category::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 impl core::marker::Copy for neo4j::summary::Category
 impl core::marker::StructuralPartialEq for neo4j::summary::Category
 impl core::marker::Freeze for neo4j::summary::Category
@@ -832,6 +847,8 @@ impl core::cmp::PartialEq for neo4j::summary::Severity
 pub fn neo4j::summary::Severity::eq(&self, other: &neo4j::summary::Severity) -> bool
 impl core::fmt::Debug for neo4j::summary::Severity
 pub fn neo4j::summary::Severity::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::summary::Severity
+pub fn neo4j::summary::Severity::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 impl core::marker::Copy for neo4j::summary::Severity
 impl core::marker::StructuralPartialEq for neo4j::summary::Severity
 impl core::marker::Freeze for neo4j::summary::Severity
@@ -847,10 +864,16 @@ pub neo4j::summary::SummaryQueryType::Schema
 pub neo4j::summary::SummaryQueryType::Write
 impl core::clone::Clone for neo4j::summary::SummaryQueryType
 pub fn neo4j::summary::SummaryQueryType::clone(&self) -> neo4j::summary::SummaryQueryType
+impl core::cmp::Eq for neo4j::summary::SummaryQueryType
+impl core::cmp::PartialEq for neo4j::summary::SummaryQueryType
+pub fn neo4j::summary::SummaryQueryType::eq(&self, other: &neo4j::summary::SummaryQueryType) -> bool
 impl core::default::Default for neo4j::summary::SummaryQueryType
 pub fn neo4j::summary::SummaryQueryType::default() -> neo4j::summary::SummaryQueryType
 impl core::fmt::Debug for neo4j::summary::SummaryQueryType
 pub fn neo4j::summary::SummaryQueryType::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for neo4j::summary::SummaryQueryType
+pub fn neo4j::summary::SummaryQueryType::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+impl core::marker::StructuralPartialEq for neo4j::summary::SummaryQueryType
 impl core::marker::Freeze for neo4j::summary::SummaryQueryType
 impl core::marker::Send for neo4j::summary::SummaryQueryType
 impl core::marker::Sync for neo4j::summary::SummaryQueryType

@@ -9,6 +9,7 @@
 
 **👏️ Improvements**
  - Reduce network latency in some cases by setting `TCP_NODELAY`.
+ - Implement more convenience traits (like `Hash`, `Eq`, `PartialEq`) on simple, public types.
  - ⚠️ Reduce the size of `Neo4jError`. The `ServerError` variant is now wrapped in a Box.
  - Update dependencies.  
   - ⚠️ Switching from [`rustls-native-certs`](https://crates.io/crates/rustls-native-certs) to [`rustls-platform-verifier`](https://crates.io/crates/rustls-platform-verifier) for loading system certificates.  

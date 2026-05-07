@@ -1053,7 +1053,7 @@ pub(crate) struct ReducedDriverConfig {
     pub(crate) idle_time_before_connection_test: Option<Duration>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum RoutingControl {
     Read,
     Write,

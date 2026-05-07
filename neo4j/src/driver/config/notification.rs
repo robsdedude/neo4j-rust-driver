@@ -124,7 +124,7 @@ impl NotificationFilter {
 }
 
 /// See [`NotificationFilter`].
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[non_exhaustive]
 pub enum MinimumSeverity {
     /// Disable all notifications
@@ -144,7 +144,7 @@ impl MinimumSeverity {
 }
 
 /// See [`NotificationFilter`].
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[non_exhaustive]
 pub enum DisabledCategory {
     Hint,
