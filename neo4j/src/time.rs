@@ -99,9 +99,9 @@ impl Instant {
 #[cfg(feature = "_internal_testkit_backend")]
 mod mockable_time {
     use super::*;
-    use std::sync::OnceLock;
-
+    use log::debug;
     use parking_lot::RwLock;
+    use std::sync::OnceLock;
 
     static MOCKED_TIME: OnceLock<RwLock<Option<StdInstant>>> = OnceLock::new();
 
@@ -123,13 +123,19 @@ mod mockable_time {
 
     pub fn freeze_time() -> StdInstant {
         let mut mocked_time = mocked_time().write();
-        mocked_time.replace(StdInstant::now());
+        let now = StdInstant::now();
+        debug!("freezing time at {now:?}");
+        mocked_time.replace(now);
         mocked_time.unwrap()
     }
 
     pub fn tick(duration: Duration) -> Result<StdInstant, String> {
         let mut mocked_time = mocked_time().write();
-        *mocked_time = mocked_time.map(|mocked_time| mocked_time + duration);
+        *mocked_time = mocked_time.map(|mocked_time| {
+            let now = mocked_time + duration;
+            debug!("ticking time by {duration:?} to {now:?}");
+            now
+        });
         mocked_time
             .as_ref()
             .copied()
@@ -138,6 +144,7 @@ mod mockable_time {
 
     pub fn unfreeze_time() -> Result<(), String> {
         let mut mocked_time = mocked_time().write();
+        debug!("unfreezing time");
         mocked_time
             .take()
             .map(drop)

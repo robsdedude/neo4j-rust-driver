@@ -165,23 +165,23 @@ jobs:
         with:
           path: driver
 
-      # - name: Read required TestKit version from driver repo
-      #   id: testkit_vars
-      #   run: echo ::set-output name=testkit_version_ref::$(cat driver/.testkit_version | xargs)
+      - name: Read required TestKit version from driver repo
+        id: testkit_vars
+        run: echo ::set-output name=testkit_version_ref::$(cat driver/.testkit_version | xargs)
 
       - name: Checkout TestKit
         uses: actions/checkout@v4
         with:
           repository: robsdedude/testkit
           path: testkit
-          ref: rust
-          # ref: ${{ steps.testkit_vars.outputs.testkit_version_ref }}
+          ref: ${{ steps.testkit_vars.outputs.testkit_version_ref }}
 
       - name: Run TestKit
         env:
           TEST_DRIVER_NAME: rust
           TEST_DRIVER_REPO: ${{ github.workspace }}/driver
           TEST_RUN_ALL_TESTS: "true"
+          TEST_RUSTY_STUB: "true"
         run: |
           cd testkit
           python3 main.py --tests ${{ matrix.tests }} \

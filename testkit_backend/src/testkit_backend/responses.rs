@@ -63,6 +63,7 @@ const FEATURE_LIST: &[&str] = &[
     "Feature:API:SSLConfig",
     "Feature:API:SSLSchemes",
     "Feature:API:Summary:GqlStatusObjects",
+    // "Feature:API:Summary:Profile:OptionalStats",  // TODO
     "Feature:API:Type.Spatial",
     "Feature:API:Type.Temporal",
     "Feature:API:Type.UnsupportedType",
@@ -89,6 +90,7 @@ const FEATURE_LIST: &[&str] = &[
     "Feature:Bolt:HandshakeManifestV1",
     "Feature:Bolt:Patch:UTC",
     "Feature:Impersonation",
+    // "Feature:IdempotentRetries",  // won't do - doesn't fit the driver's API nicely
     // "Feature:TLS:1.1",  // rustls says no! For a good reason.
     "Feature:TLS:1.2",
     "Feature:TLS:1.3",

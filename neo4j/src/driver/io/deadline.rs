@@ -94,7 +94,7 @@ impl<'tcp, S: Read + Write> DeadlineIO<'tcp, S> {
         let old_timeouts =
             self.wrap_io_error(get_socket_timeout(socket), DeadlineErrorDuring::GetTimeout)?;
         let timeout = deadline
-            .checked_duration_since(Instant::now())
+            .checked_duration_since(Instant::unmockable_now())
             .unwrap_or_else(|| {
                 // deadline in the past
                 // => we set a tiny timeout to trigger a timeout error on pretty much any blocking
