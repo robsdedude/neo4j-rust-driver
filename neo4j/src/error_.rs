@@ -435,7 +435,7 @@ impl Display for ServerError {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[non_exhaustive]
 /// See [`ServerError::gql_classification`].
 pub enum GqlErrorClassification {

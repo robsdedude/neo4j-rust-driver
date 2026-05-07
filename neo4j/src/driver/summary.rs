@@ -252,7 +252,7 @@ impl Counters {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Eq, PartialEq, Hash)]
 #[non_exhaustive]
 pub enum SummaryQueryType {
     #[default]
@@ -717,7 +717,7 @@ impl Position {
 }
 
 /// See [`Notification::severity`].
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[non_exhaustive]
 pub enum Severity {
     Warning,
@@ -736,7 +736,7 @@ impl Severity {
 }
 
 /// See [`Notification::category`].
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[non_exhaustive]
 pub enum Category {
     Hint,
