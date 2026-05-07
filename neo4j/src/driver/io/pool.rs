@@ -218,6 +218,10 @@ impl Pool {
         if args.db.is_some() {
             panic!("don't call resolve_home_db with a database")
         }
+        let args = InternalUpdateRtArgs {
+            update_rt_args: args,
+            mode_hint: None,
+        };
         let mut resolved_db = None;
         {
             let resolved_db = &mut resolved_db;
@@ -502,6 +506,10 @@ impl RoutingPool {
         args: AcquireConfig,
     ) -> Result<(RwLockReadGuard<'_, RoutingTables>, Option<Arc<String>>)> {
         let rt_args = args.update_rt_args;
+        let int_rt_args = InternalUpdateRtArgs {
+            update_rt_args: rt_args,
+            mode_hint: Some(args.mode),
+        };
         let db_key = rt_args.rt_key();
         let db_name = RefCell::new(rt_args.db_request());
         let db_name_ref = &db_name;
@@ -520,7 +528,7 @@ impl RoutingPool {
                 let key = rt_args.rt_key();
                 let rt = rts.entry(key).or_insert_with(|| self.empty_rt());
                 if !rt.is_fresh(args.mode) {
-                    let mut new_db = self.update_rts(rt_args, &mut rts)?;
+                    let mut new_db = self.update_rts(int_rt_args, &mut rts)?;
                     if new_db.is_some() && db_name_ref.borrow().is_none() {
                         mem::swap(&mut *db_name_ref.borrow_mut(), &mut new_db);
                     }
@@ -551,11 +559,14 @@ impl RoutingPool {
 
     fn update_rts(
         &self,
-        args: UpdateRtArgs,
+        args: InternalUpdateRtArgs,
         rts: &mut RoutingTables,
     ) -> Result<Option<Arc<String>>> {
-        debug!("Fetching new routing table for {:?}", args.db);
-        let rt_key = args.rt_key();
+        debug!(
+            "Fetching new routing table for {:?}",
+            args.update_rt_args.db
+        );
+        let rt_key = args.update_rt_args.rt_key();
         let rt = rts.entry(rt_key).or_insert_with(|| self.empty_rt());
         let pref_init_router = rt.initialized_without_writers;
         let routers = rt
@@ -582,7 +593,7 @@ impl RoutingPool {
                 )))
             }
             Ok(mut new_rt) => {
-                let db = match args.db {
+                let db = match args.update_rt_args.db {
                     Some(args_db) if !args_db.guess => {
                         let db = Some(Arc::clone(&args_db.db));
                         new_rt.database.clone_from(&db);
@@ -593,7 +604,7 @@ impl RoutingPool {
                 debug!("Storing new routing table for {db:?}: {new_rt:?}");
                 rts.insert(db.as_ref().map(Arc::clone), new_rt);
                 self.clean_up_pools(rts);
-                if let Some(cb) = args.db_resolution_cb {
+                if let Some(cb) = args.update_rt_args.db_resolution_cb {
                     cb(db.as_ref().map(Arc::clone));
                 }
                 Ok(db)
@@ -604,11 +615,37 @@ impl RoutingPool {
     fn fetch_rt_from_routers(
         &self,
         routers: &[Arc<Address>],
-        args: UpdateRtArgs,
+        args: InternalUpdateRtArgs,
         rts: &mut RoutingTables,
     ) -> Result<Result<RoutingTable>> {
         let mut last_err = None;
         let mut rt_without_writers = None;
+        let InternalUpdateRtArgs {
+            update_rt_args: args,
+            mode_hint,
+        } = args;
+        // Encountering a RT without a writer might either mean
+        //   1. A network partition has occurred, and we're talking to a server that is part of a
+        //      minority partition without a leader, or
+        //   2. The database does not have a writer at the moment, for example in read-onl mode.
+        // There are multiple ways of handling this:
+        //   1. Return the RT regardless.
+        //      Pro: easy to implement and fast execution
+        //      Con: a) can get the driver stuck in a retry loop if a writer is needed but the
+        //           driver never manages to discover the partition with the writer/leader.
+        //           b) can lead to outdated reads if the driver keeps talking to a minority
+        //              partition which is not able to catch up with the latest transactions.
+        //   2. Keep going until we find a RT with a writer, and only return a RT without writers
+        //      if we didn't find any RT with writers for any of the routers.
+        //      Pro: always returns the most complete routing information available.
+        //           How
+        //      Con: wastes a lot of time if case of a big cluster and a database that does in fact
+        //           not have a writer.
+        //   3. Go for 2. if the user requested a write connection, else go for 1.
+        //      This strikes a balance between the two and is what's implemented below.
+        //      It optimizes for the common case of a healthy cluster, while still providing decent
+        //      behavior in the pathological case of a cluster partitioning.
+        let read_suffices = mode_hint.is_some_and(|mode| mode == RoutingControl::Read);
         for router in routers {
             for resolution in Arc::clone(router).fully_resolve(self.config.resolver.as_deref())? {
                 let Ok(resolved) = resolution else {
@@ -619,7 +656,9 @@ impl RoutingPool {
                     self.acquire_routing_address(&resolved, args)
                         .and_then(|mut con| self.fetch_rt_from_router(&mut con, args)),
                 )? {
-                    Ok(rt) if !rt.writers.is_empty() => return Ok(Ok(rt)),
+                    Ok(rt) if !rt.writers.is_empty() || read_suffices => {
+                        return Ok(Ok(rt));
+                    }
                     Ok(rt) if rt_without_writers.is_none() => rt_without_writers = Some(rt),
                     Ok(_) => {}
                     Err(err) => {
@@ -883,6 +922,12 @@ pub(crate) struct UpdateRtArgs<'a> {
     pub(crate) deadline: Option<Instant>,
     pub(crate) idle_time_before_connection_test: Option<Duration>,
     pub(crate) db_resolution_cb: Option<&'a dyn Fn(Option<Arc<String>>)>,
+}
+
+#[derive(Debug, Copy, Clone)]
+struct InternalUpdateRtArgs<'a> {
+    update_rt_args: UpdateRtArgs<'a>,
+    mode_hint: Option<RoutingControl>,
 }
 
 impl Debug for UpdateRtArgs<'_> {
