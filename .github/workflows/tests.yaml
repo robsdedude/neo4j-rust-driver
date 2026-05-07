@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       testKitRef:
-        description: 'Git ref to use for TestKit (defaults `rust` branch)'
+        description: 'Git ref to use for TestKit (defaults the contents of `.testkit_version`)'
 jobs:
   lints:
     name: Linting
